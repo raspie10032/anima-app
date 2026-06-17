@@ -67,7 +67,8 @@ Supported environment variables:
 - `ANIMA_APP_MODEL_SOURCE`: optional local mirror for base model files.
 - `ANIMA_APP_FACE_DETECTOR_SOURCE`: optional detector source folder.
 - `ANIMA_APP_FACE_DETECTOR_FALLBACKS`: optional detector fallback folders separated by the platform path separator.
-- `CUDA_VISIBLE_DEVICES`: optional GPU selection for local generation.
+- `ANIMA_APP_CUDA_VISIBLE_DEVICES`: optional app-specific CUDA device selection. The Windows GUI launcher defaults it to `0` before Python starts.
+- `CUDA_VISIBLE_DEVICES`: standard CUDA device selection respected by direct CLI runs when `ANIMA_APP_CUDA_VISIBLE_DEVICES` is not set.
 
 ## Quality Defaults
 

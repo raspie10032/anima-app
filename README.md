@@ -72,11 +72,13 @@ On Windows, double-click:
 Or launch from a terminal:
 
 ```powershell
+$env:ANIMA_APP_CUDA_VISIBLE_DEVICES='0'
 $env:PYTHONPATH='src'
 python -m anima_app.cli serve --host 127.0.0.1 --port 0 --open
 ```
 
 The server chooses a free local port and opens the browser UI.
+The Windows launcher sets `CUDA_VISIBLE_DEVICES` from `ANIMA_APP_CUDA_VISIBLE_DEVICES`, defaulting to CUDA device `0`, before Python starts.
 
 ## Defaults
 
@@ -103,4 +105,4 @@ Supported modes are `random`, `sequential`, and `reverse`. When no wildcard toke
 - The app does not read model files from an external ComfyUI folder during generation.
 - The app does not launch or depend on a live ComfyUI server.
 - Local model weights, detector weights, LoRA files, input images, and generated outputs are ignored by git and are not part of the public release.
-- Set `CUDA_VISIBLE_DEVICES` yourself when you need to pin generation to a specific GPU.
+- Set `ANIMA_APP_CUDA_VISIBLE_DEVICES` when you need to choose a CUDA device for Anima APP. Direct CLI runs also respect an existing `CUDA_VISIBLE_DEVICES` value when the app-specific variable is not set.
