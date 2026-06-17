@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anima-app"
+version = "0.1.0"
+description = "Lightweight standalone Anima image generation app"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+dependencies = [
+  "torch",
+  "torchvision",
+  "torchsde",
+  "numpy>=1.25.0",
+  "Pillow",
+  "einops",
+  "transformers>=4.50.3",
+  "tokenizers>=0.13.3",
+  "sentencepiece",
+  "safetensors>=0.4.2",
+  "scipy",
+  "tqdm",
+  "psutil",
+  "PyYAML",
+  "simpleeval>=1.0.0",
+  "blake3",
+  "huggingface_hub>=0.23.0",
+]
+
+[project.optional-dependencies]
+face-detailer = [
+  "ultralytics>=8.4.0",
+]
+
+[project.scripts]
+anima-app = "anima_app.cli:console_main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
