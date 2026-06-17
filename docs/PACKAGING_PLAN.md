@@ -1,43 +1,24 @@
 # Anima APP Packaging Plan
 
-Current packaging target: source-checkout alpha with a proven wheel dry run.
+Current public release target: source-checkout alpha.
 
-The app is not yet a finalized standalone binary. This plan separates the pieces that can be proven now from the pieces that still need a dedicated packaging pass.
+## Source-Checkout Layout
 
-## Wheel Dry-Run Proof
+Included in the source release:
 
-Run:
-
-```powershell
-python scripts\package_dry_run.py
-```
-
-The dry-run script:
-
-- Builds a wheel into `outputs\package_dry_run` with `python -m pip wheel . --no-deps --no-build-isolation`.
-- Inspects the wheel for the `anima_app` package, package metadata, and `anima-app` console entry point.
-- Confirms local artifact roots such as `models`, `outputs`, and `inputs` are not inside the wheel.
-- Writes `outputs\package_dry_run\package_dry_run_report.json`.
-
-The wheel proves Python packaging metadata and console-script wiring. It does not include the vendored runtime tree or local model assets.
-
-## Standalone Layout Dry Run
-
-`scripts\package_dry_run.py` also emits a standalone layout plan. The layout includes:
-
-- `src`
-- `scripts`
-- `docs`
-- `vendor\anima_runtime`
-- `vendor\python_packages`
+- `pyproject.toml`
 - `README.md`
+- `LICENSE`
 - `NOTICE.md`
 - `Run-AnimaAPP-GUI.cmd`
-- `Run-AnimaAPP-GUI-DryRun.cmd`
-- `Run-AnimaAPP-ReleaseSmoke.cmd`
-- `wildcards` when present
+- `scripts`
+- `src`
+- `vendor/anima_runtime`
+- `vendor/python_packages`
+- `docs`
+- `wildcards`
 
-The layout excludes:
+Excluded from the source release:
 
 - `models`
 - `outputs`
@@ -46,11 +27,18 @@ The layout excludes:
 - `.pytest_cache`
 - `__pycache__`
 
-This is a dry-run contract, not a binary bundle. A later standalone pass should choose a real bundling tool or portable source archive format and then add a build command that materializes the layout.
+## Maintainer Packaging Check
 
-## Open Packaging Work
+The maintainer packaging proof lives at:
 
-- Decide whether the public artifact is a wheel, a portable source archive, a PyInstaller-style binary, or both wheel plus portable archive.
-- Decide how to handle the vendored runtime in a redistributable artifact.
-- Keep model, detector, LoRA, input, and output artifacts outside redistributable packages unless license and size constraints are explicitly handled.
-- Preserve `CUDA_VISIBLE_DEVICES=0` launcher behavior for local Windows runs.
+```powershell
+python scripts\package_dry_run.py
+```
+
+It builds and inspects a temporary wheel under `outputs\package_dry_run`, verifies package metadata and console entry points, confirms local artifact roots are excluded, and records a source-checkout layout report.
+
+## Not Finalized
+
+- Standalone binary packaging.
+- Final wheel redistribution policy for vendored runtime assets.
+- Automated public release artifact creation beyond GitHub source archives.

@@ -861,7 +861,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
             <form id="lora-import-form" class="form-section">
               <h2>Import LoRA</h2>
               <label for="lora-path">Import LoRA File</label>
-              <input id="lora-path" name="path" placeholder="D:\\Models\\style.safetensors">
+              <input id="lora-path" name="path" placeholder="path\\to\\style.safetensors">
               <button type="submit" class="secondary-button">Copy LoRA into App</button>
             </form>
           </div>

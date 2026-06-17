@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from anima_app.comfy_runtime import NativeAttentionImportBlocker, _model_folder_paths, comfy_runtime_root, project_root, vendor_root
@@ -8,7 +6,7 @@ from anima_app.comfy_runtime import NativeAttentionImportBlocker, _model_folder_
 def test_runtime_paths_point_at_project_vendor_tree():
     root = project_root()
 
-    assert root == Path(r"C:\Users\seine\Documents\Anima APP")
+    assert (root / "pyproject.toml").is_file()
     assert vendor_root() == root / "vendor"
     assert comfy_runtime_root() == root / "vendor" / "anima_runtime"
 
@@ -21,7 +19,7 @@ def test_model_folder_paths_are_project_local(tmp_path):
     assert folders["text_encoders"] == tmp_path / "models" / "text_encoders"
     assert folders["vae"] == tmp_path / "models" / "vae"
     assert folders["loras"] == tmp_path / "models" / "loras"
-    assert not str(folders["diffusion_models"]).startswith(r"E:\ComfyUI_sage")
+    assert folders["diffusion_models"].is_relative_to(tmp_path / "models")
 
 
 def test_native_attention_import_blocker_blocks_unstable_roots():

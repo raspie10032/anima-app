@@ -29,8 +29,6 @@ anima-app = "anima_app.cli:console_main"
         "README.md": "# Anima APP\n",
         "NOTICE.md": "# Notice\n",
         "Run-AnimaAPP-GUI.cmd": "python -m anima_app.cli serve\n",
-        "Run-AnimaAPP-GUI-DryRun.cmd": "python -m anima_app.cli serve --dry-run-default\n",
-        "Run-AnimaAPP-ReleaseSmoke.cmd": "python scripts\\release_smoke.py\n",
         "docs/ACCEPTANCE.md": "# Acceptance\n",
         "docs/REFERENCES.md": "# References\n",
         "docs/RELEASE_CHECKLIST.md": "# Release Checklist\n",
@@ -72,6 +70,9 @@ def test_standalone_layout_plan_includes_runtime_and_excludes_local_artifacts(tm
     assert "vendor/anima_runtime" in plan["include_roots"]
     assert "vendor/python_packages" in plan["include_roots"]
     assert "wildcards" in plan["include_roots"]
+    assert "Run-AnimaAPP-GUI.cmd" in plan["include_roots"]
+    assert "Run-AnimaAPP-GUI-DryRun.cmd" not in plan["include_roots"]
+    assert "Run-AnimaAPP-ReleaseSmoke.cmd" not in plan["include_roots"]
     assert "models" in plan["excluded_roots"]
     assert "outputs" in plan["excluded_roots"]
     assert "inputs" in plan["excluded_roots"]

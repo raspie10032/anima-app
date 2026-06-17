@@ -10,8 +10,6 @@ def make_release_tree(root: Path) -> None:
         "pyproject.toml": "[project]\nname = \"anima-app\"\n",
         "README.md": "# Anima APP\n",
         "Run-AnimaAPP-GUI.cmd": "python -m anima_app.cli serve\n",
-        "Run-AnimaAPP-GUI-DryRun.cmd": "python -m anima_app.cli serve --dry-run-default\n",
-        "Run-AnimaAPP-ReleaseSmoke.cmd": "python scripts\\release_smoke.py\n",
         ".gitignore": "/models/\n/outputs/\n/inputs/\n",
         "docs/ACCEPTANCE.md": "# Acceptance\n",
         "docs/PACKAGING_PLAN.md": "# Packaging Plan\n",
@@ -43,8 +41,6 @@ def test_collect_static_checks_accepts_source_checkout_tree(tmp_path):
     assert by_key["pyproject"]["ok"] is True
     assert by_key["readme"]["ok"] is True
     assert by_key["gui_launcher"]["ok"] is True
-    assert by_key["dry_run_gui_launcher"]["ok"] is True
-    assert by_key["release_smoke_launcher"]["ok"] is True
     assert by_key["package_dry_run_script"]["ok"] is True
     assert by_key["packaging_plan"]["ok"] is True
     assert by_key["release_checklist"]["ok"] is True
@@ -54,14 +50,14 @@ def test_collect_static_checks_accepts_source_checkout_tree(tmp_path):
 
 def test_collect_static_checks_reports_missing_release_files(tmp_path):
     make_release_tree(tmp_path)
-    (tmp_path / "Run-AnimaAPP-ReleaseSmoke.cmd").unlink()
+    (tmp_path / "Run-AnimaAPP-GUI.cmd").unlink()
 
     checks = collect_static_checks(tmp_path)
     by_key = checks_by_key(checks)
 
     assert release_checks_pass(checks) is False
-    assert by_key["release_smoke_launcher"]["ok"] is False
-    assert "Run-AnimaAPP-ReleaseSmoke.cmd" in by_key["release_smoke_launcher"]["path"]
+    assert by_key["gui_launcher"]["ok"] is False
+    assert "Run-AnimaAPP-GUI.cmd" in by_key["gui_launcher"]["path"]
 
 
 def test_run_release_smoke_runs_cpu_safe_commands_with_pythonpath(tmp_path):
@@ -80,13 +76,13 @@ def test_run_release_smoke_runs_cpu_safe_commands_with_pythonpath(tmp_path):
 
     assert exit_code == 0
     assert payload["status"] == "passed"
+    assert payload["gpu_policy"] == "set CUDA_VISIBLE_DEVICES externally when a specific GPU should be used"
     assert [command["key"] for command in payload["commands"]] == [
         "health",
-        "dry_run_smoke",
+        "manifest_check",
         "pytest",
     ]
     assert calls[0]["cwd"] == str(tmp_path)
-    assert calls[0]["env"]["CUDA_VISIBLE_DEVICES"] == "0"
     assert calls[0]["env"]["PYTHONPATH"].split(os.pathsep)[0] == str(tmp_path / "src")
     assert calls[0]["argv"][1:] == ["-m", "anima_app.cli", "health", "--json"]
     assert Path(calls[1]["argv"][1]).name == "smoke_anima_app.py"
@@ -105,5 +101,5 @@ def test_run_release_smoke_fails_when_a_command_fails(tmp_path):
 
     assert exit_code == 1
     assert payload["status"] == "failed"
-    assert payload["commands"][1]["key"] == "dry_run_smoke"
+    assert payload["commands"][1]["key"] == "manifest_check"
     assert payload["commands"][1]["ok"] is False

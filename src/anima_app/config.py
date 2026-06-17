@@ -1,24 +1,56 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import os
 from pathlib import Path
 
 
-DEFAULT_PROJECT_ROOT = Path(r"C:\Users\seine\Documents\Anima APP")
-DEFAULT_DEVELOPMENT_MODEL_SOURCE = Path(r"E:\ComfyUI_sage\ComfyUI\models")
-DEFAULT_FACE_DETAILER_DETECTOR_SOURCE = Path(r"C:\Users\seine\Desktop\NAI-FaceDetailer\models\detectors")
-DEFAULT_FACE_DETAILER_DETECTOR_FALLBACK_SOURCES = (
-    Path(r"C:\Users\seine\Documents\AnimaStudio\models\detectors"),
-    Path(r"C:\Users\seine\Documents\Anima-Gemma4-Fusion-Multimodal\models\detectors"),
-)
+ENV_PROJECT_ROOT = "ANIMA_APP_ROOT"
+ENV_MODEL_SOURCE = "ANIMA_APP_MODEL_SOURCE"
+ENV_FACE_DETECTOR_SOURCE = "ANIMA_APP_FACE_DETECTOR_SOURCE"
+ENV_FACE_DETECTOR_FALLBACKS = "ANIMA_APP_FACE_DETECTOR_FALLBACKS"
+
+
+def _env_path(name: str) -> Path | None:
+    raw = os.environ.get(name)
+    if not raw:
+        return None
+    return Path(raw).expanduser()
+
+
+def _env_paths(name: str) -> tuple[Path, ...]:
+    raw = os.environ.get(name)
+    if not raw:
+        return ()
+    return tuple(Path(chunk).expanduser() for chunk in raw.split(os.pathsep) if chunk)
+
+
+def _default_project_root() -> Path:
+    return _env_path(ENV_PROJECT_ROOT) or Path.cwd()
+
+
+def _default_development_model_source() -> Path:
+    root = _default_project_root()
+    return _env_path(ENV_MODEL_SOURCE) or root / "external_models"
+
+
+def _default_face_detailer_detector_source() -> Path:
+    root = _default_project_root()
+    return _env_path(ENV_FACE_DETECTOR_SOURCE) or root / "external_detectors"
+
+
+def _default_face_detailer_detector_fallback_sources() -> tuple[Path, ...]:
+    return _env_paths(ENV_FACE_DETECTOR_FALLBACKS)
 
 
 @dataclass(frozen=True)
 class AppPaths:
-    project_root: Path = DEFAULT_PROJECT_ROOT
-    development_model_source: Path = DEFAULT_DEVELOPMENT_MODEL_SOURCE
-    face_detailer_detector_source: Path = DEFAULT_FACE_DETAILER_DETECTOR_SOURCE
-    face_detailer_detector_fallback_sources: tuple[Path, ...] = DEFAULT_FACE_DETAILER_DETECTOR_FALLBACK_SOURCES
+    project_root: Path = field(default_factory=_default_project_root)
+    development_model_source: Path = field(default_factory=_default_development_model_source)
+    face_detailer_detector_source: Path = field(default_factory=_default_face_detailer_detector_source)
+    face_detailer_detector_fallback_sources: tuple[Path, ...] = field(
+        default_factory=_default_face_detailer_detector_fallback_sources
+    )
 
     @property
     def model_root(self) -> Path:

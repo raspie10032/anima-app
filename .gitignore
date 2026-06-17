@@ -8,3 +8,5 @@ dist/
 /models/
 /outputs/
 /inputs/
+/external_models/
+/external_detectors/

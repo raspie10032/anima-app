@@ -1,13 +1,40 @@
 # Notices
 
-Anima APP is a standalone Anima image-generation app.
+Anima APP is a lightweight local Anima image-generation app.
 
-The project reuses selected, attributed runtime code from the verified local `AnimaStudio` app and from ComfyUI-derived runtime pieces. ComfyUI remains a development-time code/model source, not a live server dependency.
+## Runtime Code
 
-The `vendor/anima_runtime` tree contains ComfyUI-derived runtime code copied from the verified local `AnimaStudio` project. Keep source attribution and GPL-3.0-compatible notices with the copied files and in this document.
+The `vendor/anima_runtime` tree contains ComfyUI-derived runtime code. Keep the upstream license and attribution notices with redistributed source or packaged builds.
 
-Optional face-detailer support adapts the detector/mask flow already proven in `AnimaStudio`, including NAI-FaceDetailer-style mask-grid alignment. Keep the upstream detector/runtime license notices with any redistributed build. The detector runtime uses local Ultralytics YOLO/SAM weights when available; Ultralytics license terms apply to that optional runtime path.
+Relevant upstream project:
 
-Local LoRA files imported into `models\loras` are user-provided local model artifacts. They are ignored by git and should not be redistributed without confirming their source license and permission.
+- ComfyUI: https://github.com/comfyanonymous/ComfyUI
 
-The `wildcards` folder may include `.txt` prompt wildcard files copied from the local ComfyUI Impact Pack installation at `E:\ComfyUI_sage\ComfyUI\custom_nodes\comfyui-impact-pack\wildcards`. The observed upstream license file is GNU GPL version 3. Keep Impact Pack attribution and license notice with any redistributed build that includes those wildcard files.
+## Vendored Python Packages
+
+The `vendor/python_packages` tree contains selected runtime packages and their metadata:
+
+- `comfy-kitchen` 0.2.8, Apache-2.0, https://github.com/Comfy-Org/comfy-kitchen
+- `comfy-aimdo` 0.3.0, repository metadata at https://github.com/Comfy-Org/comfy-aimdo
+
+Keep each package's bundled license files and notices with redistributed builds.
+
+## Optional Detector Runtime
+
+Face-detailer support can use local Ultralytics YOLO/SAM detector assets when the optional `face-detailer` extra is installed and the user provides compatible detector files.
+
+Detector weights are user-provided local artifacts. They are not included in this repository and should not be redistributed without checking their source license.
+
+## Model And LoRA Artifacts
+
+Base model assets, alternate checkpoints, LoRA files, input images, and generated output images are local user artifacts. They are ignored by git and are not part of the public source release.
+
+## Wildcards
+
+The `wildcards` folder may include text wildcard files derived from ComfyUI Impact Pack wildcard files.
+
+Relevant upstream project:
+
+- ComfyUI Impact Pack: https://github.com/ltdrdata/ComfyUI-Impact-Pack
+
+Keep Impact Pack attribution and the corresponding license notice with any redistributed build that includes derived wildcard files.

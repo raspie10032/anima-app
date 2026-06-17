@@ -27,7 +27,7 @@ def test_default_model_paths_use_project_local_copied_assets(tmp_path):
     assert model_paths.diffusion_model == paths.model_root / "diffusion_models" / "anima-base-v1.0.safetensors"
     assert model_paths.text_encoder == paths.model_root / "text_encoders" / "qwen_3_06b_base.safetensors"
     assert model_paths.vae == paths.model_root / "vae" / "qwen_image_vae.safetensors"
-    assert not str(model_paths.diffusion_model).startswith(r"E:\ComfyUI_sage")
+    assert model_paths.diffusion_model.is_relative_to(paths.model_root)
 
 
 def test_model_paths_for_request_uses_selected_diffusion_checkpoint(tmp_path):

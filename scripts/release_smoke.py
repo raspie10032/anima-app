@@ -57,16 +57,6 @@ def collect_static_checks(project_root: Path) -> list[dict[str, Any]]:
         _path_check("release_smoke_script", root / "scripts" / "release_smoke.py"),
         _path_check("package_dry_run_script", root / "scripts" / "package_dry_run.py"),
         _content_check("gui_launcher", root / "Run-AnimaAPP-GUI.cmd", ["anima_app.cli serve"]),
-        _content_check(
-            "dry_run_gui_launcher",
-            root / "Run-AnimaAPP-GUI-DryRun.cmd",
-            ["anima_app.cli serve", "--dry-run-default"],
-        ),
-        _content_check(
-            "release_smoke_launcher",
-            root / "Run-AnimaAPP-ReleaseSmoke.cmd",
-            ["scripts\\release_smoke.py"],
-        ),
         _path_check("acceptance_doc", root / "docs" / "ACCEPTANCE.md"),
         _path_check("packaging_plan", root / "docs" / "PACKAGING_PLAN.md"),
         _path_check("release_checklist", root / "docs" / "RELEASE_CHECKLIST.md"),
@@ -85,7 +75,6 @@ def build_release_env(project_root: Path) -> dict[str, str]:
     src_path = str(project_root.resolve() / "src")
     existing_pythonpath = env.get("PYTHONPATH")
     env["PYTHONPATH"] = src_path if not existing_pythonpath else src_path + os.pathsep + existing_pythonpath
-    env["CUDA_VISIBLE_DEVICES"] = "0"
     return env
 
 
@@ -98,7 +87,7 @@ def command_specs(project_root: Path, *, include_tests: bool, timeout: int) -> l
             timeout=timeout,
         ),
         CommandSpec(
-            key="dry_run_smoke",
+            key="manifest_check",
             argv=(
                 sys.executable,
                 str(root / "scripts" / "smoke_anima_app.py"),
@@ -191,7 +180,7 @@ def run_release_smoke(
         "status": "passed" if ok else "failed",
         "project_root": str(root),
         "release_target": "source-checkout alpha",
-        "gpu_policy": "release smoke uses dry-run generation checks; GUI launchers force CUDA_VISIBLE_DEVICES=0",
+        "gpu_policy": "set CUDA_VISIBLE_DEVICES externally when a specific GPU should be used",
         "packaged_release": "wheel and standalone packaging are not finalized",
         "static_checks": static_checks,
         "commands": commands,

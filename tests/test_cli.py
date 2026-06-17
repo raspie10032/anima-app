@@ -9,7 +9,11 @@ from anima_app.runtime.pipeline import T2IRenderOutput
 
 
 def _paths(tmp_path: Path) -> AppPaths:
-    return AppPaths(project_root=tmp_path / "app", development_model_source=tmp_path / "source")
+    return AppPaths(
+        project_root=tmp_path / "app",
+        development_model_source=tmp_path / "source",
+        face_detailer_detector_source=tmp_path / "detectors",
+    )
 
 
 def _write_profile_sources(paths: AppPaths) -> None:

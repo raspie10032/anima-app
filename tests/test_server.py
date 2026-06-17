@@ -13,7 +13,11 @@ from anima_app.server import INDEX_HTML, create_http_server, handle_generate, re
 
 
 def _paths(tmp_path: Path) -> AppPaths:
-    return AppPaths(project_root=tmp_path / "app", development_model_source=tmp_path / "source")
+    return AppPaths(
+        project_root=tmp_path / "app",
+        development_model_source=tmp_path / "source",
+        face_detailer_detector_source=tmp_path / "detectors",
+    )
 
 
 def _write_face_detector_sources(paths: AppPaths) -> None:

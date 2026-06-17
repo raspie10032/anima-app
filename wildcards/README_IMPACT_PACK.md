@@ -1,11 +1,9 @@
 # Impact Pack Wildcards
 
-This folder includes wildcard `.txt` files copied from the local ComfyUI Impact Pack installation:
+This folder may include wildcard `.txt` files derived from ComfyUI Impact Pack wildcard files.
 
-`E:\ComfyUI_sage\ComfyUI\custom_nodes\comfyui-impact-pack\wildcards`
+Upstream project:
 
-Source project license file observed locally:
+- https://github.com/ltdrdata/ComfyUI-Impact-Pack
 
-`E:\ComfyUI_sage\ComfyUI\custom_nodes\comfyui-impact-pack\LICENSE.txt`
-
-The observed license text is GNU GPL version 3. Keep this attribution and the corresponding license notice with any redistributed build that includes these wildcard files.
+Keep Impact Pack attribution and the corresponding license notice with any redistributed build that includes these wildcard files.
