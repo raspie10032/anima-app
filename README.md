@@ -4,7 +4,16 @@ Lightweight standalone Anima image-generation app.
 
 This project is being built from the verified `AnimaStudio` core while keeping `E:\ComfyUI_sage\ComfyUI` as a development-time source only. Runtime model assets live in this project's own `models` tree; the Anima base profile can be copied locally or downloaded from Hugging Face.
 
-Release/path references, current quality presets, local model sources, LoRA checkpoints, and latest evidence are tracked in `docs\REFERENCES.md`.
+Release/path references, current quality presets, local model sources, LoRA checkpoints, and latest evidence are tracked in [docs/REFERENCES.md](docs/REFERENCES.md).
+
+## Reference Map
+
+- [docs/REFERENCES.md](docs/REFERENCES.md): local/runtime sources, model asset paths, LoRA references, GPU boundary, quality presets, recent verification evidence, and release boundary.
+- [NOTICE.md](NOTICE.md): third-party runtime, ComfyUI-derived code, optional detector runtime, LoRA redistribution, and Impact Pack wildcard notices.
+- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md): source-checkout release checklist and smoke commands.
+- [docs/PACKAGING_PLAN.md](docs/PACKAGING_PLAN.md): wheel and source-checkout packaging boundary.
+- [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md): accepted behavior and verification evidence history.
+- [docs/IMPROVEMENT_PLAN.md](docs/IMPROVEMENT_PLAN.md): next improvement queue and product direction notes.
 
 ## Current Commands
 
