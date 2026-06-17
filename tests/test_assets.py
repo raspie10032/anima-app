@@ -6,8 +6,10 @@ from anima_app.assets import (
     ANIMA_T2I_ASSET_PROFILE,
     ANIMA_T2I_HF_REPO,
     ANIMA_T2I_HF_SUBFOLDER,
+    DETECTOR_REMOTE_ASSETS,
     FACE_DETAILER_DETECTOR_ASSET_PROFILE,
     copy_asset_file,
+    copy_asset_profile,
     download_asset_file_from_huggingface,
     import_lora_file,
     list_local_checkpoints,
@@ -35,6 +37,41 @@ def test_face_detailer_detector_profile_names_required_detector_files():
         str(Path("detectors") / "full_eyes_detect_v1.pt"),
         str(Path("detectors") / "sam_b.pt"),
     )
+    assert set(DETECTOR_REMOTE_ASSETS) == set(FACE_DETAILER_DETECTOR_ASSET_PROFILE.files)
+
+
+def test_copy_face_detailer_detector_profile_downloads_when_local_assets_are_missing(tmp_path, monkeypatch):
+    paths = AppPaths(project_root=tmp_path / "app", face_detailer_detector_source=tmp_path / "missing_detectors")
+    downloaded: list[Path] = []
+
+    def fake_download(dest_root, relative_path):
+        target = dest_root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(relative_path.name.encode("utf-8") * 128)
+        downloaded.append(relative_path)
+        return target
+
+    monkeypatch.setattr("anima_app.assets.download_asset_file_from_remote", fake_download)
+
+    source, copied = copy_asset_profile(FACE_DETAILER_DETECTOR_ASSET_PROFILE, paths)
+
+    assert source == "download"
+    assert downloaded == list(FACE_DETAILER_DETECTOR_ASSET_PROFILE.files)
+    assert copied == [paths.model_root / relative_path for relative_path in FACE_DETAILER_DETECTOR_ASSET_PROFILE.files]
+    assert (paths.model_root / "detectors" / "sam_b.pt").is_file()
+
+
+def test_copy_face_detailer_detector_profile_keeps_local_source_when_assets_exist(tmp_path):
+    paths = AppPaths(project_root=tmp_path / "app", face_detailer_detector_source=tmp_path / "detectors")
+    for relative_path in FACE_DETAILER_DETECTOR_ASSET_PROFILE.files:
+        source = paths.face_detailer_detector_source / relative_path.name
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_bytes(relative_path.name.encode("utf-8") * 128)
+
+    source, copied = copy_asset_profile(FACE_DETAILER_DETECTOR_ASSET_PROFILE, paths)
+
+    assert source == "local"
+    assert copied == [paths.model_root / relative_path for relative_path in FACE_DETAILER_DETECTOR_ASSET_PROFILE.files]
 
 
 def test_scan_model_source_reports_known_folders(tmp_path):

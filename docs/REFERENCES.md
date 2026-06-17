@@ -6,6 +6,9 @@ This document keeps public source references, model layout, and release boundari
 
 - Anima base model source: `circlestone-labs/Anima`
 - Anima base model subfolder: `split_files`
+- Face detector source: `Bingsu/adetailer` file `face_yolov8n.pt`
+- Eye detector source: `guon/hand-eyes` file `full_eyes_detect_v1.pt`
+- SAM detector source: Ultralytics asset `sam_b.pt`; SAM reference project: https://github.com/facebookresearch/segment-anything
 - ComfyUI upstream project: https://github.com/comfyanonymous/ComfyUI
 - ComfyUI Impact Pack upstream project: https://github.com/ltdrdata/ComfyUI-Impact-Pack
 - Comfy Kitchen metadata: https://github.com/Comfy-Org/comfy-kitchen
@@ -32,13 +35,14 @@ Additional Anima-family diffusion checkpoints can be placed under `models\diffus
 
 ## Optional Detector Assets
 
-Face-detailer detector assets are user-provided local files. Configure a detector source with `ANIMA_APP_FACE_DETECTOR_SOURCE` before copying them into `models\detectors`.
+Face-detailer detector assets are prepared into `models\detectors`. By default, the app uses a valid local detector source when configured, otherwise it downloads the detector profile.
 
 ```powershell
-$env:ANIMA_APP_FACE_DETECTOR_SOURCE='path\to\detectors'
 $env:PYTHONPATH='src'
 python -m anima_app.cli models copy-profile face-detailer-detectors
 ```
+
+To force a local mirror, set `ANIMA_APP_FACE_DETECTOR_SOURCE` and run the same command with `--source local`.
 
 Expected detector filenames:
 
@@ -47,6 +51,8 @@ Expected detector filenames:
 - `sam_b.pt`
 
 Optional fallback detector folders can be supplied with `ANIMA_APP_FACE_DETECTOR_FALLBACKS`, separated by the platform path separator.
+
+Detector weights are downloaded into the user's local `models` tree and remain excluded from this source release.
 
 ## LoRA Assets
 

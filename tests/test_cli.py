@@ -138,6 +138,37 @@ def test_models_copy_profile_copies_face_detailer_detectors(tmp_path, capsys):
     assert (paths.model_root / "detectors" / "sam_b.pt").is_file()
 
 
+def test_models_copy_profile_downloads_face_detailer_detectors_when_local_assets_are_missing(
+    tmp_path,
+    capsys,
+    monkeypatch,
+):
+    paths = _paths(tmp_path)
+    downloaded: list[Path] = []
+
+    def fake_download(dest_root, relative_path):
+        target = dest_root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(relative_path.name.encode("utf-8") * 128)
+        downloaded.append(relative_path)
+        return target
+
+    monkeypatch.setattr("anima_app.assets.download_asset_file_from_remote", fake_download)
+
+    exit_code = main(["models", "copy-profile", "face-detailer-detectors"], paths=paths)
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["profile"] == "face-detailer-detectors"
+    assert payload["source"] == "download"
+    assert downloaded == [
+        Path("detectors") / "face_yolov8n.pt",
+        Path("detectors") / "full_eyes_detect_v1.pt",
+        Path("detectors") / "sam_b.pt",
+    ]
+    assert (paths.model_root / "detectors" / "sam_b.pt").is_file()
+
+
 def test_models_copy_profile_uses_valid_face_detailer_detector_fallback(tmp_path, capsys):
     primary = tmp_path / "placeholder_detectors"
     fallback = tmp_path / "real_detectors"

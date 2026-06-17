@@ -1291,7 +1291,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       if (profile.ready) {
         return "Ready";
       }
-      return profile.name === "face-detailer-detectors" ? "Copy Detectors" : "Copy / Download";
+      return "Copy / Download";
     }
     function renderReadiness(payload) {
       const profiles = payload.profiles || [];

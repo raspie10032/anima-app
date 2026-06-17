@@ -9,7 +9,7 @@ This checklist records the accepted public source-checkout alpha scope.
 - [x] The `anima-t2i` asset profile can download required base assets from Hugging Face.
 - [x] A local model mirror can be configured with `ANIMA_APP_MODEL_SOURCE`.
 - [x] Additional Anima-family diffusion checkpoints can be listed and selected by relative `.safetensors` path.
-- [x] Optional face-detailer detector assets can be copied from a user-configured local source.
+- [x] Optional face-detailer detector assets can be downloaded automatically or copied from a user-configured local source.
 - [x] Optional face-detailer runtime dependency is declared as `.[face-detailer]`.
 - [x] Local LoRA files can be imported into `models\loras` and selected by relative path.
 - [x] CLI, API, and GUI support text-to-image generation, image-to-image settings, upscale settings, tiled VAE settings, wildcards, LoRA settings, and face-detailer settings.

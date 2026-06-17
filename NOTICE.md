@@ -21,9 +21,15 @@ Keep each package's bundled license files and notices with redistributed builds.
 
 ## Optional Detector Runtime
 
-Face-detailer support can use local Ultralytics YOLO/SAM detector assets when the optional `face-detailer` extra is installed and the user provides compatible detector files.
+Face-detailer support can use Ultralytics YOLO/SAM detector assets when the optional `face-detailer` extra is installed.
 
-Detector weights are user-provided local artifacts. They are not included in this repository and should not be redistributed without checking their source license.
+The app can download detector weights into the user's local `models` tree:
+
+- `face_yolov8n.pt` from `Bingsu/adetailer`.
+- `full_eyes_detect_v1.pt` from `guon/hand-eyes`.
+- `sam_b.pt` from Ultralytics assets, with SAM reference material from `facebookresearch/segment-anything`.
+
+Detector weights are not included in this repository. Check the source model cards and the optional Ultralytics runtime license before redistributing detector weights or packaged builds that include them.
 
 ## Model And LoRA Artifacts
 

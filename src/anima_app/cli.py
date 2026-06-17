@@ -52,9 +52,9 @@ def build_parser() -> argparse.ArgumentParser:
     copy_profile.add_argument("profile", choices=[profile.name for profile in asset_profiles()])
     copy_profile.add_argument(
         "--source",
-        choices=["auto", "local", "huggingface"],
+        choices=["auto", "local", "huggingface", "download"],
         default="auto",
-        help="For anima-t2i, use local development files, Hugging Face, or local-then-Hugging-Face auto mode.",
+        help="Use local files, remote download, or auto mode. For anima-t2i, huggingface/download use the Hugging Face source.",
     )
 
     t2i = subparsers.add_parser("t2i", help="generate an image from text")

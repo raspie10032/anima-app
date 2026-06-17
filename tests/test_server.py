@@ -408,6 +408,47 @@ def test_http_server_serves_readiness_and_prepares_detector_profile(tmp_path):
         server.server_close()
 
 
+def test_http_server_prepares_detector_profile_by_download_when_local_assets_are_missing(
+    tmp_path,
+    monkeypatch,
+):
+    paths = _paths(tmp_path)
+    downloaded: list[Path] = []
+
+    def fake_download(dest_root, relative_path):
+        target = dest_root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(relative_path.name.encode("utf-8") * 128)
+        downloaded.append(relative_path)
+        return target
+
+    monkeypatch.setattr("anima_app.assets.download_asset_file_from_remote", fake_download)
+
+    server = create_http_server("127.0.0.1", 0, paths=paths, default_dry_run=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        request = urllib.request.Request(
+            f"{base_url}/api/models/prepare",
+            data=json.dumps({"profile": "face-detailer-detectors"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            prepared = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 200
+        assert prepared["profile"] == "face-detailer-detectors"
+        assert prepared["source"] == "download"
+        assert prepared["readiness"]["ready"] is True
+        assert len(downloaded) == 3
+        assert (paths.model_root / "detectors" / "full_eyes_detect_v1.pt").is_file()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_http_server_serves_manifest_detail_by_name(tmp_path):
     server = create_http_server("127.0.0.1", 0, paths=_paths(tmp_path), default_dry_run=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -995,6 +1036,8 @@ def test_index_html_loads_history_panel():
     assert "function renderReadiness" in INDEX_HTML
     assert "prepareModelProfile" in INDEX_HTML
     assert "data-profile" in INDEX_HTML
+    assert "Copy Detectors" not in INDEX_HTML
+    assert "Copy / Download" in INDEX_HTML
     assert 'fetch("/api/loras")' in INDEX_HTML
     assert 'fetch("/api/checkpoints")' in INDEX_HTML
     assert "function renderCheckpointOptions" in INDEX_HTML

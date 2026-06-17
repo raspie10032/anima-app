@@ -45,13 +45,14 @@ Required base files are copied into the project-local `models` tree:
 
 Additional Anima-family diffusion checkpoints can be placed under `models\diffusion_models` and selected by relative `.safetensors` path.
 
-Optional face-detailer detector files can be copied from a local detector folder:
+Optional face-detailer detector files are downloaded automatically when a configured local detector folder is not available:
 
 ```powershell
-$env:ANIMA_APP_FACE_DETECTOR_SOURCE='path\to\detectors'
 $env:PYTHONPATH='src'
 python -m anima_app.cli models copy-profile face-detailer-detectors
 ```
+
+To use a local detector mirror instead, set `ANIMA_APP_FACE_DETECTOR_SOURCE` before running the same command.
 
 Local LoRA files can be imported into `models\loras`:
 
