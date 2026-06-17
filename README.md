@@ -8,8 +8,6 @@ Anima APP packages a focused Anima text-to-image workflow around a local, projec
 
 - [docs/REFERENCES.md](docs/REFERENCES.md): public source references, model asset layout, wildcard attribution, and release boundaries.
 - [NOTICE.md](NOTICE.md): third-party runtime, optional detector runtime, LoRA redistribution, and wildcard notices.
-- [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md): maintainer release checklist.
-- [docs/PACKAGING_PLAN.md](docs/PACKAGING_PLAN.md): wheel and source-checkout packaging boundary.
 - [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md): accepted feature checklist.
 
 ## Install
@@ -106,7 +104,3 @@ Supported modes are `random`, `sequential`, and `reverse`. When no wildcard toke
 - The app does not launch or depend on a live ComfyUI server.
 - Local model weights, detector weights, LoRA files, input images, and generated outputs are ignored by git and are not part of the public release.
 - Set `CUDA_VISIBLE_DEVICES` yourself when you need to pin generation to a specific GPU.
-
-## Maintainer Notes
-
-Release and packaging validation scripts live under `scripts\` and are documented in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) and [docs/PACKAGING_PLAN.md](docs/PACKAGING_PLAN.md).

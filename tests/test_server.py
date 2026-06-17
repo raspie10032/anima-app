@@ -234,7 +234,7 @@ def test_http_server_exposes_generation_progress_while_request_runs(tmp_path):
                     "height": 48,
                     "steps": 1,
                     "dry_run": False,
-                    "progress_id": "progress-smoke",
+                    "progress_id": "progress-job",
                 }
             ).encode("utf-8"),
             headers={"Content-Type": "application/json"},
@@ -249,11 +249,11 @@ def test_http_server_exposes_generation_progress_while_request_runs(tmp_path):
     try:
         assert renderer_started.wait(timeout=5)
         base_url = f"http://127.0.0.1:{server.server_address[1]}"
-        with urllib.request.urlopen(f"{base_url}/api/progress/progress-smoke", timeout=5) as response:
+        with urllib.request.urlopen(f"{base_url}/api/progress/progress-job", timeout=5) as response:
             running = json.loads(response.read().decode("utf-8"))
 
         assert response.status == 200
-        assert running["progress_id"] == "progress-smoke"
+        assert running["progress_id"] == "progress-job"
         assert running["status"] == "running"
         assert running["stages"]["request"]["status"] == "completed"
         assert running["stages"]["base_t2i"]["status"] == "active"
@@ -263,7 +263,7 @@ def test_http_server_exposes_generation_progress_while_request_runs(tmp_path):
         assert not post_thread.is_alive()
         assert post_result["status"] == 200
 
-        with urllib.request.urlopen(f"{base_url}/api/progress/progress-smoke", timeout=5) as response:
+        with urllib.request.urlopen(f"{base_url}/api/progress/progress-job", timeout=5) as response:
             completed = json.loads(response.read().decode("utf-8"))
 
         assert completed["status"] == "completed"

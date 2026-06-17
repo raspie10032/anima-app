@@ -19,7 +19,7 @@ This checklist records the accepted public source-checkout alpha scope.
 - [x] Local browser GUI includes prompt controls, model/checkpoint controls, LoRA controls, image settings, enhancement settings, prompt tools, saved settings, progress display, current result view, and history.
 - [x] The Windows user launcher is `Run-AnimaAPP-GUI.cmd`.
 - [x] Local model weights, detector weights, LoRA files, input images, outputs, and generated manifests are excluded from git.
-- [x] Public release docs include license, notices, references, release boundary, and packaging boundary.
+- [x] Public release docs include license, notices, references, and release boundary.
 
 ## Release Boundary
 
@@ -30,4 +30,4 @@ This checklist records the accepted public source-checkout alpha scope.
 
 ## Verification Policy
 
-Maintainer validation scripts live under `scripts\` and are documented in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) and [PACKAGING_PLAN.md](PACKAGING_PLAN.md). Public user-facing docs should stay focused on installation, model preparation, and launching the GUI.
+Public user-facing docs stay focused on installation, model preparation, and launching the GUI.
