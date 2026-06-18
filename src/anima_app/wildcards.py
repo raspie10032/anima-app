@@ -6,13 +6,16 @@ import random
 import re
 from dataclasses import dataclass
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from anima_app.config import AppPaths
 from anima_app.requests import T2IRequest
 
 
-WILDCARD_PATTERN = re.compile(r"__([A-Za-z0-9_-]+)__")
+WILDCARD_PATTERN = re.compile(r"__([\w.-]+(?:/[\w.-]+)*)__")
+WILDCARD_TOKEN_PATTERN = re.compile(r"__([\w.-]+(?:/[\w.-]+)*)__|\{([^{}\n]*\|[^{}\n]*)\}")
+MAX_WILDCARD_EXPANSION_DEPTH = 10
 DEFAULT_WILDCARD_MODE = "random"
 WILDCARD_MODES = {DEFAULT_WILDCARD_MODE, "sequential", "reverse"}
 
@@ -28,16 +31,20 @@ def list_wildcards(paths: AppPaths) -> list[dict[str, Any]]:
         return []
     items: list[dict[str, Any]] = []
     for path in sorted(paths.wildcard_root.glob("*.txt"), key=lambda item: item.name.lower()):
-        name = path.stem
-        values = _read_wildcard_values(name, paths)
-        items.append(
-            {
-                "name": name,
-                "token": f"__{name}__",
-                "relative_path": path.name,
-                "value_count": len(values),
-            }
-        )
+        items.append(_inventory_item(path.stem, path, paths=paths))
+    return items
+
+
+def list_prompt_presets(paths: AppPaths) -> list[dict[str, Any]]:
+    preset_root = paths.wildcard_root / "presets"
+    if not preset_root.is_dir():
+        return []
+    items: list[dict[str, Any]] = []
+    for path in sorted(preset_root.glob("*.txt"), key=lambda item: item.name.lower()):
+        name = f"presets/{path.stem}"
+        item = _inventory_item(name, path, paths=paths)
+        item["name"] = path.stem
+        items.append(item)
     return items
 
 
@@ -77,24 +84,53 @@ def expand_text_wildcards(
     state = _read_state(paths) if mode in {"sequential", "reverse"} else {}
     selections: list[dict[str, Any]] = []
 
-    def replace_match(match: re.Match[str]) -> str:
-        wildcard = match.group(1)
-        values = _read_wildcard_values(wildcard, paths)
-        index = _select_index(wildcard, values, mode=mode, paths=paths, state=state, rng=rng)
-        value = values[index]
-        selections.append(
-            {
+    def expand_fragment(fragment: str, *, depth: int, stack: tuple[str, ...]) -> str:
+        if depth > MAX_WILDCARD_EXPANSION_DEPTH:
+            raise ValueError(f"wildcard expansion exceeded max depth: {MAX_WILDCARD_EXPANSION_DEPTH}")
+
+        def replace_match(match: re.Match[str]) -> str:
+            wildcard = match.group(1)
+            if wildcard is not None:
+                if wildcard in stack:
+                    cycle = " -> ".join((*stack, wildcard))
+                    raise ValueError(f"wildcard cycle detected: {cycle}")
+                values = _read_wildcard_values(wildcard, paths)
+                index = _select_index(wildcard, values, mode=mode, paths=paths, state=state, rng=rng)
+                value = values[index]
+                path = _wildcard_path(wildcard, paths)
+                selection = {
+                    "token": match.group(0),
+                    "wildcard": wildcard,
+                    "file": str(path),
+                    "mode": mode,
+                    "index": index,
+                    "value": value,
+                }
+                selections.append(selection)
+                expanded_value = expand_fragment(value, depth=depth + 1, stack=(*stack, wildcard))
+                if expanded_value != value:
+                    selection["expanded_value"] = expanded_value
+                return expanded_value
+
+            choices = _inline_random_choices(match.group(2) or "")
+            index = rng.randrange(len(choices))
+            value = choices[index]
+            selection = {
                 "token": match.group(0),
-                "wildcard": wildcard,
-                "file": str(paths.wildcard_root / f"{wildcard}.txt"),
-                "mode": mode,
+                "type": "inline_random",
+                "mode": "random",
                 "index": index,
                 "value": value,
             }
-        )
-        return value
+            selections.append(selection)
+            expanded_value = expand_fragment(value, depth=depth + 1, stack=stack)
+            if expanded_value != value:
+                selection["expanded_value"] = expanded_value
+            return expanded_value
 
-    expanded = WILDCARD_PATTERN.sub(replace_match, text)
+        return WILDCARD_TOKEN_PATTERN.sub(replace_match, fragment)
+
+    expanded = expand_fragment(text, depth=0, stack=())
     if selections and mode in {"sequential", "reverse"}:
         _write_state(paths, state)
     return TextWildcardExpansion(text=expanded, selections=tuple(selections))
@@ -110,11 +146,7 @@ def _normalize_mode(mode: str) -> str:
 
 
 def _read_wildcard_values(wildcard: str, paths: AppPaths) -> list[str]:
-    path = paths.wildcard_root / f"{wildcard}.txt"
-    try:
-        path.resolve().relative_to(paths.wildcard_root.resolve())
-    except ValueError as exc:
-        raise ValueError(f"invalid wildcard name: {wildcard}") from exc
+    path = _wildcard_path(wildcard, paths)
     if not path.is_file():
         raise ValueError(f"wildcard file not found: {path}")
     values = [
@@ -125,6 +157,36 @@ def _read_wildcard_values(wildcard: str, paths: AppPaths) -> list[str]:
     if not values:
         raise ValueError(f"wildcard file has no values: {path}")
     return values
+
+
+def _inline_random_choices(body: str) -> list[str]:
+    choices = [choice.strip() for choice in body.split("|") if choice.strip()]
+    if len(choices) < 2:
+        raise ValueError(f"inline random wildcard requires at least two choices: {{{body}}}")
+    return choices
+
+
+def _wildcard_path(wildcard: str, paths: AppPaths) -> Path:
+    parts = wildcard.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(f"invalid wildcard name: {wildcard}")
+    path = paths.wildcard_root / f"{wildcard}.txt"
+    try:
+        path.resolve().relative_to(paths.wildcard_root.resolve())
+    except ValueError as exc:
+        raise ValueError(f"invalid wildcard name: {wildcard}") from exc
+    return path
+
+
+def _inventory_item(name: str, path: Path, *, paths: AppPaths) -> dict[str, Any]:
+    values = _read_wildcard_values(name, paths)
+    relative_path = path.resolve().relative_to(paths.wildcard_root.resolve()).as_posix()
+    return {
+        "name": name,
+        "token": f"__{name}__",
+        "relative_path": relative_path,
+        "value_count": len(values),
+    }
 
 
 def _select_index(

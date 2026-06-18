@@ -29,6 +29,7 @@ class T2IRenderOutput:
     output_path: Path
     stages: dict[str, object] | None = None
     warnings: tuple[str, ...] = ()
+    variants: dict[str, Path] | None = None
 
 
 T2IRenderer = Callable[[T2IRequest, AppPaths], T2IRenderOutput]
@@ -59,6 +60,8 @@ def run_t2i(
             raise NotImplementedError("real rendering is not wired yet")
         rendered = renderer(request, paths)
         _validate_output_png(rendered.output_path, paths)
+        for variant_path in (rendered.variants or {}).values():
+            _validate_output_png(variant_path, paths)
         parameters = build_a1111_parameters(request, wildcards=wildcards)
         embed_png_parameters(rendered.output_path, parameters)
         _validate_output_png(rendered.output_path, paths)
@@ -73,6 +76,7 @@ def run_t2i(
             comfyui_runtime="renderer",
             wildcards=wildcards,
             png_metadata={"parameters": parameters},
+            variants=rendered.variants,
         )
         return T2IResult(
             status="generated",

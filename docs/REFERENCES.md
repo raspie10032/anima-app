@@ -87,14 +87,19 @@ Default CLI/API/GUI generation settings:
 - Scheduler: `sgm_uniform`
 - LoRA strength: `1.0`
 
-GUI quick presets:
+GUI starting point size presets:
 
-- `Standard`: default size and sampler settings with optional enhancement stages disabled.
-- `Reference Quality`: higher-detail preset with tiled upscale, tiled VAE, and face detailer settings enabled.
+- `1024x1024`: square output.
+- `832x1216`: 2:3 portrait output, with landscape available by swapping orientation.
+- `896x1152`: 3:4 portrait output, with landscape available by swapping orientation.
 
 ## Wildcards
 
 Prompt wildcard files live under `wildcards\*.txt`. Tokens use `__name__` and read `wildcards\name.txt`.
+
+Prompt preset files live under `wildcards\presets\*.txt`. Tokens use `__presets/name__` and read `wildcards\presets\name.txt`.
+
+Wildcard file values can contain nested wildcard tokens and inline random choices using `{choice A|choice B|choice C}` syntax. File-backed wildcard tokens follow the selected wildcard mode, while inline choices are always random. The GUI preview expands the current prompt without starting generation and surfaces missing files, invalid paths, and recursive wildcard cycles before GPU work begins.
 
 The included wildcard files may be derived from ComfyUI Impact Pack wildcard files. Keep attribution and license notices with redistributed builds.
 
@@ -116,7 +121,7 @@ Excluded:
 - Detector weights.
 - LoRA files.
 - Input images.
-- Generated output images and manifests.
+- Generated output images and generation-info JSON files.
 
 Not finalized:
 

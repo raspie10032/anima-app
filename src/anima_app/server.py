@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import copy
 import json
+import random
 import re
 import threading
 import time
+from collections import deque
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -26,11 +28,12 @@ from anima_app.health import build_health_payload
 from anima_app.manifests import read_manifest, read_t2i_history
 from anima_app.requests import FaceDetailerSettings, I2ISettings, T2ILoraConfig, T2IRequest, UpscaleSettings, VaeDecodeSettings
 from anima_app.runtime.pipeline import T2IRenderer, run_t2i
-from anima_app.wildcards import expand_request_wildcards, list_wildcards
+from anima_app.updates import check_github_update, version_payload
+from anima_app.wildcards import expand_request_wildcards, expand_text_wildcards, list_prompt_presets, list_wildcards
 
 
 _INDEX_HTML_TEMPLATE = """<!doctype html>
-<html lang="en">
+<html lang="ko">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -50,7 +53,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     .app-shell {
       min-height: 100vh;
       display: grid;
-      grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) minmax(280px, 340px);
+      grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(280px, 340px);
       background: #18191f;
     }
     .control-frame,
@@ -59,13 +62,14 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       min-width: 0;
       overflow: auto;
       background: #22252b;
-      padding: 18px;
     }
     .control-frame {
       border-right: 1px solid #373b44;
+      padding: 14px;
     }
     .history-frame {
       border-left: 1px solid #373b44;
+      padding: 18px;
     }
     .workspace-frame {
       min-width: 0;
@@ -77,8 +81,8 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       gap: 12px;
     }
     h1 {
-      font-size: 21px;
-      margin: 0 0 12px;
+      font-size: 19px;
+      margin: 0 0 10px;
       letter-spacing: 0;
     }
     .frame-title {
@@ -90,7 +94,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     label {
       display: block;
       font-size: 13px;
-      margin: 14px 0 6px;
+      margin: 10px 0 5px;
       color: #d8d2c2;
     }
     textarea,
@@ -102,26 +106,26 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       border-radius: 6px;
       background: #111319;
       color: #f4f1ea;
-      padding: 10px;
+      padding: 8px;
       font: inherit;
     }
     textarea {
-      min-height: 104px;
+      min-height: 92px;
       resize: vertical;
     }
     .row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 10px;
+      gap: 8px;
     }
     button {
       width: 100%;
-      margin-top: 18px;
+      margin-top: 12px;
       border: 0;
       border-radius: 6px;
       background: #d8b45f;
       color: #151515;
-      padding: 11px 14px;
+      padding: 9px 11px;
       font-weight: 700;
       cursor: pointer;
     }
@@ -132,9 +136,20 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     .secondary-button {
       background: #7fa7c9;
     }
+    .control-frame button {
+      min-height: 26px;
+      margin-top: 6px;
+      padding: 5px 7px;
+      font-size: 12px;
+      line-height: 1.2;
+    }
+    .control-frame button.is-selected {
+      background: #d8b45f;
+      color: #151515;
+    }
     .form-section {
-      margin-top: 18px;
-      padding-top: 14px;
+      margin-top: 14px;
+      padding-top: 10px;
       border-top: 1px solid #373b44;
     }
     .form-section h2,
@@ -151,15 +166,43 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     .form-section[open] summary {
       margin-bottom: 4px;
     }
+    .wildcard-preview {
+      margin: 12px 0 0;
+      min-height: 84px;
+      max-height: 220px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid #373b44;
+      border-radius: 6px;
+      background: #111319;
+      color: #d8d2c2;
+      padding: 10px;
+      font: 12px/1.45 Consolas, "Courier New", monospace;
+    }
+    .wildcard-preview strong {
+      color: #f4d27b;
+    }
+    .prompt-tools-block {
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #373b44;
+    }
+    .prompt-tools-block h2 {
+      margin-top: 0;
+    }
+    .prompt-tools-block .row {
+      grid-template-columns: minmax(0, 1fr) 64px;
+    }
     .toggle-switch {
       position: relative;
       display: grid;
       grid-template-columns: auto 1fr;
       align-items: center;
-      gap: 10px;
-      min-height: 48px;
-      margin-top: 14px;
-      padding: 10px;
+      gap: 8px;
+      min-height: 42px;
+      margin-top: 10px;
+      padding: 8px;
       border: 1px solid #7e343d;
       border-radius: 6px;
       background: #2a171c;
@@ -275,12 +318,12 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       align-items: end;
     }
     .lora-row button {
-      min-height: 38px;
-      padding: 8px 10px;
+      min-height: 34px;
+      padding: 7px 9px;
     }
     .preset-strip {
-      margin: 12px 0;
-      padding: 10px;
+      margin: 10px 0;
+      padding: 8px;
       border: 1px solid #373b44;
       border-radius: 6px;
       background: #171b22;
@@ -288,9 +331,19 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     .preset-strip .row {
       margin-top: 0;
     }
+    .starting-point-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .orientation-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
     .control-groups {
       display: grid;
-      gap: 10px;
+      gap: 8px;
     }
     .control-group {
       border: 1px solid #373b44;
@@ -302,8 +355,8 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
-      padding: 11px 12px;
+      gap: 8px;
+      padding: 9px 10px;
       color: #f4f1ea;
       font-size: 14px;
       font-weight: 700;
@@ -323,7 +376,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       content: "-";
     }
     .control-group-body {
-      padding: 0 12px 12px;
+      padding: 0 10px 10px;
       border-top: 1px solid #373b44;
     }
     .control-group .form-section:first-child {
@@ -409,6 +462,47 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     }
     #output-link[hidden] {
       display: none;
+    }
+    .compare-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin: 8px 0 10px;
+    }
+    .compare-toolbar[hidden] {
+      display: none;
+    }
+    .compare-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+      margin: 0 0 12px;
+    }
+    .compare-grid[hidden] {
+      display: none;
+    }
+    .compare-cell {
+      min-width: 0;
+    }
+    .compare-cell strong {
+      display: block;
+      color: #d8d2c2;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+    .compare-cell img {
+      width: 100%;
+      max-height: 46vh;
+      object-fit: contain;
+      background: #0f1117;
+    }
+    .compare-empty {
+      min-height: 120px;
+      display: grid;
+      place-items: center;
+      border: 1px dashed #48505d;
+      border-radius: 6px;
+      color: #8f98a8;
+      font-size: 12px;
     }
     .result-json summary {
       cursor: pointer;
@@ -504,6 +598,25 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     .side-status-panel .status-panel.compact,
     .side-status-panel .readiness-panel.compact {
       padding: 0 10px;
+    }
+    .side-status-panel .update-panel {
+      align-items: center;
+      border: 1px solid #373b44;
+      border-radius: 6px;
+      display: grid;
+      gap: 8px;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      margin: 8px 10px 0;
+      padding: 8px;
+    }
+    .update-panel strong {
+      display: block;
+      font-size: 12px;
+      color: #c0c5d6;
+    }
+    .update-panel span {
+      color: #f4f1ea;
+      overflow-wrap: anywhere;
     }
     .status-panel.compact,
     .readiness-panel.compact {
@@ -800,43 +913,75 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
 </head>
 <body>
   <div class="app-shell">
-    <aside class="control-frame" aria-label="Generation controls">
+    <aside class="control-frame" aria-label="생성 컨트롤">
       <h1>Anima APP</h1>
       <form id="generate-form"></form>
       <div id="control-groups" class="control-groups">
         <details class="control-group" data-control-group="prompt-generate" open>
-          <summary>Prompt & Generate</summary>
+          <summary>프롬프트와 생성</summary>
           <div class="control-group-body">
             <section class="form-section">
-              <h2>Prompt</h2>
-              <label for="prompt">Prompt</label>
+              <h2>프롬프트</h2>
+              <label for="prompt">프롬프트</label>
               <textarea id="prompt" name="prompt" form="generate-form" required>anime portrait, clean lineart</textarea>
-              <label for="negative">Negative</label>
+              <label for="negative">네거티브</label>
               <input id="negative" name="negative_prompt" value="low quality" form="generate-form">
+              <div class="prompt-tools-block" aria-label="프롬프트 와일드카드와 프리셋">
+                <h2>와일드카드와 프리셋</h2>
+                <label for="wildcard-mode">와일드카드 방식</label>
+                <select id="wildcard-mode" name="wildcard_mode" form="generate-form">
+                  <option value="random" selected>랜덤</option>
+                  <option value="sequential">순차</option>
+                  <option value="reverse">역순</option>
+                </select>
+                <label for="wildcard-select">와일드카드 삽입</label>
+                <div class="row">
+                  <select id="wildcard-select">
+                    <option value="">와일드카드 파일 없음</option>
+                  </select>
+                  <button type="button" id="insert-wildcard" class="secondary-button">삽입</button>
+                </div>
+                <label for="preset-wildcard-select">프리셋 삽입</label>
+                <div class="row">
+                  <select id="preset-wildcard-select">
+                    <option value="">프롬프트 프리셋 없음</option>
+                  </select>
+                  <button type="button" id="insert-preset-wildcard" class="secondary-button">삽입</button>
+                </div>
+                <button type="button" id="preview-wildcards" class="secondary-button">확장 미리보기</button>
+                <pre id="wildcard-preview" class="wildcard-preview" hidden></pre>
+              </div>
             </section>
-            <section class="preset-strip" aria-label="Starting point presets">
-              <h2>Starting Point</h2>
-              <div class="row">
-                <button type="button" id="preset-standard" class="secondary-button">Standard</button>
-                <button type="button" id="preset-reference" class="secondary-button">Reference Quality</button>
+            <section class="preset-strip" aria-label="시작 설정 프리셋">
+              <h2>시작 설정</h2>
+              <label>크기</label>
+              <div class="starting-point-grid" role="group" aria-label="시작 크기">
+                <button type="button" id="starting-square" class="secondary-button" data-size-preset="square">1024x1024</button>
+                <button type="button" id="starting-portrait-2x3" class="secondary-button" data-size-preset="portrait_2x3">832x1216</button>
+                <button type="button" id="starting-portrait-3x4" class="secondary-button" data-size-preset="portrait_3x4">896x1152</button>
+              </div>
+              <label>방향</label>
+              <div class="orientation-grid" role="group" aria-label="시작 방향">
+                <button type="button" id="orientation-portrait" class="secondary-button" data-orientation="portrait">세로</button>
+                <button type="button" id="orientation-landscape" class="secondary-button" data-orientation="landscape">가로</button>
               </div>
             </section>
             <section class="form-section">
-              <h2>Generate</h2>
-              <button id="generate-button" class="primary-action" type="submit" form="generate-form">Generate</button>
-              <section class="auto-queue-panel" id="auto-queue-panel" aria-label="Auto queue">
-                <h2>Auto Queue</h2>
+              <h2>생성</h2>
+              <button id="generate-button" class="primary-action" type="submit" form="generate-form">생성하기</button>
+              <section class="auto-queue-panel" id="auto-queue-panel" aria-label="자동 큐">
+                <h2>자동 큐</h2>
                 <div class="row">
                   <div>
-                    <label for="queue-count">Queue Count</label>
+                    <label for="queue-count">큐 횟수</label>
                     <input id="queue-count" name="queue_count" type="number" min="1" max="99" value="4">
                   </div>
                   <div>
-                    <label for="queue-seed-mode">Seed Mode</label>
+                    <label for="queue-seed-mode">시드 방식</label>
                     <select id="queue-seed-mode" name="queue_seed_mode">
-                      <option value="fixed">Fixed</option>
-                      <option value="increment" selected>Increment</option>
-                      <option value="random">Random</option>
+                      <option value="fixed">고정</option>
+                      <option value="increment" selected>증가</option>
+                      <option value="random">랜덤</option>
                     </select>
                   </div>
                 </div>
@@ -844,61 +989,61 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   <input id="queue-infinite" name="queue_infinite" type="checkbox" value="1">
                   <span class="toggle-track" aria-hidden="true"></span>
                   <span class="toggle-copy">
-                    <span class="toggle-title">Infinity</span>
+                    <span class="toggle-title">무한 모드</span>
                     <span class="toggle-state" aria-hidden="true"></span>
                   </span>
                 </label>
-                <label for="queue-delay">Delay Seconds</label>
+                <label for="queue-delay">지연(초)</label>
                 <input id="queue-delay" name="queue_delay" type="number" min="0" max="60" step="0.5" value="0">
                 <div class="queue-actions">
-                  <button type="button" id="start-queue" class="secondary-button">Start Queue</button>
-                  <button type="button" id="stop-queue" class="secondary-button" disabled>Stop</button>
+                  <button type="button" id="start-queue" class="secondary-button">큐 시작</button>
+                  <button type="button" id="stop-queue" class="secondary-button" disabled>정지</button>
                 </div>
-                <p id="queue-status" class="queue-status" aria-live="polite">Idle</p>
+                <p id="queue-status" class="queue-status" aria-live="polite">대기</p>
               </section>
             </section>
           </div>
         </details>
         <details class="control-group" data-control-group="model-style" open>
-          <summary>Model & Style</summary>
+          <summary>모델과 스타일</summary>
           <div class="control-group-body">
             <section class="form-section">
-              <h2>LoRA Style</h2>
-              <label for="checkpoint-select">Base Checkpoint</label>
+              <h2>LoRA 스타일</h2>
+              <label for="checkpoint-select">베이스 체크포인트</label>
               <select id="checkpoint-select" name="checkpoint" form="generate-form">
                 <option value="__DEFAULT_T2I_CHECKPOINT__">__DEFAULT_T2I_CHECKPOINT__</option>
               </select>
-              <label>LoRA Stack</label>
-              <div id="lora-list" class="lora-list" aria-label="LoRA stack">
+              <label>LoRA 스택</label>
+              <div id="lora-list" class="lora-list" aria-label="LoRA 스택">
               </div>
-              <button type="button" id="add-lora" class="secondary-button">Add LoRA</button>
+              <button type="button" id="add-lora" class="secondary-button">LoRA 추가</button>
             </section>
             <form id="lora-import-form" class="form-section">
-              <h2>Import LoRA</h2>
-              <label for="lora-path">Import LoRA File</label>
+              <h2>LoRA 가져오기</h2>
+              <label for="lora-path">LoRA 파일 가져오기</label>
               <input id="lora-path" name="path" placeholder="path\\to\\style.safetensors">
-              <button type="submit" class="secondary-button">Copy LoRA into App</button>
+              <button type="submit" class="secondary-button">앱으로 LoRA 복사</button>
             </form>
           </div>
         </details>
         <details class="control-group" data-control-group="image-settings" open>
-          <summary>Image Settings</summary>
+          <summary>이미지 설정</summary>
           <div class="control-group-body">
             <section class="form-section">
-              <h2>Image Settings</h2>
+              <h2>이미지 설정</h2>
               <div class="row">
                 <div>
-                  <label for="width">Width</label>
+                  <label for="width">너비</label>
                   <input id="width" name="width" type="number" min="8" step="8" value="__DEFAULT_T2I_WIDTH__" form="generate-form">
                 </div>
                 <div>
-                  <label for="height">Height</label>
+                  <label for="height">높이</label>
                   <input id="height" name="height" type="number" min="8" step="8" value="__DEFAULT_T2I_HEIGHT__" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
-                  <label for="steps">Steps</label>
+                  <label for="steps">스텝</label>
                   <input id="steps" name="steps" type="number" min="1" value="__DEFAULT_T2I_STEPS__" form="generate-form">
                 </div>
                 <div>
@@ -908,7 +1053,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               </div>
               <div class="row">
                 <div>
-                  <label for="sampler">Sampler</label>
+                  <label for="sampler">샘플러</label>
                   <select id="sampler" name="sampler" form="generate-form">
                     <option value="euler_ancestral_cfg_pp" selected>Euler Ancestral CFG++</option>
                     <option value="euler">Euler Ancestral</option>
@@ -917,7 +1062,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   </select>
                 </div>
                 <div>
-                  <label for="scheduler">Scheduler</label>
+                  <label for="scheduler">스케줄러</label>
                   <select id="scheduler" name="scheduler" form="generate-form">
                     <option value="sgm_uniform" selected>SGM Uniform</option>
                     <option value="normal">Normal</option>
@@ -926,24 +1071,24 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   </select>
                 </div>
               </div>
-              <label for="seed">Seed</label>
-              <input id="seed" name="seed" type="number" placeholder="random" form="generate-form">
+              <label for="seed">시드</label>
+              <input id="seed" name="seed" type="number" placeholder="랜덤" form="generate-form">
             </section>
           </div>
         </details>
         <details class="control-group" data-control-group="enhance">
-          <summary>Enhance</summary>
+          <summary>보정</summary>
           <div class="control-group-body">
             <details id="reference-image-section" class="form-section">
-              <summary>Reference Image and Upscale</summary>
-              <label for="i2i-image">Reference Image Path</label>
+              <summary>참조 이미지와 업스케일</summary>
+              <label for="i2i-image">참조 이미지 경로</label>
               <input id="i2i-image" name="i2i_image" placeholder="inputs\\reference.png" form="generate-form">
               <div class="row">
                 <label class="toggle-switch" for="upscale-enabled">
                   <input id="upscale-enabled" name="upscale_enabled" type="checkbox" value="1" form="generate-form">
                   <span class="toggle-track" aria-hidden="true"></span>
                   <span class="toggle-copy">
-                    <span class="toggle-title">Enable Upscale</span>
+                    <span class="toggle-title">업스케일 사용</span>
                     <span class="toggle-state" aria-hidden="true"></span>
                   </span>
                 </label>
@@ -951,205 +1096,196 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   <input id="upscale-tiled" name="upscale_tiled" type="checkbox" value="1" form="generate-form">
                   <span class="toggle-track" aria-hidden="true"></span>
                   <span class="toggle-copy">
-                    <span class="toggle-title">Tile Upscale</span>
+                    <span class="toggle-title">타일 업스케일</span>
                     <span class="toggle-state" aria-hidden="true"></span>
                   </span>
                 </label>
               </div>
               <div class="row">
                 <div>
-                  <label for="i2i-denoise">Image Denoise</label>
+                  <label for="i2i-denoise">이미지 디노이즈</label>
                   <input id="i2i-denoise" name="i2i_denoise" type="number" min="0" max="1" step="0.05" value="0.35" form="generate-form">
                 </div>
                 <div>
-                  <label for="upscale-scale">Upscale Scale</label>
+                  <label for="upscale-scale">업스케일 배율</label>
                   <input id="upscale-scale" name="upscale_scale" type="number" min="0.1" step="0.1" value="1.5" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
-                  <label for="upscale-steps">Upscale Steps</label>
+                  <label for="upscale-steps">업스케일 스텝</label>
                   <input id="upscale-steps" name="upscale_steps" type="number" min="1" value="12" form="generate-form">
                 </div>
                 <div>
-                  <label for="upscale-denoise">Upscale Denoise</label>
+                  <label for="upscale-denoise">업스케일 디노이즈</label>
                   <input id="upscale-denoise" name="upscale_denoise" type="number" min="0" max="1" step="0.01" value="0.35" form="generate-form">
                 </div>
               </div>
-              <label for="upscale-method">Upscale Method</label>
+              <label for="upscale-method">업스케일 방식</label>
               <select id="upscale-method" name="upscale_method" form="generate-form">
-                <option value="bicubic">Bicubic</option>
-                <option value="bilinear">Bilinear</option>
+                <option value="bicubic">바이큐빅</option>
+                <option value="bilinear">바이리니어</option>
                 <option value="nearest-exact">Nearest Exact</option>
                 <option value="area">Area</option>
               </select>
               <div class="row">
                 <div>
-                  <label for="upscale-tile-size">Upscale Tile</label>
+                  <label for="upscale-tile-size">업스케일 타일</label>
                   <input id="upscale-tile-size" name="upscale_tile_size" type="number" min="1" value="64" form="generate-form">
                 </div>
                 <div>
-                  <label for="upscale-overlap">Upscale Overlap</label>
+                  <label for="upscale-overlap">업스케일 겹침</label>
                   <input id="upscale-overlap" name="upscale_overlap" type="number" min="0" value="8" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
-                  <label for="vae-decode-mode">VAE Decode</label>
+                  <label for="vae-decode-mode">VAE 디코드</label>
                   <select id="vae-decode-mode" name="vae_decode_mode" form="generate-form">
-                    <option value="auto">Auto</option>
-                    <option value="tiled">Tiled</option>
-                    <option value="standard">Standard</option>
+                    <option value="auto">자동</option>
+                    <option value="tiled">타일</option>
+                    <option value="standard">표준</option>
                   </select>
                 </div>
                 <div>
-                  <label for="vae-tile-size">VAE Tile</label>
+                  <label for="vae-tile-size">VAE 타일</label>
                   <input id="vae-tile-size" name="vae_tile_size" type="number" min="1" value="64" form="generate-form">
                 </div>
               </div>
-              <label for="vae-overlap">VAE Overlap</label>
+              <label for="vae-overlap">VAE 겹침</label>
               <input id="vae-overlap" name="vae_overlap" type="number" min="0" value="8" form="generate-form">
             </details>
             <details id="face-detailer-section" class="form-section">
-              <summary>Face Detailer</summary>
+              <summary>페이스 디테일러</summary>
               <label class="toggle-switch" for="face-detailer-enabled">
                 <input id="face-detailer-enabled" name="face_detailer_enabled" type="checkbox" value="1" form="generate-form">
                 <span class="toggle-track" aria-hidden="true"></span>
                 <span class="toggle-copy">
-                  <span class="toggle-title">Enable Face Detailer</span>
+                  <span class="toggle-title">페이스 디테일러 사용</span>
                   <span class="toggle-state" aria-hidden="true"></span>
                 </span>
               </label>
-              <label for="face-detector">Face Detector</label>
+              <label for="face-detector">얼굴 감지 모델</label>
               <input id="face-detector" name="face_detector" value="default" form="generate-form">
               <div class="row">
                 <div>
-                  <label for="face-threshold">Face Threshold</label>
+                  <label for="face-threshold">얼굴 임계값</label>
                   <input id="face-threshold" name="face_threshold" type="number" min="0" max="1" step="0.01" value="0.5" form="generate-form">
                 </div>
                 <div>
-                  <label for="face-denoise">Face Denoise</label>
+                  <label for="face-denoise">얼굴 디노이즈</label>
                   <input id="face-denoise" name="face_denoise" type="number" min="0" max="1" step="0.01" value="0.28" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
-                  <label for="face-steps">Face Steps</label>
+                  <label for="face-steps">얼굴 스텝</label>
                   <input id="face-steps" name="face_steps" type="number" min="1" value="12" form="generate-form">
                 </div>
                 <div>
-                  <label for="face-crop-scale">Face Crop</label>
+                  <label for="face-crop-scale">얼굴 크롭</label>
                   <input id="face-crop-scale" name="face_crop_scale" type="number" min="0.1" step="0.05" value="1.5" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
-                  <label for="face-padding">Face Padding</label>
+                  <label for="face-padding">얼굴 패딩</label>
                   <input id="face-padding" name="face_padding" type="number" min="0" value="32" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
-                  <label for="face-feather">Face Feather</label>
+                  <label for="face-feather">얼굴 페더</label>
                   <input id="face-feather" name="face_feather" type="number" min="0" value="24" form="generate-form">
                 </div>
                 <div>
-                  <label for="face-exclude-forehead">Forehead Exclude</label>
+                  <label for="face-exclude-forehead">이마 제외</label>
                   <input id="face-exclude-forehead" name="face_exclude_forehead" type="number" min="0" max="0.75" step="0.01" value="0" form="generate-form">
                 </div>
               </div>
             </details>
           </div>
         </details>
-        <details class="control-group" data-control-group="prompt-tools">
-          <summary>Prompt Tools</summary>
-          <div class="control-group-body">
-            <section class="form-section">
-              <h2>Prompt Tools</h2>
-              <label for="wildcard-mode">Wildcard Mode</label>
-              <select id="wildcard-mode" name="wildcard_mode" form="generate-form">
-                <option value="random" selected>Random</option>
-                <option value="sequential">Sequential</option>
-                <option value="reverse">Reverse</option>
-              </select>
-              <label for="wildcard-select">Insert Wildcard</label>
-              <div class="row">
-                <select id="wildcard-select">
-                  <option value="">No wildcard files</option>
-                </select>
-                <button type="button" id="insert-wildcard" class="secondary-button">Insert</button>
-              </div>
-            </section>
-          </div>
-        </details>
         <details class="control-group" data-control-group="settings">
-          <summary>Settings</summary>
+          <summary>설정</summary>
           <div class="control-group-body">
             <section class="form-section">
-              <h2>Saved Settings</h2>
-              <label for="preset-name">Settings Name</label>
-              <input id="preset-name" placeholder="portrait draft">
-              <label for="preset-select">Saved Settings</label>
+              <h2>저장된 설정</h2>
+              <label for="preset-name">설정 이름</label>
+              <input id="preset-name" placeholder="세로 초안">
+              <label for="preset-select">저장된 설정</label>
               <select id="preset-select">
-                <option value="">No saved presets</option>
+                <option value="">저장된 프리셋 없음</option>
               </select>
               <div class="row">
-                <button type="button" id="save-preset" class="secondary-button">Save Settings</button>
-                <button type="button" id="apply-preset" class="secondary-button">Load Settings</button>
+                <button type="button" id="save-preset" class="secondary-button">설정 저장</button>
+                <button type="button" id="apply-preset" class="secondary-button">설정 불러오기</button>
               </div>
               <input id="preset-import-file" type="file" accept="application/json,.json" hidden>
               <div class="row">
-                <button type="button" id="export-presets" class="secondary-button">Export Settings</button>
-                <button type="button" id="import-presets" class="secondary-button">Import Settings</button>
+                <button type="button" id="export-presets" class="secondary-button">설정 내보내기</button>
+                <button type="button" id="import-presets" class="secondary-button">설정 가져오기</button>
               </div>
             </section>
           </div>
         </details>
       </div>
     </aside>
-    <main class="workspace-frame" aria-label="Image workspace">
+    <main class="workspace-frame" aria-label="이미지 작업 영역">
       <section class="generation-stages compact" id="generation-stages" aria-live="polite" aria-busy="false" hidden>
         <div class="stage-header">
-          <strong>Generation</strong>
-          <span id="generation-stage-summary">Idle</span>
+          <strong>생성 진행</strong>
+          <span id="generation-stage-summary">대기</span>
         </div>
         <ol class="stage-list" id="generation-stage-list"></ol>
       </section>
-      <section class="result-panel" aria-label="Current result">
+      <section class="result-panel" aria-label="현재 결과">
         <div class="result-header">
-          <h2 id="result-title">Current Result</h2>
-          <span id="result-status">Ready</span>
+          <h2 id="result-title">현재 결과</h2>
+          <span id="result-status">준비됨</span>
         </div>
         <div id="result-summary" class="result-summary"></div>
+        <div id="compare-toolbar" class="compare-toolbar" hidden>
+          <button type="button" id="toggle-compare" class="secondary-button" hidden>단계 비교</button>
+        </div>
+        <section id="compare-grid" class="compare-grid" aria-label="생성 단계 비교" hidden></section>
         <img id="preview" alt="" hidden>
         <div class="result-actions">
-          <a id="output-link" href="" hidden>Open Output</a>
-          <button type="button" id="apply-manifest" class="secondary-button">Use Current Manifest</button>
+          <a id="output-link" href="" hidden>출력 열기</a>
+          <button type="button" id="apply-manifest" class="secondary-button">이 결과 설정 불러오기</button>
         </div>
         <details class="result-json">
-          <summary>Manifest JSON</summary>
-          <pre id="result">Ready.</pre>
+          <summary>상세 생성 정보</summary>
+          <pre id="result">준비됨.</pre>
         </details>
       </section>
     </main>
-    <aside class="history-frame" aria-label="Generation history">
+    <aside class="history-frame" aria-label="생성 히스토리">
       <details class="side-status-panel" id="side-status-panel">
-        <summary>Runtime Status</summary>
-        <section class="status-panel compact" id="status-panel" aria-label="Runtime status"></section>
-        <section class="readiness-panel compact" id="readiness-panel" aria-label="Model readiness"></section>
+        <summary>런타임 상태</summary>
+        <section class="status-panel compact" id="status-panel" aria-label="런타임 상태"></section>
+        <section class="update-panel" id="update-panel" aria-label="업데이트 상태">
+          <div>
+            <strong>업데이트</strong>
+            <span id="update-status">확인 전</span>
+          </div>
+          <button type="button" id="check-update" class="secondary-button">업데이트 확인</button>
+          <a id="update-link" class="secondary-button" href="https://github.com/raspie10032/anima-app" target="_blank" rel="noreferrer">GitHub</a>
+        </section>
+        <section class="readiness-panel compact" id="readiness-panel" aria-label="모델 준비 상태"></section>
       </details>
-      <h2 class="frame-title">History</h2>
-      <section class="history-panel" aria-label="Recent generations">
+      <h2 class="frame-title">히스토리</h2>
+      <section class="history-panel" aria-label="최근 생성">
         <div class="history-header">
-          <h2>Recent</h2>
-          <span id="history-count">0 results</span>
+          <h2>최근</h2>
+          <span id="history-count">결과 0개</span>
         </div>
-        <div class="history-tabs" role="group" aria-label="History filters">
-          <button type="button" class="history-filter active" data-history-filter="all">All</button>
-          <button type="button" class="history-filter" data-history-filter="images">Images</button>
-          <button type="button" class="history-filter" data-history-filter="dry-run">Dry-run</button>
+        <div class="history-tabs" role="group" aria-label="히스토리 필터">
+          <button type="button" class="history-filter active" data-history-filter="all">전체</button>
+          <button type="button" class="history-filter" data-history-filter="images">이미지</button>
+          <button type="button" class="history-filter" data-history-filter="dry-run">드라이런</button>
         </div>
-        <section class="history" id="history" aria-label="History cards"></section>
+        <section class="history" id="history" aria-label="히스토리 카드"></section>
       </section>
     </aside>
   </div>
@@ -1169,10 +1305,16 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     const resultTitle = document.getElementById("result-title");
     const resultStatus = document.getElementById("result-status");
     const resultSummary = document.getElementById("result-summary");
+    const compareToolbar = document.getElementById("compare-toolbar");
+    const toggleCompareButton = document.getElementById("toggle-compare");
+    const compareGrid = document.getElementById("compare-grid");
     const preview = document.getElementById("preview");
     const outputLink = document.getElementById("output-link");
     const statusPanel = document.getElementById("status-panel");
     const readinessPanel = document.getElementById("readiness-panel");
+    const updateStatus = document.getElementById("update-status");
+    const checkUpdateButton = document.getElementById("check-update");
+    const updateLink = document.getElementById("update-link");
     const generationStages = document.getElementById("generation-stages");
     const generationStageList = document.getElementById("generation-stage-list");
     const generationStageSummary = document.getElementById("generation-stage-summary");
@@ -1192,12 +1334,17 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     const applyManifestButton = document.getElementById("apply-manifest");
     const wildcardSelect = document.getElementById("wildcard-select");
     const insertWildcardButton = document.getElementById("insert-wildcard");
-    const standardPresetButton = document.getElementById("preset-standard");
-    const referencePresetButton = document.getElementById("preset-reference");
+    const presetWildcardSelect = document.getElementById("preset-wildcard-select");
+    const insertPresetWildcardButton = document.getElementById("insert-preset-wildcard");
+    const previewWildcardsButton = document.getElementById("preview-wildcards");
+    const wildcardPreview = document.getElementById("wildcard-preview");
+    const startingSizeButtons = Array.from(document.querySelectorAll("[data-size-preset]"));
+    const orientationButtons = Array.from(document.querySelectorAll("[data-orientation]"));
     const referenceImageSection = document.getElementById("reference-image-section");
     const faceDetailerSection = document.getElementById("face-detailer-section");
     let presets = [];
     let currentManifest = null;
+    let compareVisible = false;
     let historyItems = [];
     let historyFilter = "all";
     let loraCatalog = [];
@@ -1208,93 +1355,30 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     let activeStageItems = [];
     let activeStageIndex = 0;
     let queueRunning = false;
-    let queueStopRequested = false;
-    let queueCompleted = 0;
-    let queueFailed = 0;
+    let serverQueuePollTimer = null;
+    let activeQueueBatchId = "";
+    let lastQueueResultManifest = "";
     const stageStateLabels = {
-      pending: "Waiting",
-      active: "Running",
-      completed: "Done",
-      skipped: "Skipped",
-      failed: "Failed"
+      pending: "대기",
+      active: "진행 중",
+      completed: "완료",
+      skipped: "건너뜀",
+      failed: "실패"
     };
     const stageVisibleStateLabels = {
       pending: "",
-      active: "Running",
+      active: "진행 중",
       completed: "",
       skipped: "",
-      failed: "Failed"
+      failed: "실패"
     };
-    const quickPresets = {
-      standard: {
-        name: "standard",
-        request: {
-          width: __DEFAULT_T2I_WIDTH__,
-          height: __DEFAULT_T2I_HEIGHT__,
-          steps: __DEFAULT_T2I_STEPS__,
-          cfg: __DEFAULT_T2I_CFG__,
-          sampler: "__DEFAULT_T2I_SAMPLER__",
-          scheduler: "__DEFAULT_T2I_SCHEDULER__",
-          i2i: {image_path: "", denoise: 0.35},
-          upscale: {
-            enabled: false,
-            scale: 1.5,
-            steps: 12,
-            denoise: 0.35,
-            method: "bicubic",
-            tiled: false,
-            tile_size: 64,
-            overlap: 8
-          },
-          vae_decode: {mode: "auto", tile_size: 64, overlap: 8},
-          face_detailer: {
-            enabled: false,
-            detector: "default",
-            threshold: 0.5,
-            crop_scale: 1.5,
-            padding: 32,
-            feather: 24,
-            exclude_forehead_ratio: 0,
-            steps: 12,
-            denoise: 0.28
-          }
-        }
-      },
-      reference_quality: {
-        name: "reference quality",
-        request: {
-          width: 768,
-          height: 1152,
-          steps: 24,
-          cfg: 3.5,
-          sampler: "euler_ancestral_cfg_pp",
-          scheduler: "sgm_uniform",
-          i2i: {image_path: "", denoise: 0.35},
-          upscale: {
-            enabled: true,
-            scale: 1.5,
-            steps: 10,
-            denoise: 0.28,
-            method: "bicubic",
-            tiled: true,
-            tile_size: 64,
-            overlap: 8
-          },
-          vae_decode: {mode: "tiled", tile_size: 96, overlap: 16},
-          face_detailer: {
-            enabled: true,
-            detector: "default",
-            threshold: 0.08,
-            crop_scale: 1.35,
-            padding: 24,
-            feather: 12,
-            exclude_forehead_ratio: 0.12,
-            steps: 4,
-            denoise: 0.10
-          }
-        }
-      }
+    const startingSizePresets = {
+      square: {width: 1024, height: 1024},
+      portrait_2x3: {width: 832, height: 1216},
+      portrait_3x4: {width: 896, height: 1152}
     };
+    let startingOrientation = "portrait";
+    let selectedStartingSize = "portrait_2x3";
     function statusCard(label, value) {
       const card = document.createElement("div");
       card.className = "status-item";
@@ -1305,11 +1389,53 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       card.append(title, body);
       return card;
     }
+    function updateStatusText(payload) {
+      if (!payload) {
+        return "확인 전";
+      }
+      if (payload.status === "update_available") {
+        return `새 버전 있음: ${payload.latest_version}`;
+      }
+      if (payload.status === "up_to_date") {
+        return `최신 상태: ${payload.current_version}`;
+      }
+      if (payload.status === "update_check_failed") {
+        return "업데이트 확인 실패";
+      }
+      if (payload.version) {
+        return `현재: ${payload.version}`;
+      }
+      return payload.error || "알 수 없음";
+    }
+    function renderUpdateStatus(payload) {
+      updateStatus.textContent = updateStatusText(payload);
+      const href = payload?.latest_url || payload?.repository_url || "https://github.com/raspie10032/anima-app";
+      updateLink.href = href;
+      updateLink.textContent = payload?.status === "update_available" ? "릴리스" : "GitHub";
+    }
+    async function checkForUpdates() {
+      const previousText = checkUpdateButton.textContent;
+      checkUpdateButton.disabled = true;
+      checkUpdateButton.textContent = "확인 중...";
+      updateStatus.textContent = "GitHub 확인 중...";
+      try {
+        const response = await fetch("/api/update-check");
+        const payload = await response.json();
+        renderUpdateStatus(payload);
+        setResultPayload(payload);
+      } catch (error) {
+        renderUpdateStatus({status: "update_check_failed", error: String(error)});
+        setResultPayload({error: String(error)});
+      } finally {
+        checkUpdateButton.textContent = previousText;
+        checkUpdateButton.disabled = false;
+      }
+    }
     function readinessActionLabel(profile) {
       if (profile.ready) {
-        return "Ready";
+        return "준비됨";
       }
-      return "Copy / Download";
+      return "복사 / 다운로드";
     }
     function renderReadiness(payload) {
       const profiles = payload.profiles || [];
@@ -1320,12 +1446,12 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         const title = document.createElement("strong");
         title.textContent = profile.label || profile.name;
         const summary = document.createElement("span");
-        summary.textContent = profile.ready ? "Ready" : `${profile.missing_count} missing`;
+        summary.textContent = profile.ready ? "준비됨" : `${profile.missing_count}개 누락`;
         const files = document.createElement("ul");
         files.className = "readiness-files";
         for (const item of profile.files || []) {
           const file = document.createElement("li");
-          file.textContent = `${item.exists ? "ok" : "missing"} ${item.relative_path}`;
+          file.textContent = `${item.exists ? "확인됨" : "누락"} ${item.relative_path}`;
           files.append(file);
         }
         const action = document.createElement("button");
@@ -1341,7 +1467,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     async function prepareModelProfile(profile, button) {
       const previousText = button.textContent;
       button.disabled = true;
-      button.textContent = "Preparing...";
+      button.textContent = "준비 중...";
       try {
         const response = await fetch("/api/models/prepare", {
           method: "POST",
@@ -1370,70 +1496,146 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     }
     function resultMode(payload) {
       if (payload?.error) {
-        return "Failed";
+        return "실패";
       }
       if (payload?.dry_run || payload?.status === "dry_run") {
-        return "Dry run";
+        return "드라이런";
       }
       if (payload?.status) {
-        return payload.status;
+        return statusLabel(payload.status);
       }
-      return "Ready";
+      return "준비됨";
+    }
+    function statusLabel(status) {
+      const labels = {
+        generated: "생성됨",
+        dry_run: "드라이런",
+        manifest_exported: "생성 정보 내보냄",
+        settings_exported: "설정 내보냄",
+        settings_saved: "설정 저장됨",
+        profile_prepared: "모델 준비 완료",
+        profile_prepare_failed: "모델 준비 실패",
+        lora_imported: "LoRA 가져오기 완료",
+        lora_import_failed: "LoRA 가져오기 실패",
+        deleted: "삭제됨",
+        unknown: "알 수 없음"
+      };
+      return labels[status] || status;
     }
     function renderResultSummary(payload = null) {
       if (!payload) {
-        resultTitle.textContent = "Current Result";
-        resultStatus.textContent = "Ready";
-        resultSummary.replaceChildren(summaryItem("Status", "Ready"));
+        resultTitle.textContent = "현재 결과";
+        resultStatus.textContent = "준비됨";
+        resultSummary.replaceChildren(summaryItem("상태", "준비됨"));
         return;
       }
       if (payload.error) {
-        resultTitle.textContent = "Request Failed";
-        resultStatus.textContent = "Failed";
-        resultSummary.replaceChildren(summaryItem("Error", payload.error));
+        resultTitle.textContent = "요청 실패";
+        resultStatus.textContent = "실패";
+        resultSummary.replaceChildren(summaryItem("오류", payload.error));
         return;
       }
-      const size = payload.width && payload.height ? `${payload.width}x${payload.height}` : "unknown";
-      const seed = payload.seed ?? "random";
-      const upscale = payload.upscale?.enabled ? `${payload.upscale.scale || 1}x${payload.upscale.tiled ? " tiled" : ""}` : "off";
-      const face = payload.face_detailer?.enabled ? `${payload.face_detailer.steps || "auto"} steps` : "off";
-      resultTitle.textContent = payload.prompt || "Current Result";
+      const size = payload.width && payload.height ? `${payload.width}x${payload.height}` : "알 수 없음";
+      const seed = payload.seed ?? "랜덤";
+      const upscale = payload.upscale?.enabled ? `${payload.upscale.scale || 1}x${payload.upscale.tiled ? " 타일" : ""}` : "꺼짐";
+      const face = payload.face_detailer?.enabled ? `${payload.face_detailer.steps || "자동"} 스텝` : "꺼짐";
+      resultTitle.textContent = payload.prompt || "현재 결과";
       resultStatus.textContent = resultMode(payload);
       const items = [
-        summaryItem("Status", resultMode(payload)),
-        summaryItem("Size", size),
-        summaryItem("Steps / CFG", `${payload.steps ?? "?"} / ${payload.cfg ?? "?"}`),
-        summaryItem("Sampler", payload.sampler || "?"),
-        summaryItem("Seed", seed)
+        summaryItem("상태", resultMode(payload)),
+        summaryItem("크기", size),
+        summaryItem("스텝 / CFG", `${payload.steps ?? "?"} / ${payload.cfg ?? "?"}`),
+        summaryItem("샘플러", payload.sampler || "?"),
+        summaryItem("시드", seed)
       ];
       if (payload.upscale?.enabled) {
-        items.push(summaryItem("Upscale", upscale));
+        items.push(summaryItem("업스케일", upscale));
       }
       if (payload.face_detailer?.enabled) {
-        items.push(summaryItem("Face Detailer", face));
+        items.push(summaryItem("페이스 디테일러", face));
       }
       resultSummary.replaceChildren(...items);
+    }
+    function variantEntries(payload = currentManifest) {
+      const variants = payload?.variants || {};
+      return [
+        {key: "original", label: "원본"},
+        {key: "upscale", label: "업스케일"},
+        {key: "face_detailer", label: "페이스 디테일러"}
+      ].map((slot) => {
+        const variant = variants[slot.key] || {};
+        return {
+          ...slot,
+          ...variant,
+          output_url: variant.output_url || "",
+          output_path: variant.output_path || ""
+        };
+      });
+    }
+    function hasCompareVariants(payload = currentManifest) {
+      return variantEntries(payload).filter((item) => item.output_url).length >= 2;
+    }
+    function renderCompareGrid(payload = currentManifest) {
+      const entries = variantEntries(payload);
+      if (!compareVisible || !hasCompareVariants(payload)) {
+        compareGrid.hidden = true;
+        compareGrid.replaceChildren();
+        return;
+      }
+      compareGrid.hidden = false;
+      compareGrid.replaceChildren(...entries.map((entry) => {
+        const cell = document.createElement("div");
+        cell.className = "compare-cell";
+        const title = document.createElement("strong");
+        title.textContent = entry.label;
+        cell.append(title);
+        if (entry.output_url) {
+          const image = document.createElement("img");
+          image.src = entry.output_url + "?t=" + Date.now();
+          image.alt = entry.label;
+          cell.append(image);
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "compare-empty";
+          empty.textContent = "생성 안 됨";
+          cell.append(empty);
+        }
+        return cell;
+      }));
+    }
+    function syncCompareControls(payload = currentManifest) {
+      const canCompare = hasCompareVariants(payload);
+      compareToolbar.hidden = !canCompare;
+      toggleCompareButton.hidden = !canCompare;
+      if (!canCompare) {
+        compareVisible = false;
+      }
+      toggleCompareButton.textContent = compareVisible ? "비교 숨기기" : "단계 비교";
+      renderCompareGrid(payload);
     }
     function setResultPayload(payload) {
       result.textContent = JSON.stringify(payload, null, 2);
       renderResultSummary(payload);
+      syncCompareControls(payload);
     }
     function setResultMessage(message) {
       result.textContent = message;
-      resultTitle.textContent = "Current Result";
+      resultTitle.textContent = "현재 결과";
       resultStatus.textContent = message;
-      resultSummary.replaceChildren(summaryItem("Status", message));
+      resultSummary.replaceChildren(summaryItem("상태", message));
+      compareVisible = false;
+      syncCompareControls(null);
     }
     function buildGenerationStages(data) {
       return [
-        {key: "request", label: "Request"},
-        {key: "wildcards", label: "Prompt / Wildcards"},
-        {key: "text_encode", label: "Text Encode"},
-        {key: "base_t2i", label: "Base Render"},
-        {key: "high_res_fix", label: "High-res / Upscale", optional: !data.upscale?.enabled},
-        {key: "vae_decode", label: "VAE Decode"},
-        {key: "face_detailer", label: "Face Detailer", optional: !data.face_detailer?.enabled},
-        {key: "metadata", label: "Save Metadata"}
+        {key: "request", label: "요청"},
+        {key: "wildcards", label: "프롬프트 / 와일드카드"},
+        {key: "text_encode", label: "텍스트 인코드"},
+        {key: "base_t2i", label: "기본 렌더"},
+        {key: "high_res_fix", label: "고해상도 / 업스케일", optional: !data.upscale?.enabled},
+        {key: "vae_decode", label: "VAE 디코드"},
+        {key: "face_detailer", label: "페이스 디테일러", optional: !data.face_detailer?.enabled},
+        {key: "metadata", label: "메타데이터 저장"}
       ];
     }
     function nextRunnableStageIndex(items, index) {
@@ -1469,7 +1671,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       }
       generationStages.hidden = false;
       generationStages.setAttribute("aria-busy", finalState === "running" ? "true" : "false");
-      generationStageSummary.textContent = finalState === "running" ? "Working" : (finalState === "failed" ? (message ? `Failed: ${message}` : "Failed") : "");
+      generationStageSummary.textContent = finalState === "running" ? "작업 중" : (finalState === "failed" ? (message ? `실패: ${message}` : "실패") : "");
       generationStageList.replaceChildren(...items.map((item, index) => {
         let state = "pending";
         if (manifestStages) {
@@ -1587,7 +1789,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     }
     function setSelectValue(select, value) {
       if (value && ![...select.options].some((option) => option.value === value)) {
-        select.add(new Option(`${value} (missing)`, value));
+        select.add(new Option(`${value} (누락)`, value));
       }
       select.value = value || "";
     }
@@ -1608,7 +1810,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     }
     function renderLoraSelectOptions(select, selectedPath = "") {
       select.replaceChildren(
-        new Option("None", ""),
+        new Option("없음", ""),
         ...loraCatalog.map((item) => new Option(item.relative_path, item.relative_path))
       );
       setSelectValue(select, selectedPath);
@@ -1630,27 +1832,27 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       selectLabel.textContent = "LoRA";
       const select = document.createElement("select");
       select.className = "lora-path";
-      select.setAttribute("aria-label", "LoRA path");
+      select.setAttribute("aria-label", "LoRA 경로");
       renderLoraSelectOptions(select, config.path || "");
       selectWrap.append(selectLabel, select);
 
       const strengthWrap = document.createElement("div");
       const strengthLabel = document.createElement("label");
-      strengthLabel.textContent = "Strength";
+      strengthLabel.textContent = "강도";
       const strength = document.createElement("input");
       strength.className = "lora-strength";
       strength.type = "number";
       strength.min = "0";
       strength.step = "0.05";
       strength.value = config.model_strength ?? config.strength ?? 1;
-      strength.setAttribute("aria-label", "LoRA strength");
+      strength.setAttribute("aria-label", "LoRA 강도");
       strengthWrap.append(strengthLabel, strength);
 
       const remove = document.createElement("button");
       remove.type = "button";
       remove.className = "secondary-button";
       remove.dataset.removeLora = "1";
-      remove.textContent = "Remove";
+      remove.textContent = "삭제";
       remove.addEventListener("click", () => {
         row.remove();
         if (!loraList.querySelector(".lora-row")) {
@@ -1683,34 +1885,37 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       syncLoraRemoveButtons();
     }
     async function loadStatus() {
-      const [healthResponse, loraResponse, checkpointResponse, readinessResponse] = await Promise.all([
+      const [healthResponse, loraResponse, checkpointResponse, readinessResponse, versionResponse] = await Promise.all([
         fetch("/api/health"),
         fetch("/api/loras"),
         fetch("/api/checkpoints"),
-        fetch("/api/readiness")
+        fetch("/api/readiness"),
+        fetch("/api/version")
       ]);
       const health = await healthResponse.json();
       const loras = await loraResponse.json();
       const checkpoints = await checkpointResponse.json();
       const readiness = await readinessResponse.json();
+      const version = await versionResponse.json();
       const selectedCheckpoint = checkpointSelect.value;
       const currentLoraRows = loraRowConfigs();
       renderCheckpointOptions(checkpoints, selectedCheckpoint);
       loraCatalog = loras.items || [];
       setLoraRows(currentLoraRows.length ? currentLoraRows : [{}]);
       statusPanel.replaceChildren(
-        statusCard("Model", health.models.ready ? "ready" : `${health.models.missing.length} missing`),
-        statusCard("Checkpoints", `${checkpoints.count} local`),
-        statusCard("LoRA", `${loras.count} available`),
-        statusCard("Output", health.outputs.image_root)
+        statusCard("모델", health.models.ready ? "준비됨" : `${health.models.missing.length}개 누락`),
+        statusCard("체크포인트", `${checkpoints.count}개 로컬`),
+        statusCard("LoRA", `${loras.count}개 사용 가능`),
+        statusCard("출력", health.outputs.image_root)
       );
+      renderUpdateStatus(version);
       renderReadiness(readiness);
     }
     function historyType(item) {
       return item.output_url ? "images" : "dry-run";
     }
     function historyTypeLabel(item) {
-      return item.output_url ? "Image" : "Dry-run";
+      return item.output_url ? "이미지" : "드라이런";
     }
     function filteredHistoryItems() {
       if (historyFilter === "all") {
@@ -1732,18 +1937,18 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       } else {
         const placeholder = document.createElement("div");
         placeholder.className = "history-thumb history-thumb-empty";
-        placeholder.textContent = "Manifest";
+        placeholder.textContent = "생성 정보";
         card.append(placeholder);
       }
       const body = document.createElement("div");
       body.className = "history-card-body";
       const title = document.createElement("strong");
-      title.textContent = item.prompt || "(empty prompt)";
+      title.textContent = item.prompt || "(빈 프롬프트)";
       const type = document.createElement("span");
       type.className = "history-type";
       type.textContent = historyTypeLabel(item);
       const meta = document.createElement("span");
-      meta.textContent = `${item.status || "unknown"} / ${item.output_url || "manifest only"}`;
+      meta.textContent = `${statusLabel(item.status || "unknown")} / ${item.output_url || "이미지 없음"}`;
       body.append(title, type, meta);
       card.append(body);
       const actions = document.createElement("div");
@@ -1752,8 +1957,8 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       const manifestButton = document.createElement("button");
       manifestButton.type = "button";
       manifestButton.className = "history-action";
-      manifestButton.textContent = "Manifest";
-      manifestButton.title = "Open manifest details";
+      manifestButton.textContent = "상세";
+      manifestButton.title = "생성 정보 보기";
       manifestButton.addEventListener("click", () => openManifest(manifestName));
       actions.append(manifestButton);
       if (item.output_url) {
@@ -1762,30 +1967,30 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         openOutput.href = item.output_url;
         openOutput.target = "_blank";
         openOutput.rel = "noopener";
-        openOutput.textContent = "Open";
-        openOutput.title = "Open output image";
+        openOutput.textContent = "열기";
+        openOutput.title = "출력 이미지 열기";
         actions.append(openOutput);
       }
       const exportButton = document.createElement("button");
       exportButton.type = "button";
       exportButton.className = "history-action";
-      exportButton.textContent = "Export";
-      exportButton.title = "Download manifest JSON";
+      exportButton.textContent = "내보내기";
+      exportButton.title = "생성 정보 JSON 다운로드";
       exportButton.addEventListener("click", () => exportManifest(manifestName));
       actions.append(exportButton);
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
       deleteButton.className = "history-action danger";
-      deleteButton.textContent = "Delete";
-      deleteButton.title = "Delete manifest and managed output image";
+      deleteButton.textContent = "삭제";
+      deleteButton.title = "생성 정보와 관리 출력 이미지 삭제";
       deleteButton.addEventListener("click", () => deleteHistoryItem(manifestName));
       actions.append(deleteButton);
       card.append(actions);
-      card.addEventListener("click", () => openManifest(manifestName));
+      card.addEventListener("click", () => openManifest(manifestName, {showCompare: false}));
       card.addEventListener("keydown", (event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          openManifest(manifestName);
+          openManifest(manifestName, {showCompare: false});
         }
       });
       return card;
@@ -1795,11 +2000,11 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       historyFilters.forEach((button) => {
         button.classList.toggle("active", button.dataset.historyFilter === historyFilter);
       });
-      historyCount.textContent = `${visibleItems.length} / ${historyItems.length} shown`;
+      historyCount.textContent = `${visibleItems.length} / ${historyItems.length} 표시`;
       if (!visibleItems.length) {
         const empty = document.createElement("div");
         empty.className = "history-empty";
-        empty.textContent = "No matching history yet.";
+        empty.textContent = "아직 표시할 히스토리가 없습니다.";
         history.replaceChildren(empty);
         return;
       }
@@ -1811,15 +2016,17 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       historyItems = payload.items || [];
       renderHistory();
     }
-    async function openManifest(name) {
+    async function openManifest(name, options = {}) {
       const response = await fetch("/api/manifests/" + encodeURIComponent(name));
       const payload = await response.json();
       currentManifest = payload;
+      compareVisible = Boolean(options.showCompare);
       setResultPayload(payload);
       clearOutputPreview();
       if (payload.output_url) {
         showOutputPreview(payload.output_url);
       }
+      syncCompareControls(payload);
     }
     async function exportManifest(name) {
       const response = await fetch("/api/manifests/" + encodeURIComponent(name));
@@ -1840,7 +2047,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       setResultPayload({status: "manifest_exported", filename: name});
     }
     async function deleteHistoryItem(name) {
-      if (!window.confirm(`Delete ${name} and its managed output image if present?`)) {
+      if (!window.confirm(`${name} 생성 기록과 연결된 출력 이미지를 삭제할까요?`)) {
         return;
       }
       const response = await fetch("/api/manifests/" + encodeURIComponent(name), {method: "DELETE"});
@@ -1861,7 +2068,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       const payload = await response.json();
       presets = payload.items || [];
       presetSelect.replaceChildren(
-        new Option(presets.length ? "Select preset" : "No saved presets", ""),
+        new Option(presets.length ? "프리셋 선택" : "저장된 프리셋 없음", ""),
         ...presets.map((item) => new Option(item.name, item.slug))
       );
     }
@@ -1907,13 +2114,23 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       const response = await fetch("/api/wildcards");
       const payload = await response.json();
       const items = payload.items || [];
+      const presets = payload.presets || [];
       wildcardSelect.replaceChildren(
-        new Option(items.length ? "Select wildcard" : "No wildcard files", ""),
+        new Option(items.length ? "와일드카드 선택" : "와일드카드 파일 없음", ""),
         ...items.map((item) => new Option(`${item.name} (${item.value_count})`, item.token))
+      );
+      presetWildcardSelect.replaceChildren(
+        new Option(presets.length ? "프리셋 선택" : "프롬프트 프리셋 없음", ""),
+        ...presets.map((item) => new Option(`${item.name} (${item.value_count})`, item.token))
       );
     }
     function insertWildcard() {
-      const token = wildcardSelect.value;
+      insertTokenAtPrompt(wildcardSelect.value);
+    }
+    function insertPresetWildcard() {
+      insertTokenAtPrompt(presetWildcardSelect.value);
+    }
+    function insertTokenAtPrompt(token) {
       if (!token) {
         return;
       }
@@ -1932,6 +2149,44 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       const prefix = before.trim().length ? (before.trimEnd().endsWith(",") ? " " : ", ") : "";
       const suffix = after.trim().length ? (after.trimStart().startsWith(",") ? " " : ", ") : ",";
       return `${prefix}${token}${suffix}`;
+    }
+    function renderWildcardPreview(payload) {
+      const lines = [];
+      if (payload.error) {
+        lines.push(`오류: ${payload.error}`);
+      }
+      lines.push("프롬프트:");
+      lines.push(payload.prompt || "");
+      if (payload.negative_prompt) {
+        lines.push("");
+        lines.push("네거티브:");
+        lines.push(payload.negative_prompt);
+      }
+      lines.push("");
+      lines.push(`선택: ${payload.selection_count || 0}`);
+      (payload.selections || []).forEach((item, index) => {
+        const label = item.wildcard || item.type || "항목";
+        const value = item.expanded_value || item.value || "";
+        lines.push(`${index + 1}. ${label}: ${value}`);
+      });
+      wildcardPreview.textContent = lines.join("\\n");
+      wildcardPreview.hidden = false;
+    }
+    async function previewWildcards() {
+      previewWildcardsButton.disabled = true;
+      try {
+        const response = await fetch("/api/wildcards/preview", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(buildRequestData())
+        });
+        const payload = await response.json();
+        renderWildcardPreview(payload);
+      } catch (error) {
+        renderWildcardPreview({error: String(error), prompt: form.elements.prompt.value, selection_count: 0, selections: []});
+      } finally {
+        previewWildcardsButton.disabled = false;
+      }
     }
     function buildRequestData() {
       const data = Object.fromEntries(new FormData(form).entries());
@@ -2054,24 +2309,34 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       setLoraRows(request.loras || []);
       presetName.value = item.name || "";
     }
-    function applyQuickPreset(key) {
-      const preset = quickPresets[key];
+    function applyStartingSizePreset(key) {
+      const preset = startingSizePresets[key];
       if (!preset) {
         return;
       }
-      const current = buildRequestData();
-      const fallbackPrompt = form.elements.prompt.defaultValue;
-      const fallbackNegativePrompt = form.elements.negative_prompt.defaultValue;
-      const request = {
-        prompt: current.prompt.trim() ? current.prompt : fallbackPrompt,
-        negative_prompt: current.negative_prompt.trim() ? current.negative_prompt : fallbackNegativePrompt,
-        wildcard_mode: current.wildcard_mode,
-        seed: current.seed,
-        checkpoint: current.checkpoint || "__DEFAULT_T2I_CHECKPOINT__",
-        loras: current.loras || [],
-        ...preset.request
-      };
-      applyPreset({name: preset.name, request});
+      selectedStartingSize = key;
+      const landscape = startingOrientation === "landscape" && preset.width !== preset.height;
+      form.elements.width.value = landscape ? preset.height : preset.width;
+      form.elements.height.value = landscape ? preset.width : preset.height;
+      syncStartingPointButtons();
+    }
+    function applyStartingOrientation(orientation) {
+      startingOrientation = orientation === "landscape" ? "landscape" : "portrait";
+      const currentWidth = Number(form.elements.width.value || 0);
+      const currentHeight = Number(form.elements.height.value || 0);
+      if (currentWidth && currentHeight && currentWidth !== currentHeight) {
+        form.elements.width.value = startingOrientation === "landscape" ? Math.max(currentWidth, currentHeight) : Math.min(currentWidth, currentHeight);
+        form.elements.height.value = startingOrientation === "landscape" ? Math.min(currentWidth, currentHeight) : Math.max(currentWidth, currentHeight);
+      }
+      syncStartingPointButtons();
+    }
+    function syncStartingPointButtons() {
+      startingSizeButtons.forEach((button) => {
+        button.classList.toggle("is-selected", button.dataset.sizePreset === selectedStartingSize);
+      });
+      orientationButtons.forEach((button) => {
+        button.classList.toggle("is-selected", button.dataset.orientation === startingOrientation);
+      });
     }
     function applyManifest() {
       if (currentManifest) {
@@ -2086,14 +2351,11 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       return Boolean(queueInfiniteInput.checked);
     }
     function queueTotalLabel(total) {
-      return total === null ? "infinity" : String(total);
+      return total === null ? "무한" : String(total);
     }
-    function queueDelayMs() {
+    function queueDelaySeconds() {
       const value = Number(queueDelayInput.value || 0);
-      return Math.max(0, Math.min(60, Number.isFinite(value) ? value : 0)) * 1000;
-    }
-    function sleep(ms) {
-      return new Promise((resolve) => window.setTimeout(resolve, ms));
+      return Math.max(0, Math.min(60, Number.isFinite(value) ? value : 0));
     }
     function setQueueStatus(message) {
       queueStatus.textContent = message;
@@ -2108,21 +2370,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       stopQueueButton.disabled = !running;
       generateButton.disabled = running;
     }
-    function queueSeedForIndex(baseSeed, index, originalSeedProvided) {
-      const mode = queueSeedMode.value;
-      if (mode === "random") {
-        return Math.floor(Math.random() * 2147483647);
-      }
-      if (mode === "increment") {
-        const seed = Number.isFinite(baseSeed) ? baseSeed : Math.floor(Date.now() % 2147483647);
-        return seed + index;
-      }
-      if (mode === "fixed" && originalSeedProvided && Number.isFinite(baseSeed)) {
-        return baseSeed;
-      }
-      return null;
-    }
-    async function submitGenerateRequest(data, message = "Generating...") {
+    async function submitGenerateRequest(data, message = "생성 중...") {
       const progressId = createProgressId();
       data.progress_id = progressId;
       currentManifest = null;
@@ -2161,25 +2409,120 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         return {ok: false, payload};
       }
     }
-    async function runQueuedGenerate(baseData, index, total, baseSeed, originalSeedProvided) {
-      const data = JSON.parse(JSON.stringify(baseData));
-      const seed = queueSeedForIndex(baseSeed, index, originalSeedProvided);
-      if (seed === null) {
-        delete data.seed;
-      } else {
-        data.seed = seed;
+    function stopServerQueuePolling() {
+      if (serverQueuePollTimer) {
+        window.clearInterval(serverQueuePollTimer);
+        serverQueuePollTimer = null;
       }
-      const totalLabel = queueTotalLabel(total);
-      setQueueStatus(`Running ${index + 1} / ${totalLabel}...`);
-      const result = await submitGenerateRequest(data, `Queue ${index + 1} / ${totalLabel} generating...`);
-      if (result.ok) {
-        queueCompleted += 1;
-      } else {
-        queueFailed += 1;
+    }
+    function jobsForActiveBatch(payload) {
+      const items = payload.items || [];
+      if (!activeQueueBatchId) {
+        return items;
       }
-      const remaining = total === null ? "infinity" : Math.max(0, total - index - 1);
-      setQueueStatus(`Done ${queueCompleted}, failed ${queueFailed}, remaining ${remaining}`);
-      return result;
+      return items.filter((item) => item.batch_id === activeQueueBatchId);
+    }
+    function queueSummaryForJobs(items) {
+      const summary = {queued: 0, waiting: 0, running: 0, completed: 0, failed: 0, cancelled: 0};
+      items.forEach((item) => {
+        if (Object.prototype.hasOwnProperty.call(summary, item.status)) {
+          summary[item.status] += 1;
+        }
+      });
+      return summary;
+    }
+    function queueIsSettled(items) {
+      return items.length > 0 && !items.some((item) => ["queued", "waiting", "running"].includes(item.status));
+    }
+    function renderServerQueueStatus(payload) {
+      const items = jobsForActiveBatch(payload);
+      const summary = queueSummaryForJobs(items);
+      const active = items.find((item) => item.status === "running") || items.find((item) => item.status === "waiting") || items.find((item) => item.status === "queued");
+      const total = items.length;
+      setQueueStatus(`등록 ${summary.queued}, 대기 ${summary.waiting}, 실행 ${summary.running}, 완료 ${summary.completed}, 실패 ${summary.failed}, 취소 ${summary.cancelled}`);
+      if (active?.progress_id && active.status === "running" && active.progress_id !== activeProgressId) {
+        startStageProgress(buildGenerationStages(active.request || {}));
+        startProgressPolling(active.progress_id);
+      }
+      return {items, summary, total};
+    }
+    async function showLatestQueueResult(items) {
+      const latest = [...items].reverse().find((item) => item.result && ["completed", "failed"].includes(item.status));
+      if (!latest?.result) {
+        return;
+      }
+      const manifestPath = latest.result.manifest_path || "";
+      if (manifestPath && manifestPath === lastQueueResultManifest) {
+        return;
+      }
+      lastQueueResultManifest = manifestPath;
+      setResultPayload(latest.result);
+      if (latest.result.manifest_path) {
+        const manifestName = latest.result.manifest_path.split(/[\\/]/).pop();
+        if (manifestName) {
+          await openManifest(manifestName);
+        }
+      } else if (latest.result.output_url) {
+        showOutputPreview(latest.result.output_url);
+      }
+      await loadStatus();
+      await loadHistory();
+    }
+    async function pollServerQueue() {
+      const response = await fetch("/api/jobs", {cache: "no-store"});
+      const payload = await response.json();
+      if (!response.ok) {
+        setQueueStatus(payload.error || "큐 상태 확인 실패");
+        return;
+      }
+      const rendered = renderServerQueueStatus(payload);
+      await showLatestQueueResult(rendered.items);
+      if (queueRunning && queueIsSettled(rendered.items)) {
+        setQueueControlsRunning(false);
+        queueRunning = false;
+        stopServerQueuePolling();
+        const failed = rendered.summary.failed;
+        const cancelled = rendered.summary.cancelled;
+        setQueueStatus(`큐 완료. 완료 ${rendered.summary.completed}, 실패 ${failed}, 취소 ${cancelled}.`);
+        if (!activeProgressId) {
+          finishGenerationStages({}, failed ? "failed" : "completed", failed ? "하나 이상의 작업 실패" : "");
+        }
+      }
+    }
+    function startServerQueuePolling() {
+      stopServerQueuePolling();
+      pollServerQueue().catch((error) => setQueueStatus(String(error)));
+      serverQueuePollTimer = window.setInterval(() => {
+        pollServerQueue().catch((error) => setQueueStatus(String(error)));
+      }, 900);
+    }
+    async function enqueueServerJobs(baseData, total, infinite) {
+      const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          request: baseData,
+          count: total || 1,
+          infinite,
+          seed_mode: queueSeedMode.value,
+          delay_seconds: queueDelaySeconds()
+        })
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || "큐 등록 실패");
+      }
+      activeQueueBatchId = payload.batch_id || "";
+      lastQueueResultManifest = "";
+      return payload;
+    }
+    async function cancelServerJob(jobId) {
+      const response = await fetch("/api/jobs/" + encodeURIComponent(jobId) + "/cancel", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: "{}"
+      });
+      return response.json();
     }
     async function startAutoQueue() {
       if (queueRunning) {
@@ -2187,43 +2530,37 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       }
       const infinite = queueIsInfinite();
       const total = infinite ? null : queueCount();
-      const delay = queueDelayMs();
       const baseData = buildRequestData();
-      const originalSeedProvided = Object.prototype.hasOwnProperty.call(baseData, "seed");
-      const baseSeed = originalSeedProvided ? Number(baseData.seed) : null;
-      queueCompleted = 0;
-      queueFailed = 0;
-      queueStopRequested = false;
       setQueueControlsRunning(true);
-      setQueueStatus(infinite ? "Queued infinity mode" : `Queued ${total} jobs`);
+      clearOutputPreview();
+      setResultMessage(infinite ? "무한 큐 준비 중..." : `${total}개 작업 큐 등록 중...`);
+      startStageProgress(buildGenerationStages(baseData));
       try {
-        let index = 0;
-        while (!queueStopRequested && (infinite || index < total)) {
-          if (queueStopRequested) {
-            break;
-          }
-          await runQueuedGenerate(baseData, index, total, baseSeed, originalSeedProvided);
-          index += 1;
-          const hasNext = infinite || index < total;
-          if (!queueStopRequested && hasNext && delay > 0) {
-            setQueueStatus(`Waiting ${delay / 1000}s before ${index + 1} / ${queueTotalLabel(total)}...`);
-            await sleep(delay);
-          }
-        }
-      } finally {
-        const stopped = queueStopRequested;
+        const queued = await enqueueServerJobs(baseData, total, infinite);
+        setQueueStatus(infinite ? "서버 큐 실행 중: 무한 모드" : `서버 큐 ${queued.count} / ${queueTotalLabel(total)}개 등록됨`);
+        startServerQueuePolling();
+      } catch (error) {
         setQueueControlsRunning(false);
-        queueStopRequested = false;
-        setQueueStatus(stopped ? `Stopped. Done ${queueCompleted}, failed ${queueFailed}.` : `Queue complete. Done ${queueCompleted}, failed ${queueFailed}.`);
+        finishGenerationStages({}, "failed", String(error));
+        setResultPayload({error: String(error)});
+        setQueueStatus(String(error));
       }
     }
-    function stopAutoQueue() {
+    async function stopAutoQueue() {
       if (!queueRunning) {
         return;
       }
-      queueStopRequested = true;
       stopQueueButton.disabled = true;
-      setQueueStatus("Stopping after current job...");
+      setQueueStatus("서버 큐 정지 중...");
+      try {
+        const response = await fetch("/api/jobs", {cache: "no-store"});
+        const payload = await response.json();
+        const jobs = jobsForActiveBatch(payload).filter((item) => ["queued", "waiting", "running"].includes(item.status));
+        await Promise.all(jobs.map((item) => cancelServerJob(item.id)));
+        await pollServerQueue();
+      } catch (error) {
+        setQueueStatus(String(error));
+      }
     }
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
@@ -2232,7 +2569,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       }
       const button = generateButton;
       button.disabled = true;
-      await submitGenerateRequest(buildRequestData(), "Generating...");
+      await submitGenerateRequest(buildRequestData(), "생성 중...");
       button.disabled = false;
     });
     savePresetButton.addEventListener("click", async () => {
@@ -2256,15 +2593,27 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     exportPresetsButton.addEventListener("click", exportPresets);
     importPresetsButton.addEventListener("click", () => presetImportFile.click());
     presetImportFile.addEventListener("change", () => importPresetsFromFile(presetImportFile.files[0]));
-    standardPresetButton.addEventListener("click", () => applyQuickPreset("standard"));
-    referencePresetButton.addEventListener("click", () => applyQuickPreset("reference_quality"));
+    startingSizeButtons.forEach((button) => {
+      button.addEventListener("click", () => applyStartingSizePreset(button.dataset.sizePreset || ""));
+    });
+    orientationButtons.forEach((button) => {
+      button.addEventListener("click", () => applyStartingOrientation(button.dataset.orientation || "portrait"));
+    });
+    syncStartingPointButtons();
     applyManifestButton.addEventListener("click", applyManifest);
+    toggleCompareButton.addEventListener("click", () => {
+      compareVisible = !compareVisible;
+      syncCompareControls(currentManifest);
+    });
     insertWildcardButton.addEventListener("click", insertWildcard);
+    insertPresetWildcardButton.addEventListener("click", insertPresetWildcard);
+    previewWildcardsButton.addEventListener("click", previewWildcards);
+    checkUpdateButton.addEventListener("click", checkForUpdates);
     addLoraButton.addEventListener("click", () => addLoraRow());
     startQueueButton.addEventListener("click", () => {
       startAutoQueue().catch((error) => {
         setQueueControlsRunning(false);
-        setQueueStatus(`Queue failed: ${String(error)}`);
+        setQueueStatus(`큐 실패: ${String(error)}`);
         setResultPayload({error: String(error)});
       });
     });
@@ -2327,14 +2676,14 @@ INDEX_HTML = (
 
 _PROGRESS_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,96}$")
 _PROGRESS_STAGE_LABELS = {
-    "request": "Request",
-    "wildcards": "Prompt / Wildcards",
-    "text_encode": "Text Encode",
-    "base_t2i": "Base Render",
-    "high_res_fix": "High-res / Upscale",
-    "vae_decode": "VAE Decode",
-    "face_detailer": "Face Detailer",
-    "metadata": "Save Metadata",
+    "request": "요청",
+    "wildcards": "프롬프트 / 와일드카드",
+    "text_encode": "텍스트 인코드",
+    "base_t2i": "기본 렌더",
+    "high_res_fix": "고해상도 / 업스케일",
+    "vae_decode": "VAE 디코드",
+    "face_detailer": "페이스 디테일러",
+    "metadata": "메타데이터 저장",
 }
 _PROGRESS_STAGE_ORDER = tuple(_PROGRESS_STAGE_LABELS)
 
@@ -2351,7 +2700,7 @@ class ProgressStore:
             self._items[progress_id] = {
                 "progress_id": progress_id,
                 "status": "running",
-                "summary": "Starting",
+                "summary": "시작 중",
                 "stages": _initial_progress_stages(payload),
                 "result": None,
                 "error": "",
@@ -2383,7 +2732,7 @@ class ProgressStore:
             if item is None:
                 return
             item["status"] = "completed"
-            item["summary"] = "Complete"
+            item["summary"] = "완료"
             item["result"] = copy.deepcopy(result)
             item["stages"] = _completed_progress_stages(item["stages"], result.get("stages", {}))
             item["updated_at"] = time.time()
@@ -2394,7 +2743,7 @@ class ProgressStore:
             if item is None:
                 return
             item["status"] = "failed"
-            item["summary"] = f"Failed: {error}"
+            item["summary"] = f"실패: {error}"
             item["error"] = error
             for key, stage in item["stages"].items():
                 if stage.get("status") in {"active", "pending"}:
@@ -2412,6 +2761,339 @@ class ProgressStore:
         oldest = sorted(self._items.items(), key=lambda pair: pair[1].get("updated_at", 0))
         for key, _ in oldest[: len(self._items) - self._max_entries]:
             self._items.pop(key, None)
+
+
+_JOB_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,96}$")
+_QUEUE_RANDOM = random.SystemRandom()
+
+
+class JobQueue:
+    def __init__(
+        self,
+        *,
+        paths: AppPaths,
+        renderer: T2IRenderer | None,
+        default_dry_run: bool,
+        progress_store: ProgressStore,
+        generation_lock: threading.Lock,
+        max_entries: int = 128,
+    ) -> None:
+        self._paths = paths
+        self._renderer = renderer
+        self._default_dry_run = default_dry_run
+        self._progress_store = progress_store
+        self._generation_lock = generation_lock
+        self._max_entries = max_entries
+        self._jobs: dict[str, dict[str, Any]] = {}
+        self._order: list[str] = []
+        self._pending: deque[str] = deque()
+        self._batches: dict[str, dict[str, Any]] = {}
+        self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
+        self._id_lock = threading.Lock()
+        self._counter = 0
+        self._closed = False
+        self._worker = threading.Thread(target=self._worker_loop, name="anima-job-queue", daemon=True)
+        self._worker.start()
+
+    def close(self) -> None:
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
+
+    def enqueue(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        request = payload.get("request", payload)
+        if not isinstance(request, dict):
+            return HTTPStatus.BAD_REQUEST, {"error": "job request must be an object"}
+        count = _bounded_job_count(payload.get("count", 1))
+        infinite = bool(payload.get("infinite", payload.get("queue_infinite", False)))
+        seed_mode = str(payload.get("seed_mode", payload.get("queue_seed_mode", "increment"))).strip().lower()
+        if seed_mode not in {"fixed", "increment", "random"}:
+            return HTTPStatus.BAD_REQUEST, {"error": "seed_mode must be fixed, increment, or random"}
+        delay_seconds = _bounded_queue_delay(payload.get("delay_seconds", payload.get("delay", 0)))
+        base_seed = _optional_queue_seed(request.get("seed"))
+        base_seed_provided = "seed" in request and base_seed is not None
+        batch_id = self._new_id("batch")
+        created: list[dict[str, Any]] = []
+        with self._condition:
+            self._batches[batch_id] = {
+                "id": batch_id,
+                "infinite": infinite,
+                "stopped": False,
+                "base_request": copy.deepcopy(request),
+                "seed_mode": seed_mode,
+                "base_seed": base_seed,
+                "base_seed_provided": base_seed_provided,
+                "delay_seconds": delay_seconds,
+                "next_index": 0,
+            }
+            total = 1 if infinite else count
+            for index in range(total):
+                created.append(self._append_batch_job_locked(batch_id, index, delay_seconds if index > 0 else 0))
+            self._batches[batch_id]["next_index"] = total
+            self._prune_locked()
+            self._condition.notify_all()
+        response = {
+            "status": "queued",
+            "batch_id": batch_id,
+            "count": len(created),
+            "infinite": infinite,
+            "jobs": created,
+        }
+        response["summary"] = self.summary()
+        return HTTPStatus.ACCEPTED, response
+
+    def list(self) -> dict[str, Any]:
+        with self._lock:
+            items = [self._public_job_locked(self._jobs[job_id]) for job_id in self._order if job_id in self._jobs]
+        return {"count": len(items), "items": items, "summary": self.summary()}
+
+    def get(self, job_id: str) -> tuple[int, dict[str, Any]]:
+        job_id = _job_id_from_path(job_id)
+        if not _JOB_ID_RE.match(job_id):
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid job id"}
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return HTTPStatus.NOT_FOUND, {"error": "job not found"}
+            return HTTPStatus.OK, self._public_job_locked(job)
+
+    def cancel(self, job_id: str) -> tuple[int, dict[str, Any]]:
+        job_id = _job_id_from_path(job_id)
+        if not _JOB_ID_RE.match(job_id):
+            return HTTPStatus.BAD_REQUEST, {"error": "invalid job id"}
+        interrupt_requested = False
+        with self._condition:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return HTTPStatus.NOT_FOUND, {"error": "job not found"}
+            batch = self._batches.get(str(job.get("batch_id")))
+            if batch is not None:
+                batch["stopped"] = True
+            if job["status"] in {"queued", "waiting"}:
+                job["status"] = "cancelled"
+                job["cancel_requested"] = True
+                job["updated_at"] = time.time()
+            elif job["status"] == "running":
+                job["cancel_requested"] = True
+                job["updated_at"] = time.time()
+                interrupt_requested = _set_runtime_interrupt(True)
+            response = self._public_job_locked(job)
+            response["interrupt_requested"] = interrupt_requested
+            self._condition.notify_all()
+        return HTTPStatus.OK, {"status": response["status"], "job": response}
+
+    def summary(self) -> dict[str, int]:
+        counts = {"queued": 0, "waiting": 0, "running": 0, "completed": 0, "failed": 0, "cancelled": 0}
+        with self._lock:
+            for job in self._jobs.values():
+                status = str(job.get("status", ""))
+                if status in counts:
+                    counts[status] += 1
+        return counts
+
+    def _worker_loop(self) -> None:
+        while True:
+            job = self._next_job()
+            if job is None:
+                return
+            if not self._wait_before_run(job):
+                continue
+            self._run_job(job)
+
+    def _next_job(self) -> dict[str, Any] | None:
+        with self._condition:
+            while not self._closed and not self._pending:
+                self._condition.wait()
+            if self._closed:
+                return None
+            job_id = self._pending.popleft()
+            job = self._jobs.get(job_id)
+            if job is None or job.get("status") == "cancelled":
+                return {}
+            job["status"] = "waiting" if job.get("delay_seconds", 0) > 0 else "running"
+            job["started_at"] = time.time() if job["status"] == "running" else None
+            job["updated_at"] = time.time()
+            return copy.deepcopy(job)
+
+    def _wait_before_run(self, job: dict[str, Any]) -> bool:
+        if not job:
+            return False
+        delay_seconds = float(job.get("delay_seconds", 0) or 0)
+        job_id = str(job["id"])
+        if delay_seconds <= 0:
+            return True
+        deadline = time.time() + delay_seconds
+        with self._condition:
+            while time.time() < deadline:
+                current = self._jobs.get(job_id)
+                if current is None or current.get("status") == "cancelled" or current.get("cancel_requested"):
+                    return False
+                self._condition.wait(timeout=min(0.1, deadline - time.time()))
+            current = self._jobs.get(job_id)
+            if current is None or current.get("status") == "cancelled" or current.get("cancel_requested"):
+                return False
+            current["status"] = "running"
+            current["started_at"] = time.time()
+            current["updated_at"] = time.time()
+        return True
+
+    def _run_job(self, job: dict[str, Any]) -> None:
+        job_id = str(job["id"])
+        payload = copy.deepcopy(job["request"])
+        payload["progress_id"] = str(job.get("progress_id", job_id))
+        _set_runtime_interrupt(False)
+        try:
+            with self._generation_lock:
+                status, response = handle_generate(
+                    payload,
+                    paths=self._paths,
+                    renderer=self._renderer,
+                    default_dry_run=self._default_dry_run,
+                    progress_store=self._progress_store,
+                )
+        except BaseException as exc:
+            if exc.__class__.__name__ == "InterruptProcessingException":
+                status = 499
+                response = {"error": "generation interrupted"}
+            else:
+                status = 500
+                response = {"error": str(exc)}
+        finally:
+            _set_runtime_interrupt(False)
+        self._finish_job(job_id, int(status), response)
+
+    def _finish_job(self, job_id: str, http_status: int, response: dict[str, Any]) -> None:
+        enqueue_next = False
+        with self._condition:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return
+            job["http_status"] = http_status
+            job["result"] = copy.deepcopy(response)
+            job["error"] = str(response.get("error", "")) if http_status >= 400 else ""
+            job["status"] = "completed" if http_status < 400 else "failed"
+            job["finished_at"] = time.time()
+            job["updated_at"] = time.time()
+            batch = self._batches.get(str(job.get("batch_id")))
+            enqueue_next = bool(batch and batch.get("infinite") and not batch.get("stopped") and not job.get("cancel_requested"))
+            if enqueue_next:
+                index = int(batch.get("next_index", 0))
+                self._append_batch_job_locked(str(batch["id"]), index, float(batch.get("delay_seconds", 0) or 0))
+                batch["next_index"] = index + 1
+            self._prune_locked()
+            self._condition.notify_all()
+
+    def _append_batch_job_locked(self, batch_id: str, index: int, delay_seconds: float) -> dict[str, Any]:
+        batch = self._batches[batch_id]
+        job_id = self._new_id("job")
+        request = _request_for_queue_index(
+            batch["base_request"],
+            index=index,
+            seed_mode=str(batch["seed_mode"]),
+            base_seed=batch["base_seed"],
+            base_seed_provided=bool(batch["base_seed_provided"]),
+        )
+        now = time.time()
+        job = {
+            "id": job_id,
+            "batch_id": batch_id,
+            "index": index,
+            "status": "queued",
+            "request": request,
+            "progress_id": job_id,
+            "cancel_requested": False,
+            "result": None,
+            "error": "",
+            "http_status": None,
+            "delay_seconds": delay_seconds,
+            "created_at": now,
+            "started_at": None,
+            "finished_at": None,
+            "updated_at": now,
+        }
+        self._jobs[job_id] = job
+        self._order.append(job_id)
+        self._pending.append(job_id)
+        return self._public_job_locked(job)
+
+    def _new_id(self, prefix: str) -> str:
+        with self._id_lock:
+            self._counter += 1
+            return f"{prefix}-{int(time.time() * 1000)}-{self._counter}"
+
+    def _public_job_locked(self, job: dict[str, Any]) -> dict[str, Any]:
+        return copy.deepcopy(job)
+
+    def _prune_locked(self) -> None:
+        if len(self._order) <= self._max_entries:
+            return
+        removable = self._order[: len(self._order) - self._max_entries]
+        self._order = self._order[len(removable) :]
+        for job_id in removable:
+            job = self._jobs.get(job_id)
+            if job and job.get("status") not in {"queued", "waiting", "running"}:
+                self._jobs.pop(job_id, None)
+
+
+def _job_id_from_path(value: str) -> str:
+    return Path(unquote(value)).name
+
+
+def _optional_queue_seed(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _bounded_job_count(value: Any) -> int:
+    try:
+        count = int(value)
+    except (TypeError, ValueError):
+        count = 1
+    return max(1, min(count, 999))
+
+
+def _bounded_queue_delay(value: Any) -> float:
+    try:
+        delay = float(value)
+    except (TypeError, ValueError):
+        delay = 0.0
+    return max(0.0, min(delay, 60.0))
+
+
+def _request_for_queue_index(
+    request: dict[str, Any],
+    *,
+    index: int,
+    seed_mode: str,
+    base_seed: int | None,
+    base_seed_provided: bool,
+) -> dict[str, Any]:
+    queued = copy.deepcopy(request)
+    if seed_mode == "random":
+        queued["seed"] = _QUEUE_RANDOM.randint(0, 2147483646)
+    elif seed_mode == "increment":
+        seed = base_seed if base_seed is not None else int(time.time() * 1000) % 2147483647
+        queued["seed"] = seed + index
+    elif base_seed_provided and base_seed is not None:
+        queued["seed"] = base_seed
+    else:
+        queued.pop("seed", None)
+    return queued
+
+
+def _set_runtime_interrupt(value: bool) -> bool:
+    try:
+        import comfy.model_management as model_management
+
+        model_management.interrupt_current_processing(value)
+        return True
+    except Exception:
+        return False
 
 
 def _progress_id_from_payload(payload: dict[str, Any]) -> str | None:
@@ -2492,20 +3174,20 @@ def handle_generate(
     if progress_store is not None and progress_id is not None:
         progress_store.start(progress_id, payload)
         progress_store.update_stage(progress_id, "request", "active")
-        progress_store.update_summary(progress_id, "Validating request")
+        progress_store.update_summary(progress_id, "요청 확인 중")
     try:
         request = request_from_payload(payload)
         if progress_store is not None and progress_id is not None:
             progress_store.update_stage(progress_id, "request", "completed")
             progress_store.update_stage(progress_id, "wildcards", "active")
-            progress_store.update_summary(progress_id, "Preparing prompt")
+            progress_store.update_summary(progress_id, "프롬프트 준비 중")
         wildcard_mode = str(payload.get("wildcard_mode", payload.get("wildcards", "random")))
         request, wildcard_expansion = expand_request_wildcards(request, paths=paths, mode=wildcard_mode)
         if progress_store is not None and progress_id is not None:
             progress_store.update_stage(progress_id, "wildcards", "completed", mode=wildcard_expansion.get("mode", "random"))
             progress_store.update_stage(progress_id, "text_encode", "completed")
             progress_store.update_stage(progress_id, "base_t2i", "active")
-            progress_store.update_summary(progress_id, "Rendering")
+            progress_store.update_summary(progress_id, "렌더링 중")
         dry_run = bool(payload.get("dry_run", default_dry_run))
         result = run_t2i(request, paths=paths, dry_run=dry_run, renderer=None if dry_run else renderer, wildcards=wildcard_expansion)
         manifest = read_manifest(result.manifest_path)
@@ -2515,6 +3197,7 @@ def handle_generate(
             "manifest_path": str(result.manifest_path),
             "output_path": output_path,
             "output_url": _output_url(result.output_path, paths) if result.output_path else None,
+            "variants": _variants_with_urls(manifest, paths),
             "warnings": list(result.warnings),
             "stages": manifest.get("stages", {}),
             "wildcards": manifest.get("wildcards", {}),
@@ -2538,6 +3221,22 @@ def handle_progress(name: str, *, progress_store: ProgressStore) -> tuple[int, d
     if payload is None:
         return HTTPStatus.NOT_FOUND, {"error": "progress not found"}
     return HTTPStatus.OK, payload
+
+
+def handle_jobs(*, job_queue: JobQueue) -> dict[str, Any]:
+    return job_queue.list()
+
+
+def handle_job_detail(name: str, *, job_queue: JobQueue) -> tuple[int, dict[str, Any]]:
+    return job_queue.get(name)
+
+
+def handle_job_enqueue(payload: dict[str, Any], *, job_queue: JobQueue) -> tuple[int, dict[str, Any]]:
+    return job_queue.enqueue(payload)
+
+
+def handle_job_cancel(name: str, *, job_queue: JobQueue) -> tuple[int, dict[str, Any]]:
+    return job_queue.cancel(name)
 
 
 def handle_history(*, paths: AppPaths, limit: int = 20) -> dict[str, Any]:
@@ -2581,6 +3280,7 @@ def handle_manifest_detail(name: str, *, paths: AppPaths) -> tuple[int, dict[str
         return HTTPStatus.NOT_FOUND, {"error": "manifest not found"}
     payload = read_manifest(manifest_path)
     payload["output_url"] = _output_url(Path(str(payload["output_path"])), paths) if payload.get("output_path") else None
+    payload["variants"] = _variants_with_urls(payload, paths)
     return HTTPStatus.OK, payload
 
 
@@ -2613,6 +3313,21 @@ def handle_manifest_delete(name: str, *, paths: AppPaths) -> tuple[int, dict[str
                     deleted_output = True
                 else:
                     output_skip_reason = "output file was already missing"
+        for variant in (payload.get("variants", {}) or {}).values():
+            if not isinstance(variant, dict):
+                continue
+            variant_output = variant.get("output_path")
+            if not variant_output:
+                continue
+            variant_path = Path(str(variant_output)).resolve()
+            try:
+                variant_path.relative_to(paths.image_root.resolve())
+            except ValueError:
+                continue
+            if output_path_value and variant_path == Path(str(output_path_value)).resolve():
+                continue
+            if variant_path.is_file():
+                variant_path.unlink()
         manifest_path.unlink()
     except OSError as exc:
         return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
@@ -2704,7 +3419,51 @@ def handle_checkpoints(*, paths: AppPaths) -> dict[str, Any]:
 
 def handle_wildcards(*, paths: AppPaths) -> dict[str, Any]:
     items = list_wildcards(paths)
-    return {"count": len(items), "items": items}
+    presets = list_prompt_presets(paths)
+    return {"count": len(items), "items": items, "preset_count": len(presets), "presets": presets}
+
+
+def handle_wildcard_preview(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
+    prompt_text = str(payload.get("prompt", ""))
+    negative_text = str(payload.get("negative_prompt", ""))
+    mode = str(payload.get("wildcard_mode", payload.get("wildcards", "random")))
+    seed = _optional_int(payload.get("seed"))
+    try:
+        prompt = expand_text_wildcards(prompt_text, paths=paths, mode=mode, seed=seed)
+        negative = expand_text_wildcards(negative_text, paths=paths, mode=mode, seed=seed, salt="negative")
+    except (OSError, ValueError, TypeError) as exc:
+        return HTTPStatus.BAD_REQUEST, {
+            "enabled": False,
+            "mode": mode,
+            "original_prompt": prompt_text,
+            "original_negative_prompt": negative_text,
+            "prompt": prompt_text,
+            "negative_prompt": negative_text,
+            "selection_count": 0,
+            "selections": [],
+            "error": str(exc),
+        }
+
+    selections = tuple(prompt.selections) + tuple(negative.selections)
+    return HTTPStatus.OK, {
+        "enabled": bool(selections),
+        "mode": mode,
+        "original_prompt": prompt_text,
+        "original_negative_prompt": negative_text,
+        "prompt": prompt.text,
+        "negative_prompt": negative.text,
+        "selection_count": len(selections),
+        "selections": list(selections),
+        "error": "",
+    }
+
+
+def handle_version() -> dict[str, Any]:
+    return version_payload()
+
+
+def handle_update_check() -> dict[str, Any]:
+    return check_github_update()
 
 
 def handle_lora_import(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
@@ -2728,6 +3487,13 @@ def create_http_server(
 ) -> ThreadingHTTPServer:
     progress_store = ProgressStore()
     generation_lock = threading.Lock()
+    job_queue = JobQueue(
+        paths=paths,
+        renderer=renderer,
+        default_dry_run=default_dry_run,
+        progress_store=progress_store,
+        generation_lock=generation_lock,
+    )
 
     class AnimaRequestHandler(BaseHTTPRequestHandler):
         server_version = "AnimaAPP/0.1"
@@ -2742,6 +3508,12 @@ def create_http_server(
                 return
             if parsed.path == "/api/health":
                 self._send_json(HTTPStatus.OK, build_health_payload(paths))
+                return
+            if parsed.path == "/api/version":
+                self._send_json(HTTPStatus.OK, handle_version())
+                return
+            if parsed.path == "/api/update-check":
+                self._send_json(HTTPStatus.OK, handle_update_check())
                 return
             if parsed.path == "/api/readiness":
                 self._send_json(HTTPStatus.OK, handle_readiness(paths=paths))
@@ -2766,6 +3538,13 @@ def create_http_server(
                 limit = _bounded_limit(query.get("limit", ["20"])[0])
                 self._send_json(HTTPStatus.OK, handle_history(paths=paths, limit=limit))
                 return
+            if parsed.path == "/api/jobs":
+                self._send_json(HTTPStatus.OK, handle_jobs(job_queue=job_queue))
+                return
+            if parsed.path.startswith("/api/jobs/"):
+                status, response = handle_job_detail(parsed.path.removeprefix("/api/jobs/"), job_queue=job_queue)
+                self._send_json(status, response)
+                return
             if parsed.path.startswith("/api/progress/"):
                 status, response = handle_progress(parsed.path.removeprefix("/api/progress/"), progress_store=progress_store)
                 self._send_json(status, response)
@@ -2781,7 +3560,15 @@ def create_http_server(
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
-            if parsed.path not in {"/api/generate", "/api/loras/import", "/api/presets", "/api/presets/import", "/api/models/prepare"}:
+            if parsed.path not in {
+                "/api/generate",
+                "/api/jobs",
+                "/api/loras/import",
+                "/api/presets",
+                "/api/presets/import",
+                "/api/wildcards/preview",
+                "/api/models/prepare",
+            } and not parsed.path.startswith("/api/jobs/"):
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
                 return
             try:
@@ -2799,6 +3586,17 @@ def create_http_server(
                 status, response = handle_preset_save(payload, paths=paths)
             elif parsed.path == "/api/models/prepare":
                 status, response = handle_model_prepare(payload, paths=paths)
+            elif parsed.path == "/api/wildcards/preview":
+                status, response = handle_wildcard_preview(payload, paths=paths)
+            elif parsed.path == "/api/jobs":
+                status, response = handle_job_enqueue(payload, job_queue=job_queue)
+            elif parsed.path.startswith("/api/jobs/") and parsed.path.endswith("/cancel"):
+                status, response = handle_job_cancel(
+                    parsed.path.removeprefix("/api/jobs/").removesuffix("/cancel"),
+                    job_queue=job_queue,
+                )
+            elif parsed.path.startswith("/api/jobs/"):
+                status, response = HTTPStatus.NOT_FOUND, {"error": "not found"}
             else:
                 if not generation_lock.acquire(blocking=False):
                     self._send_json(
@@ -2855,7 +3653,12 @@ def create_http_server(
             except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
                 return
 
-    return ThreadingHTTPServer((host, port), AnimaRequestHandler)
+    class AnimaThreadingHTTPServer(ThreadingHTTPServer):
+        def server_close(self) -> None:
+            job_queue.close()
+            super().server_close()
+
+    return AnimaThreadingHTTPServer((host, port), AnimaRequestHandler)
 
 
 def _optional_int(value: Any) -> int | None:
@@ -2940,6 +3743,26 @@ def _output_url(output_path: Path | None, paths: AppPaths) -> str | None:
     resolved = output_path.resolve()
     resolved.relative_to(paths.image_root.resolve())
     return f"/outputs/images/{resolved.name}"
+
+
+def _variants_with_urls(payload: dict[str, Any], paths: AppPaths) -> dict[str, dict[str, Any]]:
+    raw_variants = payload.get("variants", {})
+    if not isinstance(raw_variants, dict):
+        return {}
+    hydrated: dict[str, dict[str, Any]] = {}
+    for key, value in raw_variants.items():
+        if not isinstance(value, dict):
+            continue
+        output_path = value.get("output_path")
+        if not output_path:
+            continue
+        item = dict(value)
+        try:
+            item["output_url"] = _output_url(Path(str(output_path)), paths)
+        except ValueError:
+            item["output_url"] = None
+        hydrated[str(key)] = item
+    return hydrated
 
 
 def _history_item(payload: dict[str, Any], paths: AppPaths) -> dict[str, Any]:

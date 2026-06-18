@@ -14,13 +14,20 @@ This checklist records the accepted public source-checkout alpha scope.
 - [x] Local LoRA files can be imported into `models\loras` and stacked by relative path in the GUI.
 - [x] CLI, API, and GUI support text-to-image generation, image-to-image settings, upscale settings, tiled VAE settings, wildcards, LoRA settings, and face-detailer settings.
 - [x] Generated PNGs embed A1111-style `parameters` metadata.
-- [x] App-managed outputs use searchable filename stems shared with JSON manifests.
+- [x] App-managed outputs use searchable filename stems shared with generation-info JSON files.
 - [x] Root `wildcards\*.txt` prompt expansion supports `random`, `sequential`, and `reverse` modes.
-- [x] GUI wildcard insertion keeps inserted wildcard tokens comma-separated from surrounding prompt text.
-- [x] GUI Auto Queue supports fixed counts and Infinity mode.
+- [x] `wildcards\presets\*.txt` prompt presets can be inserted as `__presets/name__` wildcard tokens.
+- [x] GUI wildcard and prompt preset insertion keeps inserted tokens comma-separated from surrounding prompt text.
+- [x] Wildcards support nested wildcard tokens, inline random `{A|B|C}` choices, cycle rejection, and GUI expansion preview before generation.
+- [x] GUI Auto Queue uses a server-side job queue with fixed counts and Infinity mode.
+- [x] Server-side queued or waiting jobs can be cancelled, and running jobs receive a runtime interrupt request when supported by the loaded runtime.
+- [x] Runtime Status can perform a read-only GitHub release/tag update check for the app.
+- [x] GUI history item clicks load the final image into the center result panel.
+- [x] Enhanced generations can expose an Original / Upscale / Face Detailer compare grid from the result panel.
+- [x] Browser GUI labels are Korean by default while API request keys remain stable.
 - [x] Local browser GUI includes prompt controls, model/checkpoint controls, LoRA controls, image settings, enhancement settings, prompt tools, saved settings, progress display, current result view, and history.
 - [x] The Windows user launcher is `Run-AnimaAPP-GUI.cmd`.
-- [x] Local model weights, detector weights, LoRA files, input images, outputs, and generated manifests are excluded from git.
+- [x] Local model weights, detector weights, LoRA files, input images, outputs, and generation-info JSON files are excluded from git.
 - [x] Public release docs include license, notices, references, and release boundary.
 
 ## Release Boundary

@@ -92,18 +92,38 @@ CLI, API, and GUI generation defaults:
 - Scheduler: `sgm_uniform`
 - LoRA default strength: `1.0`
 
-Generated PNG files embed A1111-style `parameters` metadata, and app-managed outputs share a searchable filename stem with their JSON manifests.
+The browser GUI uses Korean labels by default while keeping API field names and request values stable.
+
+Generated PNG files embed A1111-style `parameters` metadata, and app-managed outputs share a searchable filename stem with their generation-info JSON files.
 
 ## Wildcards
 
 Prompt wildcards are read from root-level `wildcards\*.txt` files. Use `__name__` in prompts to expand `wildcards\name.txt`.
 
+Prompt presets are stored separately under `wildcards\presets\*.txt`. Use `__presets/name__` in prompts, or use the GUI `Insert Preset` control, to expand `wildcards\presets\name.txt`.
+
 Supported modes are `random`, `sequential`, and `reverse`. When no wildcard token is present, wildcard expansion is a no-op.
-The GUI wildcard insert button wraps inserted tokens with comma separators so they stay separated from surrounding prompt tags.
+The GUI wildcard and preset insert buttons wrap inserted tokens with comma separators so they stay separated from surrounding prompt tags.
+
+Wildcard values can contain other wildcard tokens. For example, `wildcards\character.txt` can contain `qiqi, __hair__, {soft smile|serious expression}`, and the app expands nested tokens before generation.
+
+Inline random choices use `{choice A|choice B|choice C}` syntax inside prompts or wildcard files. Inline choices always choose randomly, while file-backed wildcard tokens still follow the selected `random`, `sequential`, or `reverse` mode. The prompt block includes a Preview Expansion button that expands the current prompt without starting a GPU generation job and reports missing files or recursive wildcard cycles.
 
 ## Auto Queue
 
-The GUI can run a fixed auto queue count or Infinity mode. Infinity mode keeps submitting jobs until Stop is pressed.
+The GUI can run a fixed auto queue count or Infinity mode through the server-side job queue. Once queued, jobs continue while the Python server process is alive even if the browser-side loop is interrupted.
+
+Stop cancels queued or waiting jobs immediately and sends a runtime interrupt request for the running job when the Comfy runtime is loaded. Some GPU work may finish its current internal step before the running job stops.
+
+## Update Check
+
+The Runtime Status panel can check GitHub for newer Anima APP releases. The check reads `raspie10032/anima-app` releases first and falls back to tags when no release exists.
+
+Update checks are read-only. The app does not run `git pull`, download archives, replace files, or update models automatically.
+
+## History And Compare Grid
+
+Click a history item to load that generation's final image in the center result panel. When a generation has intermediate outputs, the result panel shows a Compare Stages button for Original, Upscale, and Face Detailer image comparison.
 
 ## Runtime Boundary
 

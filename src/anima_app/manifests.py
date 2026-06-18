@@ -25,6 +25,7 @@ def write_t2i_manifest(
     comfyui_runtime: str = "not_loaded",
     wildcards: dict[str, object] | None = None,
     png_metadata: dict[str, str] | None = None,
+    variants: dict[str, Path] | None = None,
 ) -> Path:
     paths.manifest_root.mkdir(parents=True, exist_ok=True)
     created_at = time.time()
@@ -42,6 +43,7 @@ def write_t2i_manifest(
         "pipeline": PIPELINE_STAGES,
         "stages": stages or {},
         "warnings": list(warnings),
+        "variants": _manifest_variants(variants),
         "wildcards": wildcards or {"enabled": False, "mode": "random", "selections": []},
         "png_metadata": png_metadata or {},
         "latent": latent,
@@ -56,6 +58,23 @@ def write_t2i_manifest(
     }
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return manifest_path
+
+
+def _manifest_variants(variants: dict[str, Path] | None) -> dict[str, dict[str, str]]:
+    if not variants:
+        return {}
+    labels = {
+        "original": "Original",
+        "upscale": "Upscale",
+        "face_detailer": "Face Detailer",
+    }
+    return {
+        key: {
+            "label": labels.get(key, key.replace("_", " ").title()),
+            "output_path": str(path),
+        }
+        for key, path in variants.items()
+    }
 
 
 def read_manifest(path: Path) -> dict[str, object]:

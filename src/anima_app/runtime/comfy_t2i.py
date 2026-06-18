@@ -75,7 +75,13 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
         steps=request.steps,
         denoise=denoise,
     )
+    output_path = allocate_output_path(request, paths=paths, status="generated")
+    variants: dict[str, Path] = {}
     if request.upscale.enabled:
+        original_decoded, _ = _decode_samples(vae, sampled["samples"], request.vae_decode)
+        original_path = _variant_output_path(output_path, "original")
+        _save_image_tensor(original_decoded, original_path)
+        variants["original"] = original_path
         sampled = _upscale_latent_samples(
             sampled,
             request.upscale.scale,
@@ -94,8 +100,11 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
             denoise=request.upscale.denoise,
         )
     decoded, vae_decode_method = _decode_samples(vae, sampled["samples"], request.vae_decode)
-    output_path = allocate_output_path(request, paths=paths, status="generated")
     _save_image_tensor(decoded, output_path)
+    if request.upscale.enabled:
+        variants["upscale"] = output_path
+    else:
+        variants["original"] = output_path
     face_detailer_stage: dict[str, object] | None = None
     warnings: tuple[str, ...] = ()
     if request.face_detailer.enabled:
@@ -119,6 +128,7 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
             repaint=repaint_face_crop,
         )
         output_path = face_result.output_path
+        variants["face_detailer"] = output_path
         face_detailer_stage = face_result.metadata
         warnings = face_result.warnings
     return T2IRenderOutput(
@@ -130,7 +140,12 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
             face_detailer_stage=face_detailer_stage,
         ),
         warnings=warnings,
+        variants=variants,
     )
+
+
+def _variant_output_path(output_path: Path, name: str) -> Path:
+    return output_path.with_name(f"{output_path.stem}_{name}{output_path.suffix}")
 
 
 def _require_model_files(model_paths: T2IModelPaths) -> None:

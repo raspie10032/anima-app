@@ -2,7 +2,14 @@ import pytest
 
 from anima_app.config import AppPaths
 from anima_app.requests import T2IRequest
-from anima_app.wildcards import DEFAULT_WILDCARD_MODE, WILDCARD_MODES, expand_request_wildcards, expand_text_wildcards, list_wildcards
+from anima_app.wildcards import (
+    DEFAULT_WILDCARD_MODE,
+    MAX_WILDCARD_EXPANSION_DEPTH,
+    WILDCARD_MODES,
+    expand_request_wildcards,
+    expand_text_wildcards,
+    list_wildcards,
+)
 
 
 def _paths(tmp_path):
@@ -113,3 +120,70 @@ def test_list_wildcards_returns_txt_files_with_tokens_and_counts(tmp_path):
         {"name": "pose", "token": "__pose__", "relative_path": "pose.txt", "value_count": 1},
         {"name": "style", "token": "__style__", "relative_path": "style.txt", "value_count": 2},
     ]
+
+
+def test_nested_wildcards_and_inline_random_expand_recursively(tmp_path):
+    paths = _paths(tmp_path)
+    wildcard_dir = paths.project_root / "wildcards"
+    wildcard_dir.mkdir()
+    (wildcard_dir / "character.txt").write_text("qiqi, __hair__, {soft smile|serious expression}\n", encoding="utf-8")
+    (wildcard_dir / "hair.txt").write_text("purple hair\n", encoding="utf-8")
+
+    expansion = expand_text_wildcards("__character__", paths=paths, mode="random", seed=42)
+
+    assert expansion.text in {
+        "qiqi, purple hair, soft smile",
+        "qiqi, purple hair, serious expression",
+    }
+    assert [item.get("wildcard") for item in expansion.selections if item.get("wildcard")] == ["character", "hair"]
+    assert any(item.get("type") == "inline_random" for item in expansion.selections)
+    assert expansion.selections[0]["value"] == "qiqi, __hair__, {soft smile|serious expression}"
+    assert expansion.selections[0]["expanded_value"] == expansion.text
+
+
+def test_inline_random_choices_are_seed_repeatable(tmp_path):
+    paths = _paths(tmp_path)
+
+    first = expand_text_wildcards("{red|blue} eyes, {soft smile|serious}", paths=paths, mode="random", seed=9)
+    second = expand_text_wildcards("{red|blue} eyes, {soft smile|serious}", paths=paths, mode="random", seed=9)
+
+    assert first.text == second.text
+    assert [item["type"] for item in first.selections] == ["inline_random", "inline_random"]
+    assert all(item["mode"] == "random" for item in first.selections)
+
+
+def test_nested_sequential_wildcards_share_state(tmp_path):
+    paths = _paths(tmp_path)
+    wildcard_dir = paths.project_root / "wildcards"
+    wildcard_dir.mkdir()
+    (wildcard_dir / "character.txt").write_text("__hair__\n", encoding="utf-8")
+    (wildcard_dir / "hair.txt").write_text("purple hair\nblue hair\n", encoding="utf-8")
+
+    first = expand_text_wildcards("__character__", paths=paths, mode="sequential")
+    second = expand_text_wildcards("__character__", paths=paths, mode="sequential")
+
+    assert first.text == "purple hair"
+    assert second.text == "blue hair"
+
+
+def test_wildcard_cycle_is_rejected(tmp_path):
+    paths = _paths(tmp_path)
+    wildcard_dir = paths.project_root / "wildcards"
+    wildcard_dir.mkdir()
+    (wildcard_dir / "a.txt").write_text("__b__\n", encoding="utf-8")
+    (wildcard_dir / "b.txt").write_text("__a__\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="wildcard cycle detected: a -> b -> a"):
+        expand_text_wildcards("__a__", paths=paths, mode="random", seed=1)
+
+
+def test_wildcard_expansion_depth_limit_is_rejected(tmp_path):
+    paths = _paths(tmp_path)
+    wildcard_dir = paths.project_root / "wildcards"
+    wildcard_dir.mkdir()
+    for index in range(MAX_WILDCARD_EXPANSION_DEPTH + 1):
+        (wildcard_dir / f"chain{index}.txt").write_text(f"__chain{index + 1}__\n", encoding="utf-8")
+    (wildcard_dir / f"chain{MAX_WILDCARD_EXPANSION_DEPTH + 1}.txt").write_text("final\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="wildcard expansion exceeded max depth"):
+        expand_text_wildcards("__chain0__", paths=paths, mode="random", seed=1)
