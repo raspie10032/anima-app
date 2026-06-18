@@ -54,7 +54,7 @@ python -m anima_app.cli models copy-profile face-detailer-detectors
 
 To use a local detector mirror instead, set `ANIMA_APP_FACE_DETECTOR_SOURCE` before running the same command.
 
-Local LoRA files can be imported into `models\loras`:
+Local LoRA files can be imported into `models\loras` and stacked in the GUI:
 
 ```powershell
 $env:PYTHONPATH='src'
@@ -99,6 +99,11 @@ Generated PNG files embed A1111-style `parameters` metadata, and app-managed out
 Prompt wildcards are read from root-level `wildcards\*.txt` files. Use `__name__` in prompts to expand `wildcards\name.txt`.
 
 Supported modes are `random`, `sequential`, and `reverse`. When no wildcard token is present, wildcard expansion is a no-op.
+The GUI wildcard insert button wraps inserted tokens with comma separators so they stay separated from surrounding prompt tags.
+
+## Auto Queue
+
+The GUI can run a fixed auto queue count or Infinity mode. Infinity mode keeps submitting jobs until Stop is pressed.
 
 ## Runtime Boundary
 

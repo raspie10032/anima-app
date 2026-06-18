@@ -11,11 +11,13 @@ This checklist records the accepted public source-checkout alpha scope.
 - [x] Additional Anima-family diffusion checkpoints can be listed and selected by relative `.safetensors` path.
 - [x] Optional face-detailer detector assets can be downloaded automatically or copied from a user-configured local source.
 - [x] Optional face-detailer runtime dependency is declared as `.[face-detailer]`.
-- [x] Local LoRA files can be imported into `models\loras` and selected by relative path.
+- [x] Local LoRA files can be imported into `models\loras` and stacked by relative path in the GUI.
 - [x] CLI, API, and GUI support text-to-image generation, image-to-image settings, upscale settings, tiled VAE settings, wildcards, LoRA settings, and face-detailer settings.
 - [x] Generated PNGs embed A1111-style `parameters` metadata.
 - [x] App-managed outputs use searchable filename stems shared with JSON manifests.
 - [x] Root `wildcards\*.txt` prompt expansion supports `random`, `sequential`, and `reverse` modes.
+- [x] GUI wildcard insertion keeps inserted wildcard tokens comma-separated from surrounding prompt text.
+- [x] GUI Auto Queue supports fixed counts and Infinity mode.
 - [x] Local browser GUI includes prompt controls, model/checkpoint controls, LoRA controls, image settings, enhancement settings, prompt tools, saved settings, progress display, current result view, and history.
 - [x] The Windows user launcher is `Run-AnimaAPP-GUI.cmd`.
 - [x] Local model weights, detector weights, LoRA files, input images, outputs, and generated manifests are excluded from git.

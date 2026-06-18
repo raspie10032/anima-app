@@ -947,8 +947,8 @@ def test_index_html_loads_history_panel():
     assert "<h2>Saved Settings</h2>" in INDEX_HTML
     assert "<h2>Import LoRA</h2>" in INDEX_HTML
     assert "Starting Point" in INDEX_HTML
-    assert "Selected LoRA" in INDEX_HTML
-    assert "LoRA Strength" in INDEX_HTML
+    assert "LoRA Stack" in INDEX_HTML
+    assert "Add LoRA" in INDEX_HTML
     assert "Reference Image Path" in INDEX_HTML
     assert "Image Denoise" in INDEX_HTML
     assert "Enable Upscale" in INDEX_HTML
@@ -1005,20 +1005,22 @@ def test_index_html_loads_history_panel():
     assert 'id="face-padding"' in INDEX_HTML
     assert 'id="face-feather"' in INDEX_HTML
     assert 'id="face-exclude-forehead"' in INDEX_HTML
-    assert 'id="lora-select"' in INDEX_HTML
-    assert 'id="lora-strength"' in INDEX_HTML
-    assert 'id="lora-strength" name="lora_strength" type="number" min="0" step="0.05" value="1"' in INDEX_HTML
+    assert 'id="lora-list"' in INDEX_HTML
+    assert 'id="add-lora"' in INDEX_HTML
     assert "const checkpointSelect = document.getElementById(\"checkpoint-select\")" in INDEX_HTML
     assert 'id="wildcard-mode"' in INDEX_HTML
     assert '<option value="random" selected>Random</option>' in INDEX_HTML
     assert '<option value="off">Off</option>' not in INDEX_HTML
     assert 'id="wildcard-select"' in INDEX_HTML
     assert 'id="insert-wildcard"' in INDEX_HTML
-    assert "data.loras = [" in INDEX_HTML
+    assert "const loras = selectedLoras();" in INDEX_HTML
+    assert "data.loras = loras;" in INDEX_HTML
     assert 'data.checkpoint = data.checkpoint || "anima-base-v1.0.safetensors"' in INDEX_HTML
     assert 'name="wildcard_mode"' in INDEX_HTML
     assert 'fetch("/api/wildcards")' in INDEX_HTML
     assert "insertWildcard" in INDEX_HTML
+    assert "formatWildcardInsertion" in INDEX_HTML
+    assert 'return `${prefix}${token}${suffix}`;' in INDEX_HTML
     assert "data.i2i = {" in INDEX_HTML
     assert "data.upscale = {" in INDEX_HTML
     assert "steps: Number(data.upscale_steps || 12)" in INDEX_HTML
@@ -1093,18 +1095,18 @@ def test_index_html_loads_history_panel():
     assert 'id="apply-manifest"' in INDEX_HTML
     assert "applyManifest" in INDEX_HTML
     assert "wildcardInfo.original_prompt" in INDEX_HTML
-    assert "form.elements.lora_strength.value = lora.model_strength ?? 1" in INDEX_HTML
+    assert "setLoraRows(request.loras || [])" in INDEX_HTML
 
 
 def test_index_html_renders_binary_options_as_color_toggles():
-    assert INDEX_HTML.count('class="toggle-switch"') == 3
+    assert INDEX_HTML.count('class="toggle-switch"') == 4
     assert "toggle-switch:has(input:checked)" in INDEX_HTML
     assert "background: #a9444f" in INDEX_HTML
     assert "background: #2f9f55" in INDEX_HTML
     assert 'class="toggle-track" aria-hidden="true"' in INDEX_HTML
     assert 'class="toggle-state" aria-hidden="true"' in INDEX_HTML
     assert 'class="check-label"' not in INDEX_HTML
-    for field_id in ("upscale-enabled", "upscale-tiled", "face-detailer-enabled"):
+    for field_id in ("upscale-enabled", "upscale-tiled", "face-detailer-enabled", "queue-infinite"):
         assert f'<label class="toggle-switch" for="{field_id}">' in INDEX_HTML
         assert f'id="{field_id}"' in INDEX_HTML
         assert 'type="checkbox" value="1"' in INDEX_HTML
@@ -1144,6 +1146,8 @@ def test_index_html_exposes_auto_queue_controls():
     assert 'id="auto-queue-panel"' in INDEX_HTML
     assert 'id="queue-count"' in INDEX_HTML
     assert 'name="queue_count"' in INDEX_HTML
+    assert 'id="queue-infinite"' in INDEX_HTML
+    assert 'name="queue_infinite"' in INDEX_HTML
     assert 'id="queue-seed-mode"' in INDEX_HTML
     assert '<option value="fixed">Fixed</option>' in INDEX_HTML
     assert '<option value="increment" selected>Increment</option>' in INDEX_HTML
@@ -1154,11 +1158,25 @@ def test_index_html_exposes_auto_queue_controls():
     assert 'id="queue-status"' in INDEX_HTML
     assert "const autoQueuePanel = document.getElementById(\"auto-queue-panel\")" in INDEX_HTML
     assert "const queueCountInput = document.getElementById(\"queue-count\")" in INDEX_HTML
+    assert "const queueInfiniteInput = document.getElementById(\"queue-infinite\")" in INDEX_HTML
     assert "const queueSeedMode = document.getElementById(\"queue-seed-mode\")" in INDEX_HTML
     assert "const queueDelayInput = document.getElementById(\"queue-delay\")" in INDEX_HTML
     assert "function queueSeedForIndex" in INDEX_HTML
+    assert "function queueIsInfinite" in INDEX_HTML
     assert "async function runQueuedGenerate" in INDEX_HTML
     assert "async function startAutoQueue" in INDEX_HTML
     assert "function stopAutoQueue" in INDEX_HTML
     assert "queueSeedMode.value" in INDEX_HTML
     assert "queueStopRequested" in INDEX_HTML
+    assert "while (!queueStopRequested && (infinite || index < total))" in INDEX_HTML
+
+
+def test_index_html_exposes_multi_lora_controls():
+    assert 'id="lora-list"' in INDEX_HTML
+    assert 'id="add-lora"' in INDEX_HTML
+    assert "let loraCatalog = []" in INDEX_HTML
+    assert "function addLoraRow" in INDEX_HTML
+    assert "function selectedLoras" in INDEX_HTML
+    assert "function setLoraRows" in INDEX_HTML
+    assert "loraCatalog = loras.items || []" in INDEX_HTML
+    assert "addLoraButton.addEventListener(\"click\", () => addLoraRow())" in INDEX_HTML

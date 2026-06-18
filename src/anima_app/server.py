@@ -263,6 +263,21 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       font-size: 13px;
       word-break: break-word;
     }
+    .lora-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .lora-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 84px auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .lora-row button {
+      min-height: 38px;
+      padding: 8px 10px;
+    }
     .preset-strip {
       margin: 12px 0;
       padding: 10px;
@@ -825,6 +840,14 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                     </select>
                   </div>
                 </div>
+                <label class="toggle-switch" for="queue-infinite">
+                  <input id="queue-infinite" name="queue_infinite" type="checkbox" value="1">
+                  <span class="toggle-track" aria-hidden="true"></span>
+                  <span class="toggle-copy">
+                    <span class="toggle-title">Infinity</span>
+                    <span class="toggle-state" aria-hidden="true"></span>
+                  </span>
+                </label>
                 <label for="queue-delay">Delay Seconds</label>
                 <input id="queue-delay" name="queue_delay" type="number" min="0" max="60" step="0.5" value="0">
                 <div class="queue-actions">
@@ -845,18 +868,10 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <select id="checkpoint-select" name="checkpoint" form="generate-form">
                 <option value="__DEFAULT_T2I_CHECKPOINT__">__DEFAULT_T2I_CHECKPOINT__</option>
               </select>
-              <div class="row">
-                <div>
-                  <label for="lora-select">Selected LoRA</label>
-                  <select id="lora-select" name="lora_path" form="generate-form">
-                    <option value="">None</option>
-                  </select>
-                </div>
-                <div>
-                  <label for="lora-strength">LoRA Strength</label>
-                  <input id="lora-strength" name="lora_strength" type="number" min="0" step="0.05" value="1" form="generate-form">
-                </div>
+              <label>LoRA Stack</label>
+              <div id="lora-list" class="lora-list" aria-label="LoRA stack">
               </div>
+              <button type="button" id="add-lora" class="secondary-button">Add LoRA</button>
             </section>
             <form id="lora-import-form" class="form-section">
               <h2>Import LoRA</h2>
@@ -1144,6 +1159,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     const generateButton = document.getElementById("generate-button");
     const autoQueuePanel = document.getElementById("auto-queue-panel");
     const queueCountInput = document.getElementById("queue-count");
+    const queueInfiniteInput = document.getElementById("queue-infinite");
     const queueSeedMode = document.getElementById("queue-seed-mode");
     const queueDelayInput = document.getElementById("queue-delay");
     const startQueueButton = document.getElementById("start-queue");
@@ -1164,7 +1180,8 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     const historyCount = document.getElementById("history-count");
     const historyFilters = [...document.querySelectorAll("[data-history-filter]")];
     const checkpointSelect = document.getElementById("checkpoint-select");
-    const loraSelect = document.getElementById("lora-select");
+    const loraList = document.getElementById("lora-list");
+    const addLoraButton = document.getElementById("add-lora");
     const presetName = document.getElementById("preset-name");
     const presetSelect = document.getElementById("preset-select");
     const savePresetButton = document.getElementById("save-preset");
@@ -1183,6 +1200,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     let currentManifest = null;
     let historyItems = [];
     let historyFilter = "all";
+    let loraCatalog = [];
     let stageTimer = null;
     let stageHideTimer = null;
     let progressPollTimer = null;
@@ -1588,6 +1606,82 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       checkpointSelect.replaceChildren(...options);
       setSelectValue(checkpointSelect, selectedCheckpoint || defaultCheckpoint);
     }
+    function renderLoraSelectOptions(select, selectedPath = "") {
+      select.replaceChildren(
+        new Option("None", ""),
+        ...loraCatalog.map((item) => new Option(item.relative_path, item.relative_path))
+      );
+      setSelectValue(select, selectedPath);
+    }
+    function syncLoraRemoveButtons() {
+      const rows = [...loraList.querySelectorAll(".lora-row")];
+      rows.forEach((row) => {
+        const button = row.querySelector("[data-remove-lora]");
+        if (button) {
+          button.disabled = rows.length <= 1;
+        }
+      });
+    }
+    function addLoraRow(config = {}) {
+      const row = document.createElement("div");
+      row.className = "lora-row";
+      const selectWrap = document.createElement("div");
+      const selectLabel = document.createElement("label");
+      selectLabel.textContent = "LoRA";
+      const select = document.createElement("select");
+      select.className = "lora-path";
+      select.setAttribute("aria-label", "LoRA path");
+      renderLoraSelectOptions(select, config.path || "");
+      selectWrap.append(selectLabel, select);
+
+      const strengthWrap = document.createElement("div");
+      const strengthLabel = document.createElement("label");
+      strengthLabel.textContent = "Strength";
+      const strength = document.createElement("input");
+      strength.className = "lora-strength";
+      strength.type = "number";
+      strength.min = "0";
+      strength.step = "0.05";
+      strength.value = config.model_strength ?? config.strength ?? 1;
+      strength.setAttribute("aria-label", "LoRA strength");
+      strengthWrap.append(strengthLabel, strength);
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "secondary-button";
+      remove.dataset.removeLora = "1";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => {
+        row.remove();
+        if (!loraList.querySelector(".lora-row")) {
+          addLoraRow();
+        }
+        syncLoraRemoveButtons();
+      });
+
+      row.append(selectWrap, strengthWrap, remove);
+      loraList.append(row);
+      syncLoraRemoveButtons();
+      return row;
+    }
+    function loraRowConfigs() {
+      return [...loraList.querySelectorAll(".lora-row")].map((row) => {
+        const path = row.querySelector(".lora-path")?.value || "";
+        const strength = Number(row.querySelector(".lora-strength")?.value || 1);
+        return {path, model_strength: Number.isFinite(strength) ? strength : 1};
+      });
+    }
+    function selectedLoras() {
+      return loraRowConfigs()
+        .filter((item) => item.path)
+        .map((item) => ({path: item.path, model_strength: item.model_strength, clip_strength: item.model_strength}));
+    }
+    function setLoraRows(loras) {
+      loraList.replaceChildren();
+      const rows = loras.length ? loras : [{}];
+      rows.forEach((item) => addLoraRow(item));
+      syncLoraRemoveButtons();
+    }
     async function loadStatus() {
       const [healthResponse, loraResponse, checkpointResponse, readinessResponse] = await Promise.all([
         fetch("/api/health"),
@@ -1600,12 +1694,10 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       const checkpoints = await checkpointResponse.json();
       const readiness = await readinessResponse.json();
       const selectedCheckpoint = checkpointSelect.value;
-      const selectedLora = loraSelect.value;
+      const currentLoraRows = loraRowConfigs();
       renderCheckpointOptions(checkpoints, selectedCheckpoint);
-      loraSelect.replaceChildren(new Option("None", ""), ...loras.items.map((item) => new Option(item.relative_path, item.relative_path)));
-      if ([...loraSelect.options].some((option) => option.value === selectedLora)) {
-        loraSelect.value = selectedLora;
-      }
+      loraCatalog = loras.items || [];
+      setLoraRows(currentLoraRows.length ? currentLoraRows : [{}]);
       statusPanel.replaceChildren(
         statusCard("Model", health.models.ready ? "ready" : `${health.models.missing.length} missing`),
         statusCard("Checkpoints", `${checkpoints.count} local`),
@@ -1830,10 +1922,16 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       const end = prompt.selectionEnd ?? prompt.value.length;
       const before = prompt.value.slice(0, start);
       const after = prompt.value.slice(end);
-      prompt.value = before + token + after;
-      const nextCursor = start + token.length;
+      const insertion = formatWildcardInsertion(token, before, after);
+      prompt.value = before + insertion + after;
+      const nextCursor = start + insertion.length;
       prompt.focus();
       prompt.setSelectionRange(nextCursor, nextCursor);
+    }
+    function formatWildcardInsertion(token, before, after) {
+      const prefix = before.trim().length ? (before.trimEnd().endsWith(",") ? " " : ", ") : "";
+      const suffix = after.trim().length ? (after.trimStart().startsWith(",") ? " " : ", ") : ",";
+      return `${prefix}${token}${suffix}`;
     }
     function buildRequestData() {
       const data = Object.fromEntries(new FormData(form).entries());
@@ -1875,9 +1973,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           denoise: Number(data.face_denoise || 0.28)
         };
       }
-      if (data.lora_path) {
-        const strength = Number(data.lora_strength || 1);
-        data.loras = [{path: data.lora_path, model_strength: strength, clip_strength: strength}];
+      const loras = selectedLoras();
+      if (loras.length) {
+        data.loras = loras;
       }
       delete data.i2i_image;
       delete data.i2i_denoise;
@@ -1904,6 +2002,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       delete data.lora_path;
       delete data.lora_strength;
       delete data.queue_count;
+      delete data.queue_infinite;
       delete data.queue_seed_mode;
       delete data.queue_delay;
       if (data.seed === "") {
@@ -1952,9 +2051,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       form.elements.face_denoise.value = request.face_detailer?.denoise ?? 0.28;
       referenceImageSection.open = Boolean(request.i2i?.image_path || request.upscale?.enabled || request.upscale?.tiled || (request.vae_decode?.mode && request.vae_decode.mode !== "auto"));
       faceDetailerSection.open = Boolean(request.face_detailer?.enabled);
-      const lora = (request.loras || [])[0] || {};
-      form.elements.lora_path.value = lora.path || "";
-      form.elements.lora_strength.value = lora.model_strength ?? 1;
+      setLoraRows(request.loras || []);
       presetName.value = item.name || "";
     }
     function applyQuickPreset(key) {
@@ -1985,6 +2082,12 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       const value = Number(queueCountInput.value || 1);
       return Math.max(1, Math.min(99, Number.isFinite(value) ? Math.floor(value) : 1));
     }
+    function queueIsInfinite() {
+      return Boolean(queueInfiniteInput.checked);
+    }
+    function queueTotalLabel(total) {
+      return total === null ? "infinity" : String(total);
+    }
     function queueDelayMs() {
       const value = Number(queueDelayInput.value || 0);
       return Math.max(0, Math.min(60, Number.isFinite(value) ? value : 0)) * 1000;
@@ -1998,6 +2101,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     function setQueueControlsRunning(running) {
       queueRunning = running;
       queueCountInput.disabled = running;
+      queueInfiniteInput.disabled = running;
       queueSeedMode.disabled = running;
       queueDelayInput.disabled = running;
       startQueueButton.disabled = running;
@@ -2065,21 +2169,24 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       } else {
         data.seed = seed;
       }
-      setQueueStatus(`Running ${index + 1} / ${total}...`);
-      const result = await submitGenerateRequest(data, `Queue ${index + 1} / ${total} generating...`);
+      const totalLabel = queueTotalLabel(total);
+      setQueueStatus(`Running ${index + 1} / ${totalLabel}...`);
+      const result = await submitGenerateRequest(data, `Queue ${index + 1} / ${totalLabel} generating...`);
       if (result.ok) {
         queueCompleted += 1;
       } else {
         queueFailed += 1;
       }
-      setQueueStatus(`Done ${queueCompleted}, failed ${queueFailed}, remaining ${Math.max(0, total - index - 1)}`);
+      const remaining = total === null ? "infinity" : Math.max(0, total - index - 1);
+      setQueueStatus(`Done ${queueCompleted}, failed ${queueFailed}, remaining ${remaining}`);
       return result;
     }
     async function startAutoQueue() {
       if (queueRunning) {
         return;
       }
-      const total = queueCount();
+      const infinite = queueIsInfinite();
+      const total = infinite ? null : queueCount();
       const delay = queueDelayMs();
       const baseData = buildRequestData();
       const originalSeedProvided = Object.prototype.hasOwnProperty.call(baseData, "seed");
@@ -2088,15 +2195,18 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       queueFailed = 0;
       queueStopRequested = false;
       setQueueControlsRunning(true);
-      setQueueStatus(`Queued ${total} jobs`);
+      setQueueStatus(infinite ? "Queued infinity mode" : `Queued ${total} jobs`);
       try {
-        for (let index = 0; index < total; index += 1) {
+        let index = 0;
+        while (!queueStopRequested && (infinite || index < total)) {
           if (queueStopRequested) {
             break;
           }
           await runQueuedGenerate(baseData, index, total, baseSeed, originalSeedProvided);
-          if (!queueStopRequested && index < total - 1 && delay > 0) {
-            setQueueStatus(`Waiting ${delay / 1000}s before ${index + 2} / ${total}...`);
+          index += 1;
+          const hasNext = infinite || index < total;
+          if (!queueStopRequested && hasNext && delay > 0) {
+            setQueueStatus(`Waiting ${delay / 1000}s before ${index + 1} / ${queueTotalLabel(total)}...`);
             await sleep(delay);
           }
         }
@@ -2150,6 +2260,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     referencePresetButton.addEventListener("click", () => applyQuickPreset("reference_quality"));
     applyManifestButton.addEventListener("click", applyManifest);
     insertWildcardButton.addEventListener("click", insertWildcard);
+    addLoraButton.addEventListener("click", () => addLoraRow());
     startQueueButton.addEventListener("click", () => {
       startAutoQueue().catch((error) => {
         setQueueControlsRunning(false);
@@ -2191,6 +2302,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         button.disabled = false;
       }
     });
+    addLoraRow();
     loadStatus().catch(() => {});
     loadHistory().catch(() => {});
     loadPresets().catch(() => {});
