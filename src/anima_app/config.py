@@ -9,6 +9,7 @@ ENV_PROJECT_ROOT = "ANIMA_APP_ROOT"
 ENV_MODEL_SOURCE = "ANIMA_APP_MODEL_SOURCE"
 ENV_FACE_DETECTOR_SOURCE = "ANIMA_APP_FACE_DETECTOR_SOURCE"
 ENV_FACE_DETECTOR_FALLBACKS = "ANIMA_APP_FACE_DETECTOR_FALLBACKS"
+ENV_AUTOCOMPLETE_SOURCE = "ANIMA_APP_AUTOCOMPLETE_SOURCE"
 
 
 def _env_path(name: str) -> Path | None:
@@ -43,6 +44,11 @@ def _default_face_detailer_detector_fallback_sources() -> tuple[Path, ...]:
     return _env_paths(ENV_FACE_DETECTOR_FALLBACKS)
 
 
+def _default_autocomplete_source() -> Path:
+    root = _default_project_root()
+    return _env_path(ENV_AUTOCOMPLETE_SOURCE) or root / "autocomplete.txt"
+
+
 @dataclass(frozen=True)
 class AppPaths:
     project_root: Path = field(default_factory=_default_project_root)
@@ -51,6 +57,7 @@ class AppPaths:
     face_detailer_detector_fallback_sources: tuple[Path, ...] = field(
         default_factory=_default_face_detailer_detector_fallback_sources
     )
+    autocomplete_source: Path = field(default_factory=_default_autocomplete_source)
 
     @property
     def model_root(self) -> Path:
@@ -79,6 +86,10 @@ class AppPaths:
     @property
     def wildcard_state_path(self) -> Path:
         return self.output_root / "wildcard_state.json"
+
+    @property
+    def runtime_profile_cache_path(self) -> Path:
+        return self.output_root / "runtime_profile_cache.json"
 
 
 def default_paths() -> AppPaths:

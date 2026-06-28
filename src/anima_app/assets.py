@@ -78,6 +78,12 @@ FACE_DETAILER_DETECTOR_ASSET_PROFILE = AssetProfile(
 )
 
 
+SAM3_DETECTOR_ASSET_PROFILE = AssetProfile(
+    name="sam3-detector",
+    files=(Path("detectors") / "sam3.pt",),
+)
+
+
 MIN_DETECTOR_ASSET_BYTES = 1024
 
 DETECTOR_REMOTE_ASSETS: dict[Path, RemoteAsset] = {
@@ -98,11 +104,17 @@ DETECTOR_REMOTE_ASSETS: dict[Path, RemoteAsset] = {
         reference="https://github.com/facebookresearch/segment-anything",
         license="SAM reference model Apache-2.0; Ultralytics asset/runtime licensing may impose AGPL/commercial obligations",
     ),
+    Path("detectors") / "sam3.pt": RemoteAsset(
+        repo_id="facebook/sam3",
+        filename="sam3.pt",
+        reference="https://huggingface.co/facebook/sam3",
+        license="gated model; review and accept the upstream license before local download",
+    ),
 }
 
 
 def asset_profiles() -> tuple[AssetProfile, ...]:
-    return (ANIMA_T2I_ASSET_PROFILE, FACE_DETAILER_DETECTOR_ASSET_PROFILE)
+    return (ANIMA_T2I_ASSET_PROFILE, FACE_DETAILER_DETECTOR_ASSET_PROFILE, SAM3_DETECTOR_ASSET_PROFILE)
 
 
 def asset_profile(name: str) -> AssetProfile:
@@ -192,7 +204,7 @@ def _validate_detector_download(path: Path, relative_path: Path) -> None:
 
 
 def copy_asset_profile(profile: AssetProfile, paths: Any, *, source: str = "auto") -> tuple[str, list[Path]]:
-    if profile.name == FACE_DETAILER_DETECTOR_ASSET_PROFILE.name:
+    if profile.name in {FACE_DETAILER_DETECTOR_ASSET_PROFILE.name, SAM3_DETECTOR_ASSET_PROFILE.name}:
         selected_source = _select_face_detailer_detector_source(profile, paths, source)
         if selected_source == "download":
             return (

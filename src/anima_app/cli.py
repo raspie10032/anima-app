@@ -28,7 +28,19 @@ from anima_app.defaults import (
 from anima_app.gpu import ensure_default_cuda_visible_devices
 from anima_app.health import build_health_payload
 from anima_app.manifests import read_manifest
-from anima_app.requests import FaceDetailerSettings, I2ISettings, T2ILoraConfig, T2IRequest, UpscaleSettings, VaeDecodeSettings
+from anima_app.memory_profiles import resolve_auto_memory_profile
+from anima_app.requests import (
+    DEFAULT_FACE_DETAILER_STEPS,
+    DEFAULT_TILE_SIZE,
+    DEFAULT_UPSCALE_STEPS,
+    MEMORY_PROFILES,
+    FaceDetailerSettings,
+    I2ISettings,
+    T2ILoraConfig,
+    T2IRequest,
+    UpscaleSettings,
+    VaeDecodeSettings,
+)
 from anima_app.runtime.pipeline import run_t2i
 from anima_app.wildcards import DEFAULT_WILDCARD_MODE, WILDCARD_MODES, expand_request_wildcards
 from anima_app.server import create_http_server
@@ -68,21 +80,28 @@ def build_parser() -> argparse.ArgumentParser:
     t2i.add_argument("--checkpoint", default=DEFAULT_T2I_CHECKPOINT, help="Diffusion checkpoint under models/diffusion_models.")
     t2i.add_argument("--sampler", default=DEFAULT_T2I_SAMPLER)
     t2i.add_argument("--scheduler", default=DEFAULT_T2I_SCHEDULER)
+    t2i.add_argument(
+        "--memory-profile",
+        choices=sorted(MEMORY_PROFILES),
+        default="auto",
+        help="Runtime memory profile. low_vram_highres enables tiled upscale and tiled VAE decode.",
+    )
     t2i.add_argument("--image", default="", help="Reference image path for image-to-image generation.")
     t2i.add_argument("--denoise", type=float, default=0.35)
     t2i.add_argument("--upscale", action="store_true", help="Enable high-res fix/upscale stage.")
     t2i.add_argument("--upscale-scale", type=float, default=1.5)
-    t2i.add_argument("--upscale-steps", type=int, default=12)
+    t2i.add_argument("--upscale-steps", type=int, default=DEFAULT_UPSCALE_STEPS)
     t2i.add_argument("--upscale-denoise", type=float, default=0.35)
     t2i.add_argument("--upscale-method", default="bicubic")
     t2i.add_argument("--upscale-tiled", action="store_true", help="Upscale latent samples in overlapping tiles.")
-    t2i.add_argument("--upscale-tile-size", type=int, default=64)
+    t2i.add_argument("--upscale-tile-size", type=int, default=DEFAULT_TILE_SIZE)
     t2i.add_argument("--upscale-overlap", type=int, default=8)
     t2i.add_argument("--vae-decode", choices=["auto", "tiled", "standard"], default="auto")
-    t2i.add_argument("--vae-tile-size", type=int, default=64)
+    t2i.add_argument("--vae-tile-size", type=int, default=DEFAULT_TILE_SIZE)
     t2i.add_argument("--vae-overlap", type=int, default=8)
     t2i.add_argument("--face-detailer", action="store_true", help="Enable optional face detailer stage.")
     t2i.add_argument("--face-detector", default="default")
+    t2i.add_argument("--face-mask-backend", choices=["sam_b", "sam3"], default="sam_b")
     t2i.add_argument("--face-threshold", type=float, default=0.5)
     t2i.add_argument("--face-crop-scale", type=float, default=1.5)
     t2i.add_argument("--face-padding", type=int, default=32)
@@ -93,7 +112,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.0,
         help="Exclude this top ratio of the detected face crop from face-detailer repaint.",
     )
-    t2i.add_argument("--face-steps", type=int, default=12)
+    t2i.add_argument("--face-steps", type=int, default=DEFAULT_FACE_DETAILER_STEPS)
     t2i.add_argument("--face-denoise", type=float, default=0.28)
     t2i.add_argument("--wildcards", choices=sorted(WILDCARD_MODES), default=DEFAULT_WILDCARD_MODE)
     t2i.add_argument(
@@ -160,6 +179,7 @@ def main(argv: Sequence[str] | None = None, *, paths: AppPaths | None = None) ->
         request = T2IRequest(
             prompt=args.prompt,
             negative_prompt=args.negative,
+            memory_profile=args.memory_profile,
             width=args.width,
             height=args.height,
             steps=args.steps,
@@ -183,6 +203,7 @@ def main(argv: Sequence[str] | None = None, *, paths: AppPaths | None = None) ->
             face_detailer=FaceDetailerSettings(
                 enabled=args.face_detailer,
                 detector=args.face_detector,
+                mask_backend=args.face_mask_backend,
                 threshold=args.face_threshold,
                 crop_scale=args.face_crop_scale,
                 padding=args.face_padding,
@@ -197,6 +218,7 @@ def main(argv: Sequence[str] | None = None, *, paths: AppPaths | None = None) ->
                 overlap=args.vae_overlap,
             ),
         )
+        request = resolve_auto_memory_profile(request, paths=resolved_paths)
         request, wildcard_expansion = expand_request_wildcards(request, paths=resolved_paths, mode=args.wildcards)
         result = run_t2i(
             request,

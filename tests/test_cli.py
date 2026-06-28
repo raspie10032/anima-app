@@ -43,6 +43,8 @@ def test_health_json_reports_missing_anima_profile(tmp_path, capsys):
     assert payload["models"]["profile"] == "anima-t2i"
     assert len(payload["models"]["missing"]) == 3
     assert payload["model_root"] == str(tmp_path / "app" / "models")
+    assert payload["memory_profile"]["profile"] in {"balanced", "low_vram_highres"}
+    assert (tmp_path / "app" / "outputs" / "runtime_profile_cache.json").is_file()
 
 
 def test_models_inventory_outputs_development_source_files(tmp_path, capsys):
@@ -244,6 +246,8 @@ def test_t2i_dry_run_outputs_manifest_payload(tmp_path, capsys):
             "52",
             "--checkpoint",
             "variants/anima-alt.safetensors",
+            "--memory-profile",
+            "low_vram_highres",
             "--lora",
             "style.safetensors|0.5|0.25",
             "--image",
@@ -301,12 +305,13 @@ def test_t2i_dry_run_outputs_manifest_payload(tmp_path, capsys):
     assert payload["stages"]["face_detailer"]["reason"] == "dry_run_not_executed"
     manifest = json.loads(Path(payload["manifest_path"]).read_text(encoding="utf-8"))
     assert manifest["checkpoint"] == "variants/anima-alt.safetensors"
+    assert manifest["memory_profile"] == "low_vram_highres"
     assert manifest["loras"] == [{"path": "style.safetensors", "model_strength": 0.5, "clip_strength": 0.25}]
     assert manifest["i2i"] == {"enabled": True, "image_path": "inputs/reference.png", "denoise": 0.42}
     assert manifest["upscale"] == {
         "enabled": True,
         "scale": 1.5,
-        "steps": 2,
+        "steps": 10,
         "denoise": 0.25,
         "method": "bicubic",
         "tiled": True,
@@ -314,10 +319,12 @@ def test_t2i_dry_run_outputs_manifest_payload(tmp_path, capsys):
         "overlap": 8,
     }
     assert manifest["vae_decode"] == {"mode": "tiled", "tile_size": 96, "overlap": 16}
+    assert manifest["stages"]["memory_profile"]["profile"] == "low_vram_highres"
     assert manifest["stages"]["vae_decode"]["method"] == "not_run"
     assert manifest["face_detailer"] == {
         "enabled": True,
         "detector": "bbox/face_yolov8m.pt",
+        "mask_backend": "sam_b",
         "threshold": 0.45,
         "crop_scale": 1.6,
         "padding": 40,

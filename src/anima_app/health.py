@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from anima_app.assets import ANIMA_T2I_ASSET_PROFILE, list_local_loras
 from anima_app.config import AppPaths
+from anima_app.memory_profiles import cached_runtime_profile_decision
 
 
 def build_health_payload(paths: AppPaths) -> dict[str, object]:
     missing = [str(paths.model_root / relative_path) for relative_path in ANIMA_T2I_ASSET_PROFILE.files if not (paths.model_root / relative_path).is_file()]
+    memory_profile = cached_runtime_profile_decision(paths)
     return {
         "project_root": str(paths.project_root),
         "model_root": str(paths.model_root),
+        "memory_profile": memory_profile,
         "models": {
             "profile": ANIMA_T2I_ASSET_PROFILE.name,
             "ready": not missing,

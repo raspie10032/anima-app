@@ -101,6 +101,14 @@ def run_t2i(
 
 def dry_run_stages_for_request(request: T2IRequest) -> dict[str, object]:
     stages: dict[str, object] = {
+        "memory_profile": {
+            "status": "configured",
+            "profile": request.memory_profile,
+            "upscale_tiled": request.upscale.tiled,
+            "vae_decode_mode": request.vae_decode.mode,
+            "output_width": round(request.width * request.upscale.scale) if request.upscale.enabled else request.width,
+            "output_height": round(request.height * request.upscale.scale) if request.upscale.enabled else request.height,
+        },
         "vae_decode": {
             "status": "configured",
             "mode": request.vae_decode.mode,
@@ -114,6 +122,7 @@ def dry_run_stages_for_request(request: T2IRequest) -> dict[str, object]:
             "status": "skipped",
             "reason": "dry_run_not_executed",
             "detector": request.face_detailer.detector,
+            "mask_backend": request.face_detailer.mask_backend,
             "threshold": request.face_detailer.threshold,
             "crop_scale": request.face_detailer.crop_scale,
             "padding": request.face_detailer.padding,

@@ -6,6 +6,7 @@ import torch
 from PIL import Image
 
 from anima_app.config import AppPaths
+from anima_app.comfy_runtime import bootstrap_comfy_runtime
 from anima_app.requests import FaceDetailerSettings, I2ISettings, T2ILoraConfig, T2IRequest, UpscaleSettings, VaeDecodeSettings
 from anima_app.runtime.comfy_t2i import (
     _build_renderer_stages,
@@ -39,6 +40,18 @@ def test_model_paths_for_request_uses_selected_diffusion_checkpoint(tmp_path):
     assert model_paths.diffusion_model == paths.model_root / "diffusion_models" / "variants" / "anima-alt.safetensors"
     assert model_paths.text_encoder == paths.model_root / "text_encoders" / "qwen_3_06b_base.safetensors"
     assert model_paths.vae == paths.model_root / "vae" / "qwen_image_vae.safetensors"
+
+
+def test_qwen_image_tokenizer_uses_comfy_prompt_weights():
+    bootstrap_comfy_runtime(AppPaths())
+
+    from comfy.text_encoders.qwen_image import QwenImageTokenizer
+
+    tokenizer = QwenImageTokenizer()
+    tokens = tokenizer.tokenize_with_weights("(long hair:1.4), blue eyes")
+    weights = {round(float(item[1]), 3) for row in tokens["qwen25_7b"] for item in row}
+
+    assert 1.4 in weights
 
 
 def test_i2i_image_path_resolves_project_relative_only(tmp_path):
@@ -214,6 +227,13 @@ def test_build_renderer_stages_records_execution_evidence():
             "crop_box": [8, 16, 112, 120],
             "output_path": "outputs/images/face_detail.png",
         },
+        runtime_metrics={
+            "status": "completed",
+            "elapsed_sec": 3.25,
+            "cuda_available": True,
+            "cuda_peak_reserved_mb": 7450.0,
+            "stages": {"base_sample": {"elapsed_sec": 1.5, "cuda_peak_reserved_mb": 6400.0}},
+        },
     )
 
     assert stages["base_t2i"]["status"] == "completed"
@@ -243,5 +263,12 @@ def test_build_renderer_stages_records_execution_evidence():
     assert stages["face_detailer"]["boxes"] == [[24.0, 32.0, 96.0, 104.0]]
     assert stages["face_detailer"]["crop_box"] == [8, 16, 112, 120]
     assert stages["face_detailer"]["output_path"] == "outputs/images/face_detail.png"
-    assert stages["face_detailer"]["steps"] == 12
+    assert stages["face_detailer"]["steps"] == 10
     assert stages["face_detailer"]["denoise"] == 0.28
+    assert stages["runtime_metrics"] == {
+        "status": "completed",
+        "elapsed_sec": 3.25,
+        "cuda_available": True,
+        "cuda_peak_reserved_mb": 7450.0,
+        "stages": {"base_sample": {"elapsed_sec": 1.5, "cuda_peak_reserved_mb": 6400.0}},
+    }

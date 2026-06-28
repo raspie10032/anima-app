@@ -14,6 +14,7 @@ from anima_app.requests import FaceDetailerSettings, T2IRequest
 FACE_DETECTOR = "face_yolov8n.pt"
 EYE_DETECTOR = "full_eyes_detect_v1.pt"
 SAM_DETECTOR = "sam_b.pt"
+SAM3_DETECTOR = "sam3.pt"
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class FaceDetailerDetectorPaths:
     face: Path
     eyes: Path
     sam: Path
+    sam3: Path
 
 
 @dataclass(frozen=True)
@@ -46,12 +48,14 @@ def detector_paths(paths: AppPaths) -> FaceDetailerDetectorPaths:
         face=root / FACE_DETECTOR,
         eyes=root / EYE_DETECTOR,
         sam=root / SAM_DETECTOR,
+        sam3=root / SAM3_DETECTOR,
     )
 
 
-def missing_detector_paths(paths: AppPaths) -> tuple[Path, ...]:
+def missing_detector_paths(paths: AppPaths, settings: FaceDetailerSettings | None = None) -> tuple[Path, ...]:
     expected = detector_paths(paths)
-    return tuple(path for path in (expected.face, expected.eyes, expected.sam) if not path.is_file())
+    sam_path = expected.sam3 if settings and settings.mask_backend == "sam3" else expected.sam
+    return tuple(path for path in (expected.face, expected.eyes, sam_path) if not path.is_file())
 
 
 def align_mask_to_grid(mask: np.ndarray, box_size: int = 32, grid_step: int = 8, threshold: float = 0.3) -> np.ndarray:
@@ -223,9 +227,10 @@ class AnimeFaceDetailer:
         self.yolo_model = None
         self.eyes_model = None
         self.sam_model = None
+        self.sam3_predictor = None
 
     def build_mask(self, image: Image.Image, settings: FaceDetailerSettings) -> FaceDetailerMaskResult | None:
-        missing = missing_detector_paths(self.paths)
+        missing = missing_detector_paths(self.paths, settings)
         if missing:
             raise FileNotFoundError("missing face detailer detector assets: " + ", ".join(str(path) for path in missing))
 
@@ -237,7 +242,7 @@ class AnimeFaceDetailer:
             self.yolo_model = YOLO(str(expected.face)).to(device)
         if self.eyes_model is None:
             self.eyes_model = YOLO(str(expected.eyes)).to(device)
-        if self.sam_model is None:
+        if settings.mask_backend == "sam_b" and self.sam_model is None:
             self.sam_model = SAM(str(expected.sam)).to(device)
 
         boxes = self._detect_boxes(image, settings.threshold)
@@ -246,14 +251,12 @@ class AnimeFaceDetailer:
 
         image_np = np.array(image.convert("RGB"))
         combined_mask = np.zeros(image_np.shape[:2], dtype=np.uint8)
-        try:
-            sam_results = self.sam_model(image_np, bboxes=[list(box) for box in boxes], verbose=False)
-            if sam_results and sam_results[0].masks is not None:
-                for mask_tensor in sam_results[0].masks.data:
-                    mask_np = mask_tensor.cpu().numpy()
-                    mask_image = Image.fromarray((mask_np * 255).astype(np.uint8)).resize(image.size, Image.NEAREST)
-                    combined_mask = np.maximum(combined_mask, np.array(mask_image))
-        except Exception:
+        if settings.mask_backend == "sam3":
+            combined_mask = self._build_sam3_mask(image_np, image.size, device)
+        else:
+            combined_mask = self._build_sam_b_mask(image_np, image.size, boxes, combined_mask)
+
+        if not np.any(combined_mask):
             for box in boxes:
                 x1, y1, x2, y2 = [int(value) for value in box]
                 combined_mask[y1:y2, x1:x2] = 255
@@ -262,7 +265,7 @@ class AnimeFaceDetailer:
         return FaceDetailerMaskResult(
             mask=Image.fromarray(grid_mask),
             boxes=tuple(boxes),
-            detector=settings.detector,
+            detector=f"{settings.detector}:{settings.mask_backend}",
         )
 
     def _detect_boxes(self, image: Image.Image, threshold: float) -> list[tuple[float, float, float, float]]:
@@ -274,6 +277,51 @@ class AnimeFaceDetailer:
                     boxes.append(tuple(float(value) for value in box))
         return boxes
 
+    def _build_sam_b_mask(
+        self,
+        image_np: np.ndarray,
+        image_size: tuple[int, int],
+        boxes: list[tuple[float, float, float, float]],
+        combined_mask: np.ndarray,
+    ) -> np.ndarray:
+        try:
+            sam_results = self.sam_model(image_np, bboxes=[list(box) for box in boxes], verbose=False)
+            if sam_results and sam_results[0].masks is not None:
+                for mask_tensor in sam_results[0].masks.data:
+                    mask_np = mask_tensor.cpu().numpy()
+                    mask_image = Image.fromarray((mask_np * 255).astype(np.uint8)).resize(image_size, Image.NEAREST)
+                    combined_mask = np.maximum(combined_mask, np.array(mask_image))
+        except Exception:
+            pass
+        return combined_mask
+
+    def _build_sam3_mask(self, image_np: np.ndarray, image_size: tuple[int, int], device: str) -> np.ndarray:
+        from ultralytics.models.sam import SAM3SemanticPredictor
+
+        expected = detector_paths(self.paths)
+        if self.sam3_predictor is None:
+            self.sam3_predictor = SAM3SemanticPredictor(
+                overrides={
+                    "conf": 0.25,
+                    "task": "segment",
+                    "mode": "predict",
+                    "model": str(expected.sam3),
+                    "half": device == "cuda",
+                    "verbose": False,
+                    "save": False,
+                    "device": device,
+                }
+            )
+        self.sam3_predictor.set_image(image_np)
+        sam_results = self.sam3_predictor(text=["face"])
+        combined_mask = np.zeros(image_np.shape[:2], dtype=np.uint8)
+        if sam_results and sam_results[0].masks is not None:
+            for mask_tensor in sam_results[0].masks.data:
+                mask_np = mask_tensor.cpu().numpy()
+                mask_image = Image.fromarray((mask_np * 255).astype(np.uint8)).resize(image_size, Image.NEAREST)
+                combined_mask = np.maximum(combined_mask, np.array(mask_image))
+        return combined_mask
+
     @staticmethod
     def _select_device() -> str:
         import torch
@@ -282,10 +330,8 @@ class AnimeFaceDetailer:
             return "mps"
         if torch.cuda.is_available():
             try:
-                capability = torch.cuda.get_device_capability(torch.cuda.current_device())
-                arch = f"sm_{capability[0]}{capability[1]}"
-                supported_arches = set(torch.cuda.get_arch_list())
-                if supported_arches and arch not in supported_arches:
+                device_name = torch.cuda.get_device_name(torch.cuda.current_device()).lower()
+                if "5060" in device_name:
                     return "cpu"
             except Exception:
                 return "cpu"

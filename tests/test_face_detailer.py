@@ -9,6 +9,7 @@ from anima_app.runtime.face_detailer import (
     EYE_DETECTOR,
     FACE_DETECTOR,
     SAM_DETECTOR,
+    SAM3_DETECTOR,
     AnimeFaceDetailer,
     FaceDetailerMaskResult,
     align_mask_to_grid,
@@ -44,6 +45,7 @@ def test_detector_paths_are_project_local(tmp_path):
     assert expected.face == tmp_path / "models" / "detectors" / FACE_DETECTOR
     assert expected.eyes == tmp_path / "models" / "detectors" / EYE_DETECTOR
     assert expected.sam == tmp_path / "models" / "detectors" / SAM_DETECTOR
+    assert expected.sam3 == tmp_path / "models" / "detectors" / SAM3_DETECTOR
 
 
 def test_missing_detector_paths_reports_all_required_assets(tmp_path):
@@ -52,6 +54,14 @@ def test_missing_detector_paths_reports_all_required_assets(tmp_path):
     missing = missing_detector_paths(paths)
 
     assert {path.name for path in missing} == {FACE_DETECTOR, EYE_DETECTOR, SAM_DETECTOR}
+
+
+def test_missing_detector_paths_uses_sam3_when_selected(tmp_path):
+    paths = AppPaths(project_root=tmp_path)
+
+    missing = missing_detector_paths(paths, FaceDetailerSettings(mask_backend="sam3"))
+
+    assert {path.name for path in missing} == {FACE_DETECTOR, EYE_DETECTOR, SAM3_DETECTOR}
 
 
 def test_build_mask_returns_none_when_detectors_find_no_boxes(tmp_path, monkeypatch):
@@ -88,6 +98,95 @@ def test_build_mask_returns_none_when_detectors_find_no_boxes(tmp_path, monkeypa
     result = detailer.build_mask(Image.new("RGB", (64, 64)), FaceDetailerSettings())
 
     assert result is None
+
+
+def test_build_mask_uses_sam3_backend_when_selected(tmp_path, monkeypatch):
+    paths = AppPaths(project_root=tmp_path)
+    required = detector_paths(paths)
+    for path in (required.face, required.eyes, required.sam3):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"model")
+
+    class FakeArray:
+        def cpu(self):
+            return self
+
+        def numpy(self):
+            return np.array([[1, 1], [1, 1]], dtype=np.float32)
+
+    class FakeMasks:
+        data = [FakeArray()]
+
+        def __len__(self):
+            return 1
+
+    class FakeBoxes:
+        xyxy = FakeArray()
+
+        def __len__(self):
+            return 1
+
+    class FakeYoloBoxes:
+        def __len__(self):
+            return 1
+
+        @property
+        def xyxy(self):
+            class BoxArray:
+                def cpu(self):
+                    return self
+
+                def numpy(self):
+                    return np.array([[8, 8, 40, 40]], dtype=np.float32)
+
+            return BoxArray()
+
+    class FakeYoloResult:
+        boxes = FakeYoloBoxes()
+
+    class FakeYolo:
+        def __init__(self, _path):
+            pass
+
+        def to(self, _device):
+            return self
+
+        def __call__(self, *_args, **_kwargs):
+            return [FakeYoloResult()]
+
+    class FakeSam3Result:
+        masks = FakeMasks()
+        boxes = FakeBoxes()
+
+    class FakeSam3Predictor:
+        def __init__(self, overrides):
+            assert overrides["model"].endswith("sam3.pt")
+
+        def set_image(self, image):
+            assert image.shape[:2] == (64, 64)
+
+        def __call__(self, *, text):
+            assert text == ["face"]
+            return [FakeSam3Result()]
+
+    fake_ultralytics = ModuleType("ultralytics")
+    fake_ultralytics.YOLO = FakeYolo
+    fake_ultralytics.SAM = FakeYolo
+    fake_sam_module = ModuleType("ultralytics.models.sam")
+    fake_sam_module.SAM3SemanticPredictor = FakeSam3Predictor
+    monkeypatch.setitem(__import__("sys").modules, "ultralytics", fake_ultralytics)
+    monkeypatch.setitem(__import__("sys").modules, "ultralytics.models.sam", fake_sam_module)
+    monkeypatch.setattr(AnimeFaceDetailer, "_select_device", staticmethod(lambda: "cpu"))
+
+    detailer = AnimeFaceDetailer(paths)
+    result = detailer.build_mask(
+        Image.new("RGB", (64, 64)),
+        FaceDetailerSettings(mask_backend="sam3"),
+    )
+
+    assert result is not None
+    assert result.detector == "default:sam3"
+    assert result.boxes == ((8.0, 8.0, 40.0, 40.0), (8.0, 8.0, 40.0, 40.0))
 
 
 def test_expand_box_applies_crop_scale_padding_and_image_bounds():

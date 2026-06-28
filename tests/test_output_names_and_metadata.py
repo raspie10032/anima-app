@@ -103,7 +103,7 @@ def test_generated_png_embeds_a1111_parameters_and_manifest_records_same_text(tm
     assert parameters == payload["png_metadata"]["parameters"]
     assert parameters.startswith("api portrait\nNegative prompt: bad hands\n")
     assert "Steps: 3" in parameters
-    assert "Sampler: euler" in parameters
+    assert "Sampler: euler_ancestral_cfg_pp" in parameters
     assert "CFG scale: 2" in parameters
     assert "Seed: 77" in parameters
     assert "Size: 32x48" in parameters

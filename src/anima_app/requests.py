@@ -13,6 +13,15 @@ from anima_app.defaults import (
     DEFAULT_T2I_WIDTH,
 )
 
+MEMORY_PROFILES = {"auto", "balanced", "low_vram_highres"}
+LOW_VRAM_HIGHRES_PROFILE = "low_vram_highres"
+DEFAULT_UPSCALE_STEPS = 10
+DEFAULT_FACE_DETAILER_STEPS = 10
+DEFAULT_TILE_SIZE = 128
+LOW_VRAM_HIGHRES_UPSCALE_STEPS = DEFAULT_UPSCALE_STEPS
+CFG_PP_SAMPLERS = {"euler_ancestral_cfg_pp"}
+FACE_DETAILER_MASK_BACKENDS = {"sam_b", "sam3"}
+
 
 @dataclass(frozen=True)
 class T2ILoraConfig:
@@ -32,18 +41,18 @@ class I2ISettings:
 class UpscaleSettings:
     enabled: bool = False
     scale: float = 1.5
-    steps: int = 12
+    steps: int = DEFAULT_UPSCALE_STEPS
     denoise: float = 0.35
     method: str = "bicubic"
     tiled: bool = False
-    tile_size: int = 64
+    tile_size: int = DEFAULT_TILE_SIZE
     overlap: int = 8
 
 
 @dataclass(frozen=True)
 class VaeDecodeSettings:
     mode: str = "auto"
-    tile_size: int = 64
+    tile_size: int = DEFAULT_TILE_SIZE
     overlap: int = 8
 
 
@@ -51,12 +60,13 @@ class VaeDecodeSettings:
 class FaceDetailerSettings:
     enabled: bool = False
     detector: str = "default"
+    mask_backend: str = "sam_b"
     threshold: float = 0.5
     crop_scale: float = 1.5
     padding: int = 32
     feather: int = 24
     exclude_forehead_ratio: float = 0.0
-    steps: int = 12
+    steps: int = DEFAULT_FACE_DETAILER_STEPS
     denoise: float = 0.28
 
 
@@ -64,6 +74,7 @@ class FaceDetailerSettings:
 class T2IRequest:
     prompt: str
     negative_prompt: str = ""
+    memory_profile: str = "auto"
     width: int = DEFAULT_T2I_WIDTH
     height: int = DEFAULT_T2I_HEIGHT
     steps: int = DEFAULT_T2I_STEPS
@@ -79,7 +90,14 @@ class T2IRequest:
     vae_decode: VaeDecodeSettings = VaeDecodeSettings()
 
     def __post_init__(self) -> None:
+        memory_profile = str(self.memory_profile or "auto").strip() or "auto"
+        object.__setattr__(self, "memory_profile", memory_profile)
+        if self.memory_profile not in MEMORY_PROFILES:
+            raise ValueError("memory profile must be one of: auto, balanced, low_vram_highres")
         object.__setattr__(self, "checkpoint", normalize_checkpoint_path(self.checkpoint))
+        if self.memory_profile == LOW_VRAM_HIGHRES_PROFILE:
+            object.__setattr__(self, "upscale", low_vram_highres_upscale_settings(self.upscale))
+            object.__setattr__(self, "vae_decode", low_vram_highres_vae_decode_settings(self.vae_decode))
         if not self.prompt.strip():
             raise ValueError("prompt is required")
         if self.width <= 0 or self.height <= 0:
@@ -90,6 +108,8 @@ class T2IRequest:
             raise ValueError("steps must be positive")
         if self.cfg < 0:
             raise ValueError("cfg must be >= 0")
+        if self.sampler not in CFG_PP_SAMPLERS:
+            raise ValueError("sampler must be a CFG++ sampler")
         for lora in self.loras:
             if not lora.path.strip():
                 raise ValueError("lora path cannot be empty")
@@ -109,6 +129,8 @@ class T2IRequest:
             _validate_tile_settings(self.upscale.tile_size, self.upscale.overlap, "upscale")
         if self.face_detailer.threshold < 0 or self.face_detailer.threshold > 1:
             raise ValueError("face detailer threshold must be between 0 and 1")
+        if self.face_detailer.mask_backend not in FACE_DETAILER_MASK_BACKENDS:
+            raise ValueError("face detailer mask backend must be one of: sam_b, sam3")
         if self.face_detailer.crop_scale <= 0:
             raise ValueError("face detailer crop scale must be positive")
         if self.face_detailer.padding < 0 or self.face_detailer.feather < 0:
@@ -133,6 +155,27 @@ def normalize_checkpoint_path(value: str) -> str:
     if path.suffix.lower() != ".safetensors":
         raise ValueError("checkpoint must be a .safetensors file")
     return path.as_posix()
+
+
+def low_vram_highres_upscale_settings(settings: UpscaleSettings) -> UpscaleSettings:
+    return UpscaleSettings(
+        enabled=True,
+        scale=settings.scale,
+        steps=LOW_VRAM_HIGHRES_UPSCALE_STEPS,
+        denoise=settings.denoise,
+        method=settings.method,
+        tiled=True,
+        tile_size=settings.tile_size,
+        overlap=settings.overlap,
+    )
+
+
+def low_vram_highres_vae_decode_settings(settings: VaeDecodeSettings) -> VaeDecodeSettings:
+    return VaeDecodeSettings(
+        mode="tiled",
+        tile_size=settings.tile_size,
+        overlap=settings.overlap,
+    )
 
 
 def _validate_denoise(value: float, label: str) -> None:

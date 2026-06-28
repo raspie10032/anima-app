@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from anima_app.autocomplete import autocomplete_payload, warm_autocomplete_index
 from anima_app.assets import asset_profile, asset_profiles, copy_asset_profile, import_lora_file, list_local_checkpoints, list_local_loras
 from anima_app.config import AppPaths
 from anima_app.defaults import (
@@ -25,9 +26,29 @@ from anima_app.defaults import (
     DEFAULT_T2I_WIDTH,
 )
 from anima_app.health import build_health_payload
+from anima_app.llm_runtime import default_llm_client, llm_generate_payload, llm_status_payload
 from anima_app.manifests import read_manifest, read_t2i_history
-from anima_app.requests import FaceDetailerSettings, I2ISettings, T2ILoraConfig, T2IRequest, UpscaleSettings, VaeDecodeSettings
+from anima_app.memory_profiles import resolve_auto_memory_profile
+from anima_app.requests import (
+    DEFAULT_FACE_DETAILER_STEPS,
+    DEFAULT_TILE_SIZE,
+    DEFAULT_UPSCALE_STEPS,
+    FaceDetailerSettings,
+    I2ISettings,
+    T2ILoraConfig,
+    T2IRequest,
+    UpscaleSettings,
+    VaeDecodeSettings,
+)
 from anima_app.runtime.pipeline import T2IRenderer, run_t2i
+from anima_app.runtime.masked_inpaint import MaskedInpaintSettings, run_masked_inpaint
+from anima_app.runtime.sam3_segment import (
+    Sam3MaskAdjustmentResult,
+    Sam3SegmentResult,
+    adjust_segment_mask,
+    segment_image_concept,
+    segment_image_concepts,
+)
 from anima_app.updates import check_github_update, version_payload
 from anima_app.wildcards import expand_request_wildcards, expand_text_wildcards, list_prompt_presets, list_wildcards
 
@@ -193,6 +214,45 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     }
     .prompt-tools-block .row {
       grid-template-columns: minmax(0, 1fr) 64px;
+    }
+    .autocomplete-menu {
+      position: fixed;
+      z-index: 50;
+      width: min(420px, calc(100vw - 24px));
+      max-height: 260px;
+      overflow: auto;
+      border: 1px solid #4b5361;
+      border-radius: 6px;
+      background: #111319;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.42);
+      padding: 4px;
+    }
+    .autocomplete-menu[hidden] {
+      display: none;
+    }
+    .autocomplete-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      width: 100%;
+      margin: 0;
+      padding: 6px 8px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      color: #f4f1ea;
+      text-align: left;
+      font-size: 12px;
+      line-height: 1.25;
+    }
+    .autocomplete-item:hover,
+    .autocomplete-item.active {
+      background: #2d3543;
+      color: #f4d27b;
+    }
+    .autocomplete-item-count {
+      color: #9da7b7;
+      font-variant-numeric: tabular-nums;
     }
     .toggle-switch {
       position: relative;
@@ -459,6 +519,43 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       text-align: center;
       text-decoration: none;
       font-weight: 700;
+    }
+    .sam3-tools {
+      display: grid;
+      gap: 8px;
+      margin-top: 12px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #151a22;
+    }
+    .sam3-tools .row {
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .sam3-status {
+      color: #b9c2d0;
+      font-size: 12px;
+    }
+    .sam3-presets,
+    .sam3-results {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .sam3-preset,
+    .sam3-result {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #11161f;
+      color: #f4f1ea;
+      padding: 6px 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .sam3-result[data-has-mask="true"] {
+      border-color: #7ccf91;
     }
     #output-link[hidden] {
       display: none;
@@ -949,6 +1046,8 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   <button type="button" id="insert-preset-wildcard" class="secondary-button">삽입</button>
                 </div>
                 <button type="button" id="preview-wildcards" class="secondary-button">확장 미리보기</button>
+                <button type="button" id="llm-refine-prompt" class="secondary-button">LLM 보정</button>
+                <p id="llm-prompt-status" class="queue-status" aria-live="polite"></p>
                 <pre id="wildcard-preview" class="wildcard-preview" hidden></pre>
               </div>
             </section>
@@ -1056,9 +1155,6 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   <label for="sampler">샘플러</label>
                   <select id="sampler" name="sampler" form="generate-form">
                     <option value="euler_ancestral_cfg_pp" selected>Euler Ancestral CFG++</option>
-                    <option value="euler">Euler Ancestral</option>
-                    <option value="dpmpp_2m">DPM++ 2M</option>
-                    <option value="dpmpp_sde">DPM++ SDE</option>
                   </select>
                 </div>
                 <div>
@@ -1073,6 +1169,20 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               </div>
               <label for="seed">시드</label>
               <input id="seed" name="seed" type="number" placeholder="랜덤" form="generate-form">
+              <div class="row">
+                <div>
+                  <label for="memory-profile">VRAM 프로필</label>
+                  <select id="memory-profile" name="memory_profile" form="generate-form">
+                    <option value="auto" selected>자동</option>
+                    <option value="balanced">균형</option>
+                    <option value="low_vram_highres">저VRAM 고해상도</option>
+                  </select>
+                </div>
+                <div>
+                  <label>&nbsp;</label>
+                  <button type="button" id="low-vram-highres-preset" class="secondary-button">저VRAM 고해상도</button>
+                </div>
+              </div>
             </section>
           </div>
         </details>
@@ -1114,7 +1224,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <div class="row">
                 <div>
                   <label for="upscale-steps">업스케일 스텝</label>
-                  <input id="upscale-steps" name="upscale_steps" type="number" min="1" value="12" form="generate-form">
+                  <input id="upscale-steps" name="upscale_steps" type="number" min="1" value="10" form="generate-form">
                 </div>
                 <div>
                   <label for="upscale-denoise">업스케일 디노이즈</label>
@@ -1131,7 +1241,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <div class="row">
                 <div>
                   <label for="upscale-tile-size">업스케일 타일</label>
-                  <input id="upscale-tile-size" name="upscale_tile_size" type="number" min="1" value="64" form="generate-form">
+                  <input id="upscale-tile-size" name="upscale_tile_size" type="number" min="1" value="128" form="generate-form">
                 </div>
                 <div>
                   <label for="upscale-overlap">업스케일 겹침</label>
@@ -1149,7 +1259,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 </div>
                 <div>
                   <label for="vae-tile-size">VAE 타일</label>
-                  <input id="vae-tile-size" name="vae_tile_size" type="number" min="1" value="64" form="generate-form">
+                  <input id="vae-tile-size" name="vae_tile_size" type="number" min="1" value="128" form="generate-form">
                 </div>
               </div>
               <label for="vae-overlap">VAE 겹침</label>
@@ -1167,6 +1277,11 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               </label>
               <label for="face-detector">얼굴 감지 모델</label>
               <input id="face-detector" name="face_detector" value="default" form="generate-form">
+              <label for="face-mask-backend">마스크 방식</label>
+              <select id="face-mask-backend" name="face_mask_backend" form="generate-form">
+                <option value="sam_b">SAM-B</option>
+                <option value="sam3">SAM3</option>
+              </select>
               <div class="row">
                 <div>
                   <label for="face-threshold">얼굴 임계값</label>
@@ -1180,7 +1295,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <div class="row">
                 <div>
                   <label for="face-steps">얼굴 스텝</label>
-                  <input id="face-steps" name="face_steps" type="number" min="1" value="12" form="generate-form">
+                  <input id="face-steps" name="face_steps" type="number" min="1" value="10" form="generate-form">
                 </div>
                 <div>
                   <label for="face-crop-scale">얼굴 크롭</label>
@@ -1254,12 +1369,67 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           <a id="output-link" href="" hidden>출력 열기</a>
           <button type="button" id="apply-manifest" class="secondary-button">이 결과 설정 불러오기</button>
         </div>
+        <section class="sam3-tools" id="sam3-tools">
+          <label for="sam3-prompt">SAM3 마스크</label>
+          <div class="row">
+            <input id="sam3-prompt" value="clothes" placeholder="clothes, dress, hair, eyes">
+            <button type="button" id="sam3-segment" class="secondary-button">마스크 생성</button>
+          </div>
+          <div class="sam3-presets" id="sam3-presets" aria-label="SAM3 프롬프트 후보"></div>
+          <button type="button" id="sam3-compare" class="secondary-button">옷 후보 비교</button>
+          <div class="sam3-results" id="sam3-results" aria-label="SAM3 비교 결과"></div>
+          <div class="row">
+            <div>
+              <label for="mask-dilation">마스크 확장</label>
+              <input id="mask-dilation" type="number" min="0" max="128" step="1" value="16">
+            </div>
+            <div>
+              <label for="mask-feather">경계 부드럽게</label>
+              <input id="mask-feather" type="number" min="0" max="64" step="1" value="8">
+            </div>
+          </div>
+          <button type="button" id="mask-adjust" class="secondary-button">마스크 조정</button>
+          <label for="inpaint-prompt">바꿀 내용</label>
+          <textarea id="inpaint-prompt" rows="2" placeholder="pastel yellow sundress, light floral pattern, thin shoulder straps"></textarea>
+          <label for="inpaint-negative">피할 내용</label>
+          <input id="inpaint-negative" value="low quality, bad anatomy, changed face, changed hair, gray blob">
+          <div class="row">
+            <div>
+              <label for="inpaint-method">인페인트 방식</label>
+              <select id="inpaint-method">
+                <option value="noise_mask">Noise mask</option>
+                <option value="vae_inpaint">VAE inpaint</option>
+                <option value="crop_i2i_composite">Crop i2i</option>
+              </select>
+            </div>
+            <div>
+              <label for="inpaint-denoise">디노이즈</label>
+              <input id="inpaint-denoise" type="number" min="0" max="1" step="0.01" value="0.65">
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label for="inpaint-steps">스텝</label>
+              <input id="inpaint-steps" type="number" min="1" max="100" step="1" value="20">
+            </div>
+            <div>
+              <label for="inpaint-cfg">CFG</label>
+              <input id="inpaint-cfg" type="number" min="0" max="20" step="0.1" value="3.5">
+            </div>
+          </div>
+          <div class="row">
+            <input id="inpaint-seed" placeholder="시드 비우면 랜덤">
+            <button type="button" id="masked-inpaint" class="secondary-button">인페인트</button>
+          </div>
+          <span id="sam3-status" class="sam3-status">결과 이미지를 선택하면 마스크를 만들 수 있습니다.</span>
+        </section>
         <details class="result-json">
           <summary>상세 생성 정보</summary>
           <pre id="result">준비됨.</pre>
         </details>
       </section>
     </main>
+    <div id="autocomplete-menu" class="autocomplete-menu" role="listbox" hidden></div>
     <aside class="history-frame" aria-label="생성 히스토리">
       <details class="side-status-panel" id="side-status-panel">
         <summary>런타임 상태</summary>
@@ -1332,18 +1502,69 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     const importPresetsButton = document.getElementById("import-presets");
     const presetImportFile = document.getElementById("preset-import-file");
     const applyManifestButton = document.getElementById("apply-manifest");
+    const sam3Prompt = document.getElementById("sam3-prompt");
+    const sam3SegmentButton = document.getElementById("sam3-segment");
+    const sam3CompareButton = document.getElementById("sam3-compare");
+    const sam3Presets = document.getElementById("sam3-presets");
+    const sam3Results = document.getElementById("sam3-results");
+    const sam3Status = document.getElementById("sam3-status");
+    const maskDilationInput = document.getElementById("mask-dilation");
+    const maskFeatherInput = document.getElementById("mask-feather");
+    const maskAdjustButton = document.getElementById("mask-adjust");
+    const inpaintPromptInput = document.getElementById("inpaint-prompt");
+    const inpaintNegativeInput = document.getElementById("inpaint-negative");
+    const inpaintMethodSelect = document.getElementById("inpaint-method");
+    const inpaintDenoiseInput = document.getElementById("inpaint-denoise");
+    const inpaintStepsInput = document.getElementById("inpaint-steps");
+    const inpaintCfgInput = document.getElementById("inpaint-cfg");
+    const inpaintSeedInput = document.getElementById("inpaint-seed");
+    const maskedInpaintButton = document.getElementById("masked-inpaint");
+    const autocompleteMenu = document.getElementById("autocomplete-menu");
     const wildcardSelect = document.getElementById("wildcard-select");
     const insertWildcardButton = document.getElementById("insert-wildcard");
     const presetWildcardSelect = document.getElementById("preset-wildcard-select");
     const insertPresetWildcardButton = document.getElementById("insert-preset-wildcard");
     const previewWildcardsButton = document.getElementById("preview-wildcards");
+    const llmRefinePromptButton = document.getElementById("llm-refine-prompt");
+    const llmPromptStatus = document.getElementById("llm-prompt-status");
     const wildcardPreview = document.getElementById("wildcard-preview");
     const startingSizeButtons = Array.from(document.querySelectorAll("[data-size-preset]"));
     const orientationButtons = Array.from(document.querySelectorAll("[data-orientation]"));
+    const lowVramHighresPresetButton = document.getElementById("low-vram-highres-preset");
     const referenceImageSection = document.getElementById("reference-image-section");
     const faceDetailerSection = document.getElementById("face-detailer-section");
     let presets = [];
     let currentManifest = null;
+    let currentOutputUrl = "";
+    let currentMaskUrl = "";
+    const sam3PromptPresets = [
+      "white dress",
+      "sleeveless white dress",
+      "white bodysuit",
+      "upper body clothing",
+      "torso clothing",
+      "one-piece outfit",
+      "sleeveless outfit",
+      "outfit",
+      "shirt",
+      "skirt",
+      "hair",
+      "bangs",
+      "face",
+      "eyes"
+    ];
+    const sam3ClothingComparePrompts = [
+      "white dress",
+      "sleeveless white dress",
+      "white bodysuit",
+      "upper body clothing",
+      "torso clothing",
+      "one-piece outfit",
+      "sleeveless outfit",
+      "outfit",
+      "shirt",
+      "skirt"
+    ];
     let compareVisible = false;
     let historyItems = [];
     let historyFilter = "all";
@@ -1358,6 +1579,11 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     let serverQueuePollTimer = null;
     let activeQueueBatchId = "";
     let lastQueueResultManifest = "";
+    let autocompleteTimer = null;
+    let autocompleteActiveInput = null;
+    let autocompleteItems = [];
+    let autocompleteIndex = -1;
+    let autocompleteFragment = null;
     const stageStateLabels = {
       pending: "대기",
       active: "진행 중",
@@ -1776,16 +2002,212 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       scheduleGenerationStageHide(finalState);
     }
     function clearOutputPreview() {
+      currentOutputUrl = "";
+      currentMaskUrl = "";
       preview.removeAttribute("src");
       preview.hidden = true;
       outputLink.removeAttribute("href");
       outputLink.hidden = true;
+      sam3Status.textContent = "결과 이미지를 선택하면 마스크를 만들 수 있습니다.";
     }
     function showOutputPreview(url) {
+      currentOutputUrl = url;
+      currentMaskUrl = "";
       preview.src = url + "?t=" + Date.now();
       preview.hidden = false;
       outputLink.href = url;
       outputLink.hidden = false;
+      sam3Status.textContent = "SAM3 마스크를 만들 수 있습니다.";
+    }
+    function setCurrentMaskFromPayload(payload) {
+      currentMaskUrl = payload.mask_url || currentMaskUrl;
+      if (payload.overlay_url) {
+        preview.src = payload.overlay_url + "?t=" + Date.now();
+        preview.hidden = false;
+      }
+    }
+    async function segmentCurrentImageWithSam3() {
+      if (!currentOutputUrl) {
+        sam3Status.textContent = "먼저 결과 이미지를 선택하세요.";
+        return;
+      }
+      const prompt = sam3Prompt.value.trim();
+      if (!prompt) {
+        sam3Status.textContent = "마스크 프롬프트를 입력하세요.";
+        return;
+      }
+      sam3SegmentButton.disabled = true;
+      sam3Status.textContent = "SAM3 마스크 생성 중...";
+      try {
+        const response = await fetch("/api/sam3/segment", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({image_path: currentOutputUrl, prompt, threshold: 0.25})
+        });
+        const payload = await response.json();
+        setResultPayload(payload);
+        if (!response.ok) {
+          sam3Status.textContent = payload.error || "SAM3 마스크 생성 실패";
+          return;
+        }
+        setCurrentMaskFromPayload(payload);
+        sam3Status.textContent = `마스크 생성 완료: ${payload.boxes?.length || 0}개 영역`;
+      } catch (error) {
+        sam3Status.textContent = String(error);
+        setResultPayload({error: String(error)});
+      } finally {
+        sam3SegmentButton.disabled = false;
+      }
+    }
+    function renderSam3Presets() {
+      sam3Presets.replaceChildren(...sam3PromptPresets.map((prompt) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "sam3-preset";
+        button.textContent = prompt;
+        button.addEventListener("click", () => {
+          sam3Prompt.value = prompt;
+        });
+        return button;
+      }));
+    }
+    function renderSam3CompareResults(items) {
+      sam3Results.replaceChildren(...items.map((item) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "sam3-result";
+        const bestScore = Math.max(...(item.scores || [0]));
+        const boxCount = item.boxes?.length || 0;
+        button.dataset.hasMask = String(boxCount > 0);
+        button.textContent = `${item.prompt}: ${boxCount} / ${bestScore.toFixed(2)}`;
+        button.addEventListener("click", () => {
+          sam3Prompt.value = item.prompt;
+          setCurrentMaskFromPayload(item);
+          setResultPayload({status: "sam3_selected", ...item});
+        });
+        return button;
+      }));
+    }
+    async function compareCurrentImageWithSam3() {
+      if (!currentOutputUrl) {
+        sam3Status.textContent = "먼저 결과 이미지를 선택하세요.";
+        return;
+      }
+      sam3CompareButton.disabled = true;
+      sam3SegmentButton.disabled = true;
+      sam3Status.textContent = "SAM3 후보 비교 중...";
+      try {
+        const response = await fetch("/api/sam3/compare", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({image_path: currentOutputUrl, prompts: sam3ClothingComparePrompts, threshold: 0.15})
+        });
+        const payload = await response.json();
+        setResultPayload(payload);
+        if (!response.ok) {
+          sam3Status.textContent = payload.error || "SAM3 후보 비교 실패";
+          return;
+        }
+        renderSam3CompareResults(payload.results || []);
+        if (payload.best?.overlay_url) {
+          sam3Prompt.value = payload.best.prompt || sam3Prompt.value;
+          setCurrentMaskFromPayload(payload.best);
+        }
+        const bestCount = payload.best?.boxes?.length || 0;
+        sam3Status.textContent = `후보 비교 완료: ${payload.count || 0}개, 최고 ${bestCount}개 영역`;
+      } catch (error) {
+        sam3Status.textContent = String(error);
+        setResultPayload({error: String(error)});
+      } finally {
+        sam3CompareButton.disabled = false;
+        sam3SegmentButton.disabled = false;
+      }
+    }
+    async function adjustCurrentMask() {
+      if (!currentOutputUrl || !currentMaskUrl) {
+        sam3Status.textContent = "먼저 SAM3 마스크를 생성하거나 후보를 선택하세요.";
+        return;
+      }
+      maskAdjustButton.disabled = true;
+      sam3Status.textContent = "마스크 조정 중...";
+      try {
+        const response = await fetch("/api/masks/adjust", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            image_path: currentOutputUrl,
+            mask_path: currentMaskUrl,
+            dilation: Number(maskDilationInput.value || 0),
+            feather: Number(maskFeatherInput.value || 0)
+          })
+        });
+        const payload = await response.json();
+        setResultPayload(payload);
+        if (!response.ok) {
+          sam3Status.textContent = payload.error || "마스크 조정 실패";
+          return;
+        }
+        setCurrentMaskFromPayload(payload);
+        sam3Status.textContent = `마스크 조정 완료: 확장 ${payload.dilation}px, 페더 ${payload.feather}px`;
+      } catch (error) {
+        sam3Status.textContent = String(error);
+        setResultPayload({error: String(error)});
+      } finally {
+        maskAdjustButton.disabled = false;
+      }
+    }
+    async function runMaskedInpaint() {
+      if (!currentOutputUrl || !currentMaskUrl) {
+        sam3Status.textContent = "먼저 조정할 마스크를 선택하세요.";
+        return;
+      }
+      const prompt = inpaintPromptInput.value.trim();
+      if (!prompt) {
+        sam3Status.textContent = "바꿀 내용을 입력하세요.";
+        return;
+      }
+      maskedInpaintButton.disabled = true;
+      sam3SegmentButton.disabled = true;
+      sam3CompareButton.disabled = true;
+      maskAdjustButton.disabled = true;
+      sam3Status.textContent = "인페인트 생성 중...";
+      const seedValue = inpaintSeedInput.value.trim();
+      try {
+        const response = await fetch("/api/inpaint/masked", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            image_path: currentOutputUrl,
+            mask_path: currentMaskUrl,
+            prompt,
+            negative_prompt: inpaintNegativeInput.value,
+            method: inpaintMethodSelect.value || "noise_mask",
+            denoise: Number(inpaintDenoiseInput.value || 0.65),
+            steps: Number(inpaintStepsInput.value || 20),
+            cfg: Number(inpaintCfgInput.value || 3.5),
+            seed: seedValue ? Number(seedValue) : null
+          })
+        });
+        const payload = await response.json();
+        setResultPayload(payload);
+        if (!response.ok) {
+          sam3Status.textContent = payload.error || "인페인트 실패";
+          return;
+        }
+        if (payload.output_url) {
+          showOutputPreview(payload.output_url);
+        }
+        sam3Status.textContent = `인페인트 완료: ${payload.method}, seed ${payload.seed}`;
+        refreshHistory().catch(() => {});
+      } catch (error) {
+        sam3Status.textContent = String(error);
+        setResultPayload({error: String(error)});
+      } finally {
+        maskedInpaintButton.disabled = false;
+        sam3SegmentButton.disabled = false;
+        sam3CompareButton.disabled = false;
+        maskAdjustButton.disabled = false;
+      }
     }
     function setSelectValue(select, value) {
       if (value && ![...select.options].some((option) => option.value === value)) {
@@ -2150,6 +2572,142 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       const suffix = after.trim().length ? (after.trimStart().startsWith(",") ? " " : ", ") : ",";
       return `${prefix}${token}${suffix}`;
     }
+    function autocompleteTargets() {
+      return [
+        form.elements.prompt,
+        form.elements.negative_prompt,
+        inpaintPromptInput,
+        inpaintNegativeInput
+      ].filter(Boolean);
+    }
+    function currentAutocompleteFragment(input) {
+      const cursor = input.selectionStart ?? input.value.length;
+      const before = input.value.slice(0, cursor);
+      const marker = Math.max(before.lastIndexOf(","), before.lastIndexOf("\n"));
+      const rawStart = marker + 1;
+      const leading = before.slice(rawStart).match(/^\\s*/)?.[0] || "";
+      const start = rawStart + leading.length;
+      const query = before.slice(start);
+      if (query.length < 2) {
+        return null;
+      }
+      return {start, end: cursor, query};
+    }
+    function hideAutocomplete() {
+      autocompleteMenu.hidden = true;
+      autocompleteMenu.replaceChildren();
+      autocompleteItems = [];
+      autocompleteIndex = -1;
+      autocompleteFragment = null;
+    }
+    function positionAutocomplete(input) {
+      const rect = input.getBoundingClientRect();
+      autocompleteMenu.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - 432))}px`;
+      autocompleteMenu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 272)}px`;
+    }
+    function setAutocompleteIndex(index) {
+      autocompleteIndex = index;
+      [...autocompleteMenu.querySelectorAll(".autocomplete-item")].forEach((button, buttonIndex) => {
+        button.classList.toggle("active", buttonIndex === autocompleteIndex);
+      });
+    }
+    function renderAutocomplete(input, items) {
+      autocompleteItems = items || [];
+      autocompleteMenu.replaceChildren();
+      if (!autocompleteItems.length) {
+        hideAutocomplete();
+        return;
+      }
+      autocompleteItems.forEach((item, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "autocomplete-item";
+        button.setAttribute("role", "option");
+        const label = document.createElement("span");
+        label.textContent = item.value;
+        const count = document.createElement("span");
+        count.className = "autocomplete-item-count";
+        count.textContent = item.count ? item.count.toLocaleString() : "";
+        button.append(label, count);
+        button.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          applyAutocompleteItem(index);
+        });
+        autocompleteMenu.append(button);
+      });
+      autocompleteActiveInput = input;
+      autocompleteMenu.hidden = false;
+      positionAutocomplete(input);
+      setAutocompleteIndex(0);
+    }
+    async function requestAutocomplete(input) {
+      const fragment = currentAutocompleteFragment(input);
+      autocompleteFragment = fragment;
+      if (!fragment) {
+        hideAutocomplete();
+        return;
+      }
+      try {
+        const response = await fetch(`/api/autocomplete?q=${encodeURIComponent(fragment.query)}&limit=24`);
+        const payload = await response.json();
+        if (autocompleteActiveInput && autocompleteActiveInput !== input) {
+          return;
+        }
+        renderAutocomplete(input, payload.items || []);
+      } catch (error) {
+        hideAutocomplete();
+      }
+    }
+    function scheduleAutocomplete(input) {
+      autocompleteActiveInput = input;
+      window.clearTimeout(autocompleteTimer);
+      autocompleteTimer = window.setTimeout(() => requestAutocomplete(input), 90);
+    }
+    function applyAutocompleteItem(index = autocompleteIndex) {
+      const input = autocompleteActiveInput;
+      const item = autocompleteItems[index];
+      const fragment = input ? (autocompleteFragment || currentAutocompleteFragment(input)) : null;
+      if (!input || !item || !fragment) {
+        hideAutocomplete();
+        return;
+      }
+      const before = input.value.slice(0, fragment.start);
+      const after = input.value.slice(fragment.end);
+      const suffix = after.trim().length && !after.trimStart().startsWith(",") ? ", " : "";
+      input.value = before + item.value + suffix + after;
+      const cursor = before.length + item.value.length + suffix.length;
+      input.focus();
+      input.setSelectionRange(cursor, cursor);
+      hideAutocomplete();
+      input.dispatchEvent(new Event("input", {bubbles: true}));
+    }
+    function handleAutocompleteKeydown(event) {
+      if (autocompleteMenu.hidden) {
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setAutocompleteIndex((autocompleteIndex + 1) % autocompleteItems.length);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setAutocompleteIndex((autocompleteIndex - 1 + autocompleteItems.length) % autocompleteItems.length);
+      } else if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        applyAutocompleteItem();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        hideAutocomplete();
+      }
+    }
+    function setupAutocomplete() {
+      autocompleteTargets().forEach((input) => {
+        input.addEventListener("input", () => scheduleAutocomplete(input));
+        input.addEventListener("keydown", handleAutocompleteKeydown);
+        input.addEventListener("blur", () => window.setTimeout(hideAutocomplete, 120));
+      });
+      window.addEventListener("resize", hideAutocomplete);
+      document.addEventListener("scroll", hideAutocomplete, true);
+    }
     function renderWildcardPreview(payload) {
       const lines = [];
       if (payload.error) {
@@ -2188,6 +2746,45 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         previewWildcardsButton.disabled = false;
       }
     }
+    async function refinePromptWithLlm() {
+      const prompt = form.elements.prompt.value.trim();
+      if (!prompt) {
+        llmPromptStatus.textContent = "프롬프트가 비어 있음";
+        return;
+      }
+      const previousText = llmRefinePromptButton.textContent;
+      llmRefinePromptButton.disabled = true;
+      llmRefinePromptButton.textContent = "LLM 처리 중...";
+      llmPromptStatus.textContent = "LLM 보정 중...";
+      try {
+        const response = await fetch("/api/llm/generate", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            prompt_prefix: "Rewrite this image prompt as a concise Anima generation prompt. Return only the improved prompt.",
+            prompt_suffix: "\\nPrompt: " + prompt + "\\nImproved prompt:",
+            max_new_tokens: 8
+          })
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error || "LLM request failed");
+        }
+        const completion = String(payload.completion_text || "").trim();
+        if (!completion) {
+          throw new Error("LLM returned an empty completion");
+        }
+        form.elements.prompt.value = completion;
+        llmPromptStatus.textContent = "LLM 보정 완료";
+        setResultPayload({status: "llm_prompt_refined", ...payload});
+      } catch (error) {
+        llmPromptStatus.textContent = "LLM 보정 실패";
+        setResultPayload({error: String(error)});
+      } finally {
+        llmRefinePromptButton.textContent = previousText;
+        llmRefinePromptButton.disabled = false;
+      }
+    }
     function buildRequestData() {
       const data = Object.fromEntries(new FormData(form).entries());
       data.width = Number(data.width);
@@ -2202,29 +2799,30 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         data.upscale = {
           enabled: true,
           scale: Number(data.upscale_scale || 1.5),
-          steps: Number(data.upscale_steps || 12),
+          steps: Number(data.upscale_steps || 10),
           denoise: Number(data.upscale_denoise || 0.35),
           method: data.upscale_method || "bicubic",
           tiled: Boolean(data.upscale_tiled),
-          tile_size: Number(data.upscale_tile_size || 64),
+          tile_size: Number(data.upscale_tile_size || 128),
           overlap: Number(data.upscale_overlap || 8)
         };
       }
       data.vae_decode = {
         mode: data.vae_decode_mode || "auto",
-        tile_size: Number(data.vae_tile_size || 64),
+        tile_size: Number(data.vae_tile_size || 128),
         overlap: Number(data.vae_overlap || 8)
       };
       if (data.face_detailer_enabled) {
         data.face_detailer = {
           enabled: true,
           detector: data.face_detector || "default",
+          mask_backend: data.face_mask_backend || "sam_b",
           threshold: Number(data.face_threshold || 0.5),
           crop_scale: Number(data.face_crop_scale || 1.5),
           padding: Number(data.face_padding || 32),
           feather: Number(data.face_feather || 24),
           exclude_forehead_ratio: Number(data.face_exclude_forehead || 0),
-          steps: Number(data.face_steps || 12),
+          steps: Number(data.face_steps || 10),
           denoise: Number(data.face_denoise || 0.28)
         };
       }
@@ -2247,6 +2845,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       delete data.vae_overlap;
       delete data.face_detailer_enabled;
       delete data.face_detector;
+      delete data.face_mask_backend;
       delete data.face_threshold;
       delete data.face_crop_scale;
       delete data.face_padding;
@@ -2279,6 +2878,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       form.elements.sampler.value = request.sampler || "__DEFAULT_T2I_SAMPLER__";
       form.elements.scheduler.value = request.scheduler || "__DEFAULT_T2I_SCHEDULER__";
       form.elements.seed.value = request.seed ?? "";
+      form.elements.memory_profile.value = request.memory_profile || "auto";
       setSelectValue(checkpointSelect, request.checkpoint || "__DEFAULT_T2I_CHECKPOINT__");
       const wildcardMode = request.wildcard_mode || wildcardInfo.mode || "random";
       form.elements.wildcard_mode.value = wildcardMode === "off" ? "random" : wildcardMode;
@@ -2286,23 +2886,24 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       form.elements.i2i_denoise.value = request.i2i?.denoise ?? 0.35;
       form.elements.upscale_enabled.checked = Boolean(request.upscale?.enabled);
       form.elements.upscale_scale.value = request.upscale?.scale ?? 1.5;
-      form.elements.upscale_steps.value = request.upscale?.steps ?? 12;
+      form.elements.upscale_steps.value = request.upscale?.steps ?? 10;
       form.elements.upscale_denoise.value = request.upscale?.denoise ?? 0.35;
       form.elements.upscale_method.value = request.upscale?.method || "bicubic";
       form.elements.upscale_tiled.checked = Boolean(request.upscale?.tiled);
-      form.elements.upscale_tile_size.value = request.upscale?.tile_size ?? 64;
+      form.elements.upscale_tile_size.value = request.upscale?.tile_size ?? 128;
       form.elements.upscale_overlap.value = request.upscale?.overlap ?? 8;
       form.elements.vae_decode_mode.value = request.vae_decode?.mode || "auto";
-      form.elements.vae_tile_size.value = request.vae_decode?.tile_size ?? 64;
+      form.elements.vae_tile_size.value = request.vae_decode?.tile_size ?? 128;
       form.elements.vae_overlap.value = request.vae_decode?.overlap ?? 8;
       form.elements.face_detailer_enabled.checked = Boolean(request.face_detailer?.enabled);
       form.elements.face_detector.value = request.face_detailer?.detector || "default";
+      form.elements.face_mask_backend.value = request.face_detailer?.mask_backend || "sam_b";
       form.elements.face_threshold.value = request.face_detailer?.threshold ?? 0.5;
       form.elements.face_crop_scale.value = request.face_detailer?.crop_scale ?? 1.5;
       form.elements.face_padding.value = request.face_detailer?.padding ?? 32;
       form.elements.face_feather.value = request.face_detailer?.feather ?? 24;
       form.elements.face_exclude_forehead.value = request.face_detailer?.exclude_forehead_ratio ?? 0;
-      form.elements.face_steps.value = request.face_detailer?.steps ?? 12;
+      form.elements.face_steps.value = request.face_detailer?.steps ?? 10;
       form.elements.face_denoise.value = request.face_detailer?.denoise ?? 0.28;
       referenceImageSection.open = Boolean(request.i2i?.image_path || request.upscale?.enabled || request.upscale?.tiled || (request.vae_decode?.mode && request.vae_decode.mode !== "auto"));
       faceDetailerSection.open = Boolean(request.face_detailer?.enabled);
@@ -2329,6 +2930,20 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         form.elements.height.value = startingOrientation === "landscape" ? Math.min(currentWidth, currentHeight) : Math.max(currentWidth, currentHeight);
       }
       syncStartingPointButtons();
+    }
+    function applyLowVramHighresPreset() {
+      form.elements.memory_profile.value = "low_vram_highres";
+      form.elements.upscale_enabled.checked = true;
+      form.elements.upscale_tiled.checked = true;
+      form.elements.upscale_scale.value = form.elements.upscale_scale.value || 1.5;
+      form.elements.upscale_steps.value = 10;
+      form.elements.upscale_denoise.value = form.elements.upscale_denoise.value || 0.35;
+      form.elements.upscale_tile_size.value = form.elements.upscale_tile_size.value || 128;
+      form.elements.upscale_overlap.value = form.elements.upscale_overlap.value || 8;
+      form.elements.vae_decode_mode.value = "tiled";
+      form.elements.vae_tile_size.value = form.elements.vae_tile_size.value || 128;
+      form.elements.vae_overlap.value = form.elements.vae_overlap.value || 8;
+      referenceImageSection.open = true;
     }
     function syncStartingPointButtons() {
       startingSizeButtons.forEach((button) => {
@@ -2599,8 +3214,13 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     orientationButtons.forEach((button) => {
       button.addEventListener("click", () => applyStartingOrientation(button.dataset.orientation || "portrait"));
     });
+    lowVramHighresPresetButton.addEventListener("click", applyLowVramHighresPreset);
     syncStartingPointButtons();
     applyManifestButton.addEventListener("click", applyManifest);
+    sam3SegmentButton.addEventListener("click", segmentCurrentImageWithSam3);
+    sam3CompareButton.addEventListener("click", compareCurrentImageWithSam3);
+    maskAdjustButton.addEventListener("click", adjustCurrentMask);
+    maskedInpaintButton.addEventListener("click", runMaskedInpaint);
     toggleCompareButton.addEventListener("click", () => {
       compareVisible = !compareVisible;
       syncCompareControls(currentManifest);
@@ -2608,8 +3228,10 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     insertWildcardButton.addEventListener("click", insertWildcard);
     insertPresetWildcardButton.addEventListener("click", insertPresetWildcard);
     previewWildcardsButton.addEventListener("click", previewWildcards);
+    llmRefinePromptButton.addEventListener("click", refinePromptWithLlm);
     checkUpdateButton.addEventListener("click", checkForUpdates);
     addLoraButton.addEventListener("click", () => addLoraRow());
+    setupAutocomplete();
     startQueueButton.addEventListener("click", () => {
       startAutoQueue().catch((error) => {
         setQueueControlsRunning(false);
@@ -2652,6 +3274,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       }
     });
     addLoraRow();
+    renderSam3Presets();
     loadStatus().catch(() => {});
     loadHistory().catch(() => {});
     loadPresets().catch(() => {});
@@ -3146,6 +3769,7 @@ def request_from_payload(payload: dict[str, Any]) -> T2IRequest:
     return T2IRequest(
         prompt=str(payload.get("prompt", "")),
         negative_prompt=str(payload.get("negative_prompt", payload.get("negative", ""))),
+        memory_profile=str(payload.get("memory_profile", "auto")),
         width=int(payload.get("width", DEFAULT_T2I_WIDTH)),
         height=int(payload.get("height", DEFAULT_T2I_HEIGHT)),
         steps=int(payload.get("steps", DEFAULT_T2I_STEPS)),
@@ -3177,6 +3801,7 @@ def handle_generate(
         progress_store.update_summary(progress_id, "요청 확인 중")
     try:
         request = request_from_payload(payload)
+        request = resolve_auto_memory_profile(request, paths=paths)
         if progress_store is not None and progress_id is not None:
             progress_store.update_stage(progress_id, "request", "completed")
             progress_store.update_stage(progress_id, "wildcards", "active")
@@ -3265,6 +3890,125 @@ def handle_model_prepare(payload: dict[str, Any], *, paths: AppPaths) -> tuple[i
         }
     except (FileNotFoundError, RuntimeError, ValueError) as exc:
         return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+
+
+def handle_sam3_segment(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
+    try:
+        result = segment_image_concept(
+            str(payload.get("image_path", "")),
+            prompt=str(payload.get("prompt", "")),
+            paths=paths,
+            threshold=float(payload.get("threshold", 0.25)),
+        )
+        return HTTPStatus.OK, {
+            "status": "sam3_segmented",
+            **_sam3_result_payload(result, paths),
+        }
+    except (FileNotFoundError, ImportError, RuntimeError, ValueError) as exc:
+        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+
+
+def handle_sam3_compare(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
+    raw_prompts = payload.get("prompts", [])
+    if not isinstance(raw_prompts, list):
+        raw_prompts = []
+    try:
+        results = segment_image_concepts(
+            str(payload.get("image_path", "")),
+            prompts=[str(prompt) for prompt in raw_prompts],
+            paths=paths,
+            threshold=float(payload.get("threshold", 0.25)),
+        )
+        items = [_sam3_result_payload(result, paths) for result in results]
+        best = max(items, key=lambda item: (len(item["boxes"]), max(item["scores"] or [0.0])), default=None)
+        return HTTPStatus.OK, {
+            "status": "sam3_compared",
+            "count": len(items),
+            "best": best,
+            "results": items,
+        }
+    except (FileNotFoundError, ImportError, RuntimeError, ValueError) as exc:
+        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+
+
+def handle_mask_adjust(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
+    try:
+        result = adjust_segment_mask(
+            str(payload.get("image_path", "")),
+            mask_path=str(payload.get("mask_path", "")),
+            paths=paths,
+            dilation=int(payload.get("dilation", 0)),
+            feather=int(payload.get("feather", 0)),
+            threshold=int(payload.get("threshold", 8)),
+        )
+        return HTTPStatus.OK, {
+            "status": "mask_adjusted",
+            **_mask_adjustment_payload(result, paths),
+        }
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+
+
+def handle_masked_inpaint(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
+    try:
+        result = run_masked_inpaint(
+            MaskedInpaintSettings(
+                image_path=str(payload.get("image_path", "")),
+                mask_path=str(payload.get("mask_path", "")),
+                prompt=str(payload.get("prompt", "")),
+                negative_prompt=str(payload.get("negative_prompt", "")),
+                method=str(payload.get("method", "noise_mask")),
+                denoise=float(payload.get("denoise", 0.65)),
+                steps=int(payload.get("steps", DEFAULT_T2I_STEPS)),
+                cfg=float(payload.get("cfg", DEFAULT_T2I_CFG)),
+                seed=_optional_int(payload.get("seed")),
+                width=_optional_int(payload.get("width")),
+                height=_optional_int(payload.get("height")),
+            ),
+            paths=paths,
+        )
+        return HTTPStatus.OK, {
+            "status": "masked_inpainted",
+            "method": result.method,
+            "seed": result.seed,
+            "crop_box": list(result.crop_box),
+            "output_path": str(result.output_path),
+            "output_url": _output_url(result.output_path, paths),
+            "crop_path": str(result.crop_path),
+            "crop_url": _output_url(result.crop_path, paths),
+        }
+    except (FileNotFoundError, ImportError, RuntimeError, ValueError) as exc:
+        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+
+
+def _sam3_result_payload(result: Sam3SegmentResult, paths: AppPaths) -> dict[str, Any]:
+    return {
+        "prompt": result.prompt,
+        "source_path": str(result.source_path),
+        "mask_path": str(result.mask_path),
+        "mask_url": _output_url(result.mask_path, paths),
+        "overlay_path": str(result.overlay_path),
+        "overlay_url": _output_url(result.overlay_path, paths),
+        "boxes": [list(box) for box in result.boxes],
+        "scores": list(result.scores),
+    }
+
+
+def _mask_adjustment_payload(result: Sam3MaskAdjustmentResult, paths: AppPaths) -> dict[str, Any]:
+    return {
+        "source_path": str(result.source_path),
+        "mask_path": str(result.mask_path),
+        "mask_url": _output_url(result.mask_path, paths),
+        "overlay_path": str(result.overlay_path),
+        "overlay_url": _output_url(result.overlay_path, paths),
+        "crop_path": str(result.crop_path),
+        "crop_url": _output_url(result.crop_path, paths),
+        "crop_mask_path": str(result.crop_mask_path),
+        "crop_mask_url": _output_url(result.crop_mask_path, paths),
+        "crop_box": list(result.crop_box),
+        "dilation": result.dilation,
+        "feather": result.feather,
+    }
 
 
 def handle_manifest_detail(name: str, *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
@@ -3423,6 +4167,10 @@ def handle_wildcards(*, paths: AppPaths) -> dict[str, Any]:
     return {"count": len(items), "items": items, "preset_count": len(presets), "presets": presets}
 
 
+def handle_autocomplete(*, paths: AppPaths, query: str = "", limit: int = 24) -> dict[str, Any]:
+    return autocomplete_payload(paths, query=query, limit=limit)
+
+
 def handle_wildcard_preview(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
     prompt_text = str(payload.get("prompt", ""))
     negative_text = str(payload.get("negative_prompt", ""))
@@ -3484,9 +4232,12 @@ def create_http_server(
     paths: AppPaths,
     renderer: T2IRenderer | None = None,
     default_dry_run: bool = False,
+    llm_client: object | None = None,
 ) -> ThreadingHTTPServer:
+    warm_autocomplete_index(paths)
     progress_store = ProgressStore()
     generation_lock = threading.Lock()
+    llm_client = default_llm_client() if llm_client is None else llm_client
     job_queue = JobQueue(
         paths=paths,
         renderer=renderer,
@@ -3518,6 +4269,9 @@ def create_http_server(
             if parsed.path == "/api/readiness":
                 self._send_json(HTTPStatus.OK, handle_readiness(paths=paths))
                 return
+            if parsed.path == "/api/llm/status":
+                self._send_json(HTTPStatus.OK, llm_status_payload(llm_client))
+                return
             if parsed.path == "/api/loras":
                 self._send_json(HTTPStatus.OK, handle_loras(paths=paths))
                 return
@@ -3526,6 +4280,14 @@ def create_http_server(
                 return
             if parsed.path == "/api/wildcards":
                 self._send_json(HTTPStatus.OK, handle_wildcards(paths=paths))
+                return
+            if parsed.path == "/api/autocomplete":
+                query = parse_qs(parsed.query)
+                limit = _bounded_limit(query.get("limit", ["24"])[0], maximum=100)
+                self._send_json(
+                    HTTPStatus.OK,
+                    handle_autocomplete(paths=paths, query=query.get("q", [""])[0], limit=limit),
+                )
                 return
             if parsed.path == "/api/presets/export":
                 self._send_json(HTTPStatus.OK, handle_preset_export(paths=paths))
@@ -3568,6 +4330,11 @@ def create_http_server(
                 "/api/presets/import",
                 "/api/wildcards/preview",
                 "/api/models/prepare",
+                "/api/llm/generate",
+                "/api/sam3/segment",
+                "/api/sam3/compare",
+                "/api/masks/adjust",
+                "/api/inpaint/masked",
             } and not parsed.path.startswith("/api/jobs/"):
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
                 return
@@ -3586,6 +4353,25 @@ def create_http_server(
                 status, response = handle_preset_save(payload, paths=paths)
             elif parsed.path == "/api/models/prepare":
                 status, response = handle_model_prepare(payload, paths=paths)
+            elif parsed.path == "/api/llm/generate":
+                status, response = llm_generate_payload(llm_client, payload)
+            elif parsed.path == "/api/sam3/segment":
+                status, response = handle_sam3_segment(payload, paths=paths)
+            elif parsed.path == "/api/sam3/compare":
+                status, response = handle_sam3_compare(payload, paths=paths)
+            elif parsed.path == "/api/masks/adjust":
+                status, response = handle_mask_adjust(payload, paths=paths)
+            elif parsed.path == "/api/inpaint/masked":
+                if not generation_lock.acquire(blocking=False):
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {"error": "generation already running; wait for the current job to finish"},
+                    )
+                    return
+                try:
+                    status, response = handle_masked_inpaint(payload, paths=paths)
+                finally:
+                    generation_lock.release()
             elif parsed.path == "/api/wildcards/preview":
                 status, response = handle_wildcard_preview(payload, paths=paths)
             elif parsed.path == "/api/jobs":
@@ -3702,11 +4488,11 @@ def _upscale_from_payload(value: Any) -> UpscaleSettings:
     return UpscaleSettings(
         enabled=bool(value.get("enabled", False)),
         scale=float(value.get("scale", 1.5)),
-        steps=int(value.get("steps", 12)),
+        steps=int(value.get("steps", DEFAULT_UPSCALE_STEPS)),
         denoise=float(value.get("denoise", 0.35)),
         method=str(value.get("method", "bicubic")),
         tiled=bool(value.get("tiled", False)),
-        tile_size=int(value.get("tile_size", 64)),
+        tile_size=int(value.get("tile_size", DEFAULT_TILE_SIZE)),
         overlap=int(value.get("overlap", 8)),
     )
 
@@ -3716,7 +4502,7 @@ def _vae_decode_from_payload(value: Any) -> VaeDecodeSettings:
         value = {}
     return VaeDecodeSettings(
         mode=str(value.get("mode", "auto")),
-        tile_size=int(value.get("tile_size", 64)),
+        tile_size=int(value.get("tile_size", DEFAULT_TILE_SIZE)),
         overlap=int(value.get("overlap", 8)),
     )
 
@@ -3727,12 +4513,13 @@ def _face_detailer_from_payload(value: Any) -> FaceDetailerSettings:
     return FaceDetailerSettings(
         enabled=bool(value.get("enabled", False)),
         detector=str(value.get("detector", "default")),
+        mask_backend=str(value.get("mask_backend", "sam_b")),
         threshold=float(value.get("threshold", 0.5)),
         crop_scale=float(value.get("crop_scale", 1.5)),
         padding=int(value.get("padding", 32)),
         feather=int(value.get("feather", 24)),
         exclude_forehead_ratio=float(value.get("exclude_forehead_ratio", 0)),
-        steps=int(value.get("steps", 12)),
+        steps=int(value.get("steps", DEFAULT_FACE_DETAILER_STEPS)),
         denoise=float(value.get("denoise", 0.28)),
     )
 
@@ -3810,15 +4597,17 @@ def _profile_label(name: str) -> str:
         return "Anima Base"
     if name == "face-detailer-detectors":
         return "Face Detectors"
+    if name == "sam3-detector":
+        return "SAM3"
     return name
 
 
-def _bounded_limit(value: str) -> int:
+def _bounded_limit(value: str, *, default: int = 20, maximum: int = 100) -> int:
     try:
         limit = int(value)
     except ValueError:
-        return 20
-    return max(1, min(limit, 100))
+        return default
+    return max(1, min(limit, maximum))
 
 
 def _preset_root(paths: AppPaths) -> Path:

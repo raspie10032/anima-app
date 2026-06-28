@@ -8,6 +8,7 @@ from anima_app.assets import (
     ANIMA_T2I_HF_SUBFOLDER,
     DETECTOR_REMOTE_ASSETS,
     FACE_DETAILER_DETECTOR_ASSET_PROFILE,
+    SAM3_DETECTOR_ASSET_PROFILE,
     copy_asset_file,
     copy_asset_profile,
     download_asset_file_from_huggingface,
@@ -37,7 +38,13 @@ def test_face_detailer_detector_profile_names_required_detector_files():
         str(Path("detectors") / "full_eyes_detect_v1.pt"),
         str(Path("detectors") / "sam_b.pt"),
     )
-    assert set(DETECTOR_REMOTE_ASSETS) == set(FACE_DETAILER_DETECTOR_ASSET_PROFILE.files)
+    assert set(FACE_DETAILER_DETECTOR_ASSET_PROFILE.files).issubset(DETECTOR_REMOTE_ASSETS)
+
+
+def test_sam3_detector_profile_is_separate_gated_asset():
+    assert SAM3_DETECTOR_ASSET_PROFILE.name == "sam3-detector"
+    assert tuple(str(path) for path in SAM3_DETECTOR_ASSET_PROFILE.files) == (str(Path("detectors") / "sam3.pt"),)
+    assert DETECTOR_REMOTE_ASSETS[Path("detectors") / "sam3.pt"].repo_id == "facebook/sam3"
 
 
 def test_copy_face_detailer_detector_profile_downloads_when_local_assets_are_missing(tmp_path, monkeypatch):

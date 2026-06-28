@@ -50,6 +50,19 @@ Expected detector filenames:
 - `full_eyes_detect_v1.pt`
 - `sam_b.pt`
 
+SAM3 is optional and prepared as a separate profile because it is a gated Hugging Face model:
+
+```powershell
+$env:PYTHONPATH='src'
+python -m anima_app.cli models copy-profile sam3-detector --source download
+```
+
+Expected SAM3 filename:
+
+- `sam3.pt`
+
+Source: https://huggingface.co/facebook/sam3
+
 Optional fallback detector folders can be supplied with `ANIMA_APP_FACE_DETECTOR_FALLBACKS`, separated by the platform path separator.
 
 Detector weights are downloaded into the user's local `models` tree and remain excluded from this source release.

@@ -23,12 +23,38 @@ def test_t2i_request_requires_latent_grid_resolution():
 def test_t2i_request_validates_tiled_vae_and_upscale_settings():
     with pytest.raises(ValueError, match="vae decode mode"):
         T2IRequest(prompt="anime portrait", vae_decode=VaeDecodeSettings(mode="bad"))
+    with pytest.raises(ValueError, match="memory profile"):
+        T2IRequest(prompt="anime portrait", memory_profile="tiny")
+    with pytest.raises(ValueError, match="CFG\\+\\+ sampler"):
+        T2IRequest(prompt="anime portrait", sampler="euler")
     with pytest.raises(ValueError, match="vae tile size"):
         T2IRequest(prompt="anime portrait", vae_decode=VaeDecodeSettings(tile_size=0))
     with pytest.raises(ValueError, match="upscale tile size"):
         T2IRequest(prompt="anime portrait", upscale=UpscaleSettings(enabled=True, tiled=True, tile_size=0))
     with pytest.raises(ValueError, match="upscale overlap"):
         T2IRequest(prompt="anime portrait", upscale=UpscaleSettings(enabled=True, tiled=True, tile_size=16, overlap=16))
+    with pytest.raises(ValueError, match="mask backend"):
+        T2IRequest(prompt="anime portrait", face_detailer=FaceDetailerSettings(mask_backend="bad"))
+
+
+def test_low_vram_highres_profile_enables_tiled_highres_path():
+    request = T2IRequest(prompt="anime portrait", memory_profile="low_vram_highres")
+
+    assert request.memory_profile == "low_vram_highres"
+    assert request.upscale.enabled is True
+    assert request.upscale.tiled is True
+    assert request.upscale.steps == 10
+    assert request.vae_decode.mode == "tiled"
+
+
+def test_low_vram_highres_profile_fixes_upscale_steps():
+    request = T2IRequest(
+        prompt="anime portrait",
+        memory_profile="low_vram_highres",
+        upscale=UpscaleSettings(enabled=True, steps=4),
+    )
+
+    assert request.upscale.steps == 10
 
 
 def test_t2i_request_normalizes_and_validates_checkpoint():
@@ -100,7 +126,30 @@ def test_dry_run_writes_manifest_without_output_path(tmp_path):
         "overlap": 16,
         "method": "not_run",
     }
+    assert payload["stages"]["memory_profile"]["profile"] == "auto"
     assert payload["provenance"]["app"] == "anima-app"
+
+
+def test_low_vram_highres_profile_is_recorded_in_dry_run_manifest(tmp_path):
+    paths = AppPaths(project_root=tmp_path)
+    request = T2IRequest(prompt="low vram highres", memory_profile="low_vram_highres", width=512, height=768)
+
+    result = run_t2i(request, paths=paths, dry_run=True)
+    payload = read_manifest(result.manifest_path)
+
+    assert payload["memory_profile"] == "low_vram_highres"
+    assert payload["upscale"]["enabled"] is True
+    assert payload["upscale"]["tiled"] is True
+    assert payload["upscale"]["steps"] == 10
+    assert payload["vae_decode"]["mode"] == "tiled"
+    assert payload["stages"]["memory_profile"] == {
+        "status": "configured",
+        "profile": "low_vram_highres",
+        "upscale_tiled": True,
+        "vae_decode_mode": "tiled",
+        "output_width": 768,
+        "output_height": 1152,
+    }
 
 
 def test_dry_run_records_face_detailer_skipped_reason_when_enabled(tmp_path):
@@ -123,12 +172,13 @@ def test_dry_run_records_face_detailer_skipped_reason_when_enabled(tmp_path):
         "status": "skipped",
         "reason": "dry_run_not_executed",
         "detector": "bbox/face_yolov8m.pt",
+        "mask_backend": "sam_b",
         "threshold": 0.5,
         "crop_scale": 1.5,
         "padding": 32,
         "feather": 24,
         "exclude_forehead_ratio": 0.25,
-        "steps": 12,
+        "steps": 10,
         "denoise": 0.28,
     }
 

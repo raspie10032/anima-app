@@ -10,3 +10,4 @@ dist/
 /inputs/
 /external_models/
 /external_detectors/
+/autocomplete.txt

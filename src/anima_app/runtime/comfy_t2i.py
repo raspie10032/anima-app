@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import time
 from typing import Sequence
 
 import numpy as np
@@ -24,6 +25,46 @@ class T2IModelPaths:
     vae: Path
 
 
+class RuntimeMetrics:
+    def __init__(self) -> None:
+        self.started_at = time.perf_counter()
+        self.stages: dict[str, dict[str, object]] = {}
+        self.cuda_available = bool(torch.cuda.is_available())
+        if self.cuda_available:
+            try:
+                torch.cuda.reset_peak_memory_stats()
+            except Exception:
+                self.cuda_available = False
+
+    def record(self, name: str, started_at: float) -> None:
+        elapsed_sec = round(time.perf_counter() - started_at, 3)
+        payload: dict[str, object] = {"elapsed_sec": elapsed_sec}
+        if self.cuda_available:
+            try:
+                payload["cuda_allocated_mb"] = _bytes_to_mb(torch.cuda.memory_allocated())
+                payload["cuda_reserved_mb"] = _bytes_to_mb(torch.cuda.memory_reserved())
+                payload["cuda_peak_allocated_mb"] = _bytes_to_mb(torch.cuda.max_memory_allocated())
+                payload["cuda_peak_reserved_mb"] = _bytes_to_mb(torch.cuda.max_memory_reserved())
+            except Exception as exc:
+                payload["cuda_metrics_error"] = str(exc)
+        self.stages[name] = payload
+
+    def snapshot(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "status": "completed",
+            "elapsed_sec": round(time.perf_counter() - self.started_at, 3),
+            "cuda_available": self.cuda_available,
+            "stages": self.stages,
+        }
+        if self.cuda_available:
+            try:
+                payload["cuda_peak_allocated_mb"] = _bytes_to_mb(torch.cuda.max_memory_allocated())
+                payload["cuda_peak_reserved_mb"] = _bytes_to_mb(torch.cuda.max_memory_reserved())
+            except Exception as exc:
+                payload["cuda_metrics_error"] = str(exc)
+        return payload
+
+
 def default_model_paths(paths: AppPaths, *, checkpoint: str = DEFAULT_T2I_CHECKPOINT) -> T2IModelPaths:
     return T2IModelPaths(
         diffusion_model=_diffusion_model_path(paths, checkpoint),
@@ -44,6 +85,7 @@ def _diffusion_model_path(paths: AppPaths, checkpoint: str) -> Path:
 
 
 def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
+    metrics = RuntimeMetrics()
     configure_default_cuda_device()
     bootstrap_comfy_runtime(paths)
     model_paths = model_paths_for_request(request, paths)
@@ -54,6 +96,7 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
     import comfy.utils
     import folder_paths
 
+    stage_started = time.perf_counter()
     model = comfy.sd.load_diffusion_model(str(model_paths.diffusion_model), model_options={})
     clip = comfy.sd.load_clip(
         ckpt_paths=[str(model_paths.text_encoder)],
@@ -62,10 +105,16 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
     )
     model, clip, resolved_loras = _apply_loras(model, clip, request.loras)
     vae = comfy.sd.VAE(sd=comfy.utils.load_torch_file(str(model_paths.vae)))
+    metrics.record("load_models", stage_started)
 
+    stage_started = time.perf_counter()
     positive = _encode_prompt(clip, request.prompt)
     negative = _encode_prompt(clip, request.negative_prompt)
+    metrics.record("text_encode", stage_started)
+    stage_started = time.perf_counter()
     latent, denoise = _make_initial_latent(request, vae, paths)
+    metrics.record("initial_latent", stage_started)
+    stage_started = time.perf_counter()
     sampled = _sample_latent(
         model,
         positive,
@@ -75,13 +124,17 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
         steps=request.steps,
         denoise=denoise,
     )
+    metrics.record("base_sample", stage_started)
     output_path = allocate_output_path(request, paths=paths, status="generated")
     variants: dict[str, Path] = {}
     if request.upscale.enabled:
+        stage_started = time.perf_counter()
         original_decoded, _ = _decode_samples(vae, sampled["samples"], request.vae_decode)
         original_path = _variant_output_path(output_path, "original")
         _save_image_tensor(original_decoded, original_path)
         variants["original"] = original_path
+        metrics.record("original_decode_save", stage_started)
+        stage_started = time.perf_counter()
         sampled = _upscale_latent_samples(
             sampled,
             request.upscale.scale,
@@ -90,6 +143,8 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
             tile_size=request.upscale.tile_size,
             overlap=request.upscale.overlap,
         )
+        metrics.record("latent_upscale", stage_started)
+        stage_started = time.perf_counter()
         sampled = _sample_latent(
             model,
             positive,
@@ -99,8 +154,11 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
             steps=request.upscale.steps,
             denoise=request.upscale.denoise,
         )
+        metrics.record("highres_sample", stage_started)
+    stage_started = time.perf_counter()
     decoded, vae_decode_method = _decode_samples(vae, sampled["samples"], request.vae_decode)
     _save_image_tensor(decoded, output_path)
+    metrics.record("vae_decode_save", stage_started)
     if request.upscale.enabled:
         variants["upscale"] = output_path
     else:
@@ -121,12 +179,14 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
                 negative=negative,
             )
 
+        stage_started = time.perf_counter()
         face_result = run_face_detailer(
             output_path,
             request=request,
             paths=paths,
             repaint=repaint_face_crop,
         )
+        metrics.record("face_detailer", stage_started)
         output_path = face_result.output_path
         variants["face_detailer"] = output_path
         face_detailer_stage = face_result.metadata
@@ -138,6 +198,7 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
             resolved_loras=resolved_loras,
             vae_decode_method=vae_decode_method,
             face_detailer_stage=face_detailer_stage,
+            runtime_metrics=metrics.snapshot(),
         ),
         warnings=warnings,
         variants=variants,
@@ -374,6 +435,10 @@ def _nearest_multiple(value: int, divisor: int) -> int:
     return max(divisor, round(value / divisor) * divisor)
 
 
+def _bytes_to_mb(value: int) -> float:
+    return round(value / (1024 * 1024), 1)
+
+
 def _apply_loras(
     model: object,
     clip: object,
@@ -409,9 +474,18 @@ def _build_renderer_stages(
     resolved_loras: Sequence[Path],
     vae_decode_method: str,
     face_detailer_stage: dict[str, object] | None = None,
+    runtime_metrics: dict[str, object] | None = None,
 ) -> dict[str, object]:
     face_stage = _face_detailer_stage_for_request(request, face_detailer_stage)
-    return {
+    stages: dict[str, object] = {
+        "memory_profile": {
+            "status": "completed",
+            "profile": request.memory_profile,
+            "upscale_tiled": request.upscale.tiled,
+            "vae_decode_mode": request.vae_decode.mode,
+            "output_width": round(request.width * request.upscale.scale) if request.upscale.enabled else request.width,
+            "output_height": round(request.height * request.upscale.scale) if request.upscale.enabled else request.height,
+        },
         "base_t2i": {
             "status": "completed",
             "checkpoint": request.checkpoint,
@@ -453,6 +527,9 @@ def _build_renderer_stages(
         },
         "face_detailer": face_stage,
     }
+    if runtime_metrics is not None:
+        stages["runtime_metrics"] = runtime_metrics
+    return stages
 
 
 def _face_detailer_stage_for_request(
@@ -463,6 +540,7 @@ def _face_detailer_stage_for_request(
         "status": "disabled",
         "reason": "",
         "detector": request.face_detailer.detector,
+        "mask_backend": request.face_detailer.mask_backend,
         "threshold": request.face_detailer.threshold,
         "crop_scale": request.face_detailer.crop_scale,
         "padding": request.face_detailer.padding,

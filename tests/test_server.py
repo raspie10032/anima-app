@@ -17,6 +17,7 @@ def _paths(tmp_path: Path) -> AppPaths:
         project_root=tmp_path / "app",
         development_model_source=tmp_path / "source",
         face_detailer_detector_source=tmp_path / "detectors",
+        autocomplete_source=tmp_path / "app" / "autocomplete.txt",
     )
 
 
@@ -61,6 +62,7 @@ def test_request_from_payload_accepts_gui_fields():
         {
             "prompt": "anime portrait",
             "negative_prompt": "low quality",
+            "memory_profile": "low_vram_highres",
             "width": 512,
             "height": 768,
             "steps": 2,
@@ -85,6 +87,7 @@ def test_request_from_payload_accepts_gui_fields():
             "face_detailer": {
                 "enabled": True,
                 "detector": "bbox/face_yolov8m.pt",
+                "mask_backend": "sam3",
                 "threshold": 0.45,
                 "crop_scale": 1.6,
                 "padding": 40,
@@ -98,6 +101,7 @@ def test_request_from_payload_accepts_gui_fields():
 
     assert request.prompt == "anime portrait"
     assert request.negative_prompt == "low quality"
+    assert request.memory_profile == "low_vram_highres"
     assert request.width == 512
     assert request.height == 768
     assert request.sampler == "euler_ancestral_cfg_pp"
@@ -114,6 +118,7 @@ def test_request_from_payload_accepts_gui_fields():
     assert request.vae_decode.overlap == 16
     assert request.face_detailer.enabled is True
     assert request.face_detailer.detector == "bbox/face_yolov8m.pt"
+    assert request.face_detailer.mask_backend == "sam3"
     assert request.face_detailer.threshold == 0.45
     assert request.face_detailer.exclude_forehead_ratio == 0.25
 
@@ -127,6 +132,7 @@ def test_request_from_payload_uses_default_generation_settings():
     assert request.cfg == 3.5
     assert request.sampler == "euler_ancestral_cfg_pp"
     assert request.scheduler == "sgm_uniform"
+    assert request.memory_profile == "auto"
 
 
 def test_handle_generate_dry_run_returns_manifest_without_gpu(tmp_path):
@@ -696,6 +702,8 @@ def test_http_server_serves_readiness_and_prepares_detector_profile(tmp_path):
         assert profiles["anima-t2i"]["missing_count"] == 3
         assert profiles["face-detailer-detectors"]["ready"] is False
         assert profiles["face-detailer-detectors"]["missing_count"] == 3
+        assert profiles["sam3-detector"]["ready"] is False
+        assert profiles["sam3-detector"]["missing_count"] == 1
 
         request = urllib.request.Request(
             f"{base_url}/api/models/prepare",
@@ -718,6 +726,7 @@ def test_http_server_serves_readiness_and_prepares_detector_profile(tmp_path):
         after_profiles = {item["name"]: item for item in after["profiles"]}
         assert after_profiles["face-detailer-detectors"]["ready"] is True
         assert after_profiles["face-detailer-detectors"]["missing_count"] == 0
+        assert after_profiles["sam3-detector"]["ready"] is False
     finally:
         server.shutdown()
         server.server_close()
@@ -759,6 +768,277 @@ def test_http_server_prepares_detector_profile_by_download_when_local_assets_are
         assert prepared["readiness"]["ready"] is True
         assert len(downloaded) == 3
         assert (paths.model_root / "detectors" / "full_eyes_detect_v1.pt").is_file()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_server_prepares_sam3_detector_profile_by_download(tmp_path, monkeypatch):
+    paths = _paths(tmp_path)
+    downloaded: list[Path] = []
+
+    def fake_download(dest_root, relative_path):
+        target = dest_root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"sam3" * 512)
+        downloaded.append(relative_path)
+        return target
+
+    monkeypatch.setattr("anima_app.assets.download_asset_file_from_remote", fake_download)
+
+    server = create_http_server("127.0.0.1", 0, paths=paths, default_dry_run=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        request = urllib.request.Request(
+            f"{base_url}/api/models/prepare",
+            data=json.dumps({"profile": "sam3-detector"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            prepared = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 200
+        assert prepared["profile"] == "sam3-detector"
+        assert prepared["source"] == "download"
+        assert prepared["readiness"]["ready"] is True
+        assert downloaded == [Path("detectors") / "sam3.pt"]
+        assert (paths.model_root / "detectors" / "sam3.pt").is_file()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_server_segments_current_image_with_sam3(tmp_path, monkeypatch):
+    paths = _paths(tmp_path)
+    source = paths.image_root / "source.png"
+    mask = paths.image_root / "source_clothes_sam3_mask.png"
+    overlay = paths.image_root / "source_clothes_sam3_overlay.png"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"png")
+    mask.write_bytes(b"mask")
+    overlay.write_bytes(b"overlay")
+
+    def fake_segment(image_path, *, prompt, paths, threshold):
+        from anima_app.runtime.sam3_segment import Sam3SegmentResult
+
+        assert image_path == "/outputs/images/source.png"
+        assert prompt == "clothes"
+        assert threshold == 0.25
+        return Sam3SegmentResult(
+            prompt=prompt,
+            source_path=source,
+            mask_path=mask,
+            overlay_path=overlay,
+            boxes=((1.0, 2.0, 3.0, 4.0),),
+            scores=(0.9,),
+        )
+
+    monkeypatch.setattr("anima_app.server.segment_image_concept", fake_segment)
+
+    server = create_http_server("127.0.0.1", 0, paths=paths, default_dry_run=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        request = urllib.request.Request(
+            f"{base_url}/api/sam3/segment",
+            data=json.dumps({"image_path": "/outputs/images/source.png", "prompt": "clothes"}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 200
+        assert payload["status"] == "sam3_segmented"
+        assert payload["mask_url"] == "/outputs/images/source_clothes_sam3_mask.png"
+        assert payload["overlay_url"] == "/outputs/images/source_clothes_sam3_overlay.png"
+        assert payload["boxes"] == [[1.0, 2.0, 3.0, 4.0]]
+        assert payload["scores"] == [0.9]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_server_compares_sam3_prompt_candidates(tmp_path, monkeypatch):
+    paths = _paths(tmp_path)
+    source = paths.image_root / "source.png"
+    mask = paths.image_root / "source_mask.png"
+    overlay = paths.image_root / "source_overlay.png"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(b"png")
+    mask.write_bytes(b"mask")
+    overlay.write_bytes(b"overlay")
+
+    def fake_compare(image_path, *, prompts, paths, threshold):
+        from anima_app.runtime.sam3_segment import Sam3SegmentResult
+
+        assert image_path == "/outputs/images/source.png"
+        assert prompts == ["white dress", "upper body clothing"]
+        assert threshold == 0.25
+        return (
+            Sam3SegmentResult(
+                prompt="white dress",
+                source_path=source,
+                mask_path=mask,
+                overlay_path=overlay,
+                boxes=(),
+                scores=(),
+            ),
+            Sam3SegmentResult(
+                prompt="upper body clothing",
+                source_path=source,
+                mask_path=mask,
+                overlay_path=overlay,
+                boxes=((1.0, 2.0, 3.0, 4.0),),
+                scores=(0.75,),
+            ),
+        )
+
+    monkeypatch.setattr("anima_app.server.segment_image_concepts", fake_compare)
+
+    server = create_http_server("127.0.0.1", 0, paths=paths, default_dry_run=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        request = urllib.request.Request(
+            f"{base_url}/api/sam3/compare",
+            data=json.dumps(
+                {
+                    "image_path": "/outputs/images/source.png",
+                    "prompts": ["white dress", "upper body clothing"],
+                }
+            ).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 200
+        assert payload["status"] == "sam3_compared"
+        assert payload["count"] == 2
+        assert payload["best"]["prompt"] == "upper body clothing"
+        assert payload["results"][0]["prompt"] == "white dress"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_server_adjusts_mask(tmp_path, monkeypatch):
+    paths = _paths(tmp_path)
+    source = paths.image_root / "source.png"
+    mask = paths.image_root / "source_mask.png"
+    overlay = paths.image_root / "source_overlay.png"
+    crop = paths.image_root / "source_crop.png"
+    crop_mask = paths.image_root / "source_crop_mask.png"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    for path in (source, mask, overlay, crop, crop_mask):
+        path.write_bytes(path.name.encode("utf-8"))
+
+    def fake_adjust(image_path, *, mask_path, paths, dilation, feather, threshold):
+        from anima_app.runtime.sam3_segment import Sam3MaskAdjustmentResult
+
+        assert image_path == "/outputs/images/source.png"
+        assert mask_path == "/outputs/images/source_mask.png"
+        assert dilation == 24
+        assert feather == 8
+        assert threshold == 8
+        return Sam3MaskAdjustmentResult(
+            source_path=source,
+            mask_path=mask,
+            overlay_path=overlay,
+            crop_path=crop,
+            crop_mask_path=crop_mask,
+            crop_box=(1, 2, 30, 40),
+            dilation=dilation,
+            feather=feather,
+        )
+
+    monkeypatch.setattr("anima_app.server.adjust_segment_mask", fake_adjust)
+
+    server = create_http_server("127.0.0.1", 0, paths=paths, default_dry_run=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        status, payload = _post_json(
+            f"{base_url}/api/masks/adjust",
+            {
+                "image_path": "/outputs/images/source.png",
+                "mask_path": "/outputs/images/source_mask.png",
+                "dilation": 24,
+                "feather": 8,
+            },
+        )
+
+        assert status == 200
+        assert payload["status"] == "mask_adjusted"
+        assert payload["mask_url"] == "/outputs/images/source_mask.png"
+        assert payload["overlay_url"] == "/outputs/images/source_overlay.png"
+        assert payload["crop_box"] == [1, 2, 30, 40]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_server_runs_masked_inpaint(tmp_path, monkeypatch):
+    paths = _paths(tmp_path)
+    output = paths.image_root / "source_inpaint.png"
+    crop = paths.image_root / "source_inpaint_crop.png"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(b"output")
+    crop.write_bytes(b"crop")
+
+    def fake_run(settings, *, paths):
+        from anima_app.runtime.masked_inpaint import MaskedInpaintResult
+
+        assert settings.image_path == "/outputs/images/source.png"
+        assert settings.mask_path == "/outputs/images/source_mask.png"
+        assert settings.prompt == "yellow sundress"
+        assert settings.method == "noise_mask"
+        assert settings.denoise == 0.7
+        assert settings.steps == 20
+        assert settings.cfg == 3.5
+        assert settings.seed == 123
+        return MaskedInpaintResult(
+            output_path=output,
+            crop_path=crop,
+            crop_box=(4, 5, 64, 96),
+            method=settings.method,
+            seed=settings.seed or 0,
+        )
+
+    monkeypatch.setattr("anima_app.server.run_masked_inpaint", fake_run)
+
+    server = create_http_server("127.0.0.1", 0, paths=paths, default_dry_run=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        status, payload = _post_json(
+            f"{base_url}/api/inpaint/masked",
+            {
+                "image_path": "/outputs/images/source.png",
+                "mask_path": "/outputs/images/source_mask.png",
+                "prompt": "yellow sundress",
+                "method": "noise_mask",
+                "denoise": 0.7,
+                "steps": 20,
+                "cfg": 3.5,
+                "seed": 123,
+            },
+        )
+
+        assert status == 200
+        assert payload["status"] == "masked_inpainted"
+        assert payload["output_url"] == "/outputs/images/source_inpaint.png"
+        assert payload["crop_url"] == "/outputs/images/source_inpaint_crop.png"
+        assert payload["crop_box"] == [4, 5, 64, 96]
     finally:
         server.shutdown()
         server.server_close()
@@ -1065,6 +1345,30 @@ def test_http_server_serves_wildcard_inventory(tmp_path):
         server.server_close()
 
 
+def test_http_server_serves_autocomplete_items(tmp_path):
+    paths = _paths(tmp_path)
+    paths.autocomplete_source.parent.mkdir(parents=True)
+    paths.autocomplete_source.write_text(
+        "solo,8949083\n1girl,7397900\nlong_hair,5792347\nlooking_at_viewer,5350130\n",
+        encoding="utf-8",
+    )
+    server = create_http_server("127.0.0.1", 0, paths=paths, default_dry_run=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        with urllib.request.urlopen(f"{base_url}/api/autocomplete?q=lo&limit=2", timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+
+        assert response.status == 200
+        assert payload["ready"] is True
+        assert payload["count"] == 4
+        assert [item["value"] for item in payload["items"]] == ["long_hair", "looking_at_viewer"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_http_server_serves_wildcard_preview(tmp_path):
     paths = _paths(tmp_path)
     wildcard_file = paths.project_root / "wildcards" / "style.txt"
@@ -1236,6 +1540,69 @@ def test_http_server_serves_version_metadata(tmp_path):
         server.server_close()
 
 
+def test_http_server_reports_unconfigured_llm_runtime(tmp_path):
+    server = create_http_server("127.0.0.1", 0, paths=_paths(tmp_path), default_dry_run=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        status, payload = _get_json(f"{base_url}/api/llm/status")
+
+        assert status == 200
+        assert payload["configured"] is False
+        assert payload["ok"] is False
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_http_server_proxies_llm_generate_completion_text(tmp_path):
+    class FakeLlmClient:
+        def health(self):
+            return {
+                "ok": True,
+                "active_prompt_tokens": 1214,
+                "target_system_ram_guard": {"process_ram_mb": 2177},
+                "cuda_memory": {"reserved_mb": 7453.3},
+            }
+
+        def generate(self, payload):
+            assert payload["prompt_suffix"] == "\nAnswer briefly."
+            return {
+                "ok": True,
+                "completion_text": "prompt answer",
+                "prompt_context": {"prompt_tokens": 1214},
+                "requested_new_tokens": 8,
+                "generation_elapsed_sec": 4.1,
+            }
+
+    server = create_http_server(
+        "127.0.0.1",
+        0,
+        paths=_paths(tmp_path),
+        default_dry_run=True,
+        llm_client=FakeLlmClient(),
+    )
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        status, payload = _post_json(
+            f"{base_url}/api/llm/generate",
+            {"prompt_suffix": "\nAnswer briefly.", "max_new_tokens": 8},
+        )
+
+        assert status == 200
+        assert payload["ok"] is True
+        assert payload["configured"] is True
+        assert payload["completion_text"] == "prompt answer"
+        assert payload["metrics"]["prompt_tokens"] == 1214
+        assert payload["metrics"]["requested_new_tokens"] == 8
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_http_server_serves_update_check_payload(tmp_path, monkeypatch):
     def fake_check():
         return {
@@ -1340,6 +1707,10 @@ def test_index_html_loads_history_panel():
     assert 'data-control-group="prompt-tools"' not in INDEX_HTML
     assert 'class="prompt-tools-block"' in INDEX_HTML
     assert ".prompt-tools-block .row" in INDEX_HTML
+    assert 'id="llm-refine-prompt"' in INDEX_HTML
+    assert 'id="llm-prompt-status"' in INDEX_HTML
+    assert 'fetch("/api/llm/generate"' in INDEX_HTML
+    assert "refinePromptWithLlm" in INDEX_HTML
     assert "grid-template-columns: minmax(0, 1fr) 64px" in INDEX_HTML
     assert "anima.sidebar.order.v1" not in INDEX_HTML
     assert "function applySidebarOrder" not in INDEX_HTML
@@ -1406,6 +1777,11 @@ def test_index_html_loads_history_panel():
     assert "orientationButtons.forEach" in INDEX_HTML
     assert 'id="i2i-image"' in INDEX_HTML
     assert 'id="i2i-denoise"' in INDEX_HTML
+    assert 'id="memory-profile"' in INDEX_HTML
+    assert 'id="low-vram-highres-preset"' in INDEX_HTML
+    assert "function applyLowVramHighresPreset" in INDEX_HTML
+    assert 'form.elements.memory_profile.value = "low_vram_highres"' in INDEX_HTML
+    assert "form.elements.upscale_steps.value = 10" in INDEX_HTML
     assert 'id="upscale-enabled"' in INDEX_HTML
     assert 'id="upscale-scale"' in INDEX_HTML
     assert 'id="upscale-steps"' in INDEX_HTML
@@ -1413,12 +1789,15 @@ def test_index_html_loads_history_panel():
     assert 'id="upscale-method"' in INDEX_HTML
     assert 'id="upscale-tiled"' in INDEX_HTML
     assert 'id="upscale-tile-size"' in INDEX_HTML
+    assert 'id="upscale-tile-size" name="upscale_tile_size" type="number" min="1" value="128"' in INDEX_HTML
     assert 'id="upscale-overlap"' in INDEX_HTML
     assert 'id="vae-decode-mode"' in INDEX_HTML
     assert 'id="vae-tile-size"' in INDEX_HTML
+    assert 'id="vae-tile-size" name="vae_tile_size" type="number" min="1" value="128"' in INDEX_HTML
     assert 'id="vae-overlap"' in INDEX_HTML
     assert 'id="face-detailer-enabled"' in INDEX_HTML
     assert 'id="face-detector"' in INDEX_HTML
+    assert 'id="face-mask-backend"' in INDEX_HTML
     assert 'id="face-threshold"' in INDEX_HTML
     assert 'id="face-steps"' in INDEX_HTML
     assert 'id="face-denoise"' in INDEX_HTML
@@ -1444,6 +1823,10 @@ def test_index_html_loads_history_panel():
     assert 'name="wildcard_mode"' in INDEX_HTML
     assert 'fetch("/api/wildcards")' in INDEX_HTML
     assert 'fetch("/api/wildcards/preview"' in INDEX_HTML
+    assert 'id="autocomplete-menu"' in INDEX_HTML
+    assert 'fetch(`/api/autocomplete?q=${encodeURIComponent(fragment.query)}&limit=24`)' in INDEX_HTML
+    assert "function setupAutocomplete" in INDEX_HTML
+    assert "autocompleteTargets().forEach" in INDEX_HTML
     assert "insertWildcard" in INDEX_HTML
     assert "insertPresetWildcard" in INDEX_HTML
     assert "previewWildcardsButton.addEventListener" in INDEX_HTML
@@ -1454,11 +1837,13 @@ def test_index_html_loads_history_panel():
     assert 'return `${prefix}${token}${suffix}`;' in INDEX_HTML
     assert "data.i2i = {" in INDEX_HTML
     assert "data.upscale = {" in INDEX_HTML
-    assert "steps: Number(data.upscale_steps || 12)" in INDEX_HTML
+    assert "steps: Number(data.upscale_steps || 10)" in INDEX_HTML
+    assert "steps: Number(data.face_steps || 10)" in INDEX_HTML
     assert "denoise: Number(data.upscale_denoise || 0.35)" in INDEX_HTML
     assert "method: data.upscale_method || \"bicubic\"" in INDEX_HTML
     assert "data.vae_decode = {" in INDEX_HTML
     assert "data.face_detailer = {" in INDEX_HTML
+    assert "mask_backend: data.face_mask_backend || \"sam_b\"" in INDEX_HTML
     assert "threshold: Number(data.face_threshold || 0.5)" in INDEX_HTML
     assert "denoise: Number(data.face_denoise || 0.28)" in INDEX_HTML
     assert "exclude_forehead_ratio: Number(data.face_exclude_forehead || 0)" in INDEX_HTML
@@ -1483,6 +1868,22 @@ def test_index_html_loads_history_panel():
     assert "showOutputPreview(payload.output_url)" in INDEX_HTML
     assert "outputLink.href = url" in INDEX_HTML
     assert "outputLink.hidden = false" in INDEX_HTML
+    assert 'id="sam3-prompt"' in INDEX_HTML
+    assert 'id="sam3-segment"' in INDEX_HTML
+    assert 'id="sam3-compare"' in INDEX_HTML
+    assert 'id="sam3-presets"' in INDEX_HTML
+    assert 'id="sam3-results"' in INDEX_HTML
+    assert 'id="mask-dilation"' in INDEX_HTML
+    assert 'id="mask-feather"' in INDEX_HTML
+    assert 'id="mask-adjust"' in INDEX_HTML
+    assert 'id="inpaint-method"' in INDEX_HTML
+    assert 'id="masked-inpaint"' in INDEX_HTML
+    assert 'fetch("/api/sam3/segment"' in INDEX_HTML
+    assert 'fetch("/api/sam3/compare"' in INDEX_HTML
+    assert 'fetch("/api/masks/adjust"' in INDEX_HTML
+    assert 'fetch("/api/inpaint/masked"' in INDEX_HTML
+    assert "sam3ClothingComparePrompts" in INDEX_HTML
+    assert "renderSam3CompareResults" in INDEX_HTML
     assert "#output-link[hidden]" in INDEX_HTML
     assert "function renderResultSummary" in INDEX_HTML
     assert "function setResultPayload" in INDEX_HTML

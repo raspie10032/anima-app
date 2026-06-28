@@ -36,7 +36,8 @@ class QwenImageTokenizer(sd1_clip.SD1Tokenizer):
                     llama_text = self.llama_template.format(text)
             else:
                 llama_text = llama_template.format(text)
-        tokens = super().tokenize_with_weights(llama_text, return_word_ids=return_word_ids, disable_weights=True, **kwargs)
+        disable_weights = kwargs.pop("disable_weights", False)
+        tokens = super().tokenize_with_weights(llama_text, return_word_ids=return_word_ids, disable_weights=disable_weights, **kwargs)
         key_name = next(iter(tokens))
         embed_count = 0
         qwen_tokens = tokens[key_name]
