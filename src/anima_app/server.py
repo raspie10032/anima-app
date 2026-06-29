@@ -39,6 +39,7 @@ from anima_app.requests import (
     T2IRequest,
     UpscaleSettings,
     VaeDecodeSettings,
+    parse_lora_spec,
 )
 from anima_app.runtime.pipeline import T2IRenderer, run_t2i
 from anima_app.runtime.masked_inpaint import MaskedInpaintSettings, run_masked_inpaint
@@ -214,6 +215,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     }
     .prompt-tools-block .row {
       grid-template-columns: minmax(0, 1fr) 64px;
+    }
+    .prompt-tools-block .llm-row {
+      grid-template-columns: minmax(0, 1fr) 82px;
     }
     .autocomplete-menu {
       position: fixed;
@@ -1046,7 +1050,14 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   <button type="button" id="insert-preset-wildcard" class="secondary-button">삽입</button>
                 </div>
                 <button type="button" id="preview-wildcards" class="secondary-button">확장 미리보기</button>
-                <button type="button" id="llm-refine-prompt" class="secondary-button">LLM 보정</button>
+                <label for="llm-refine-priority">LLM 정리 기준</label>
+                <div class="row llm-row">
+                  <select id="llm-refine-priority">
+                    <option value="tag" selected>태그 우선</option>
+                    <option value="natural">자연어 우선</option>
+                  </select>
+                  <button type="button" id="llm-refine-prompt" class="secondary-button">보정</button>
+                </div>
                 <p id="llm-prompt-status" class="queue-status" aria-live="polite"></p>
                 <pre id="wildcard-preview" class="wildcard-preview" hidden></pre>
               </div>
@@ -1526,6 +1537,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     const insertPresetWildcardButton = document.getElementById("insert-preset-wildcard");
     const previewWildcardsButton = document.getElementById("preview-wildcards");
     const llmRefinePromptButton = document.getElementById("llm-refine-prompt");
+    const llmRefinePrioritySelect = document.getElementById("llm-refine-priority");
     const llmPromptStatus = document.getElementById("llm-prompt-status");
     const wildcardPreview = document.getElementById("wildcard-preview");
     const startingSizeButtons = Array.from(document.querySelectorAll("[data-size-preset]"));
@@ -2752,6 +2764,8 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         llmPromptStatus.textContent = "프롬프트가 비어 있음";
         return;
       }
+      const refinePriority = llmRefinePrioritySelect.value === "natural" ? "natural" : "tag";
+      const refinePriorityLabel = refinePriority === "natural" ? "natural-language priority" : "tag priority";
       const previousText = llmRefinePromptButton.textContent;
       llmRefinePromptButton.disabled = true;
       llmRefinePromptButton.textContent = "LLM 처리 중...";
@@ -2761,9 +2775,19 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({
-            prompt_prefix: "Rewrite this image prompt as a concise Anima generation prompt. Return only the improved prompt.",
-            prompt_suffix: "\\nPrompt: " + prompt + "\\nImproved prompt:",
-            max_new_tokens: 8
+            prompt_prefix: [
+              "Clean and refine an image-generation prompt before final generation.",
+              "Return JSON only. Do not return markdown, code fences, quotes around the JSON, explanations, or negative prompts.",
+              "Detect contradictions and remove or rewrite the weaker side before writing the final prompt.",
+              "Examples of contradictions: full body vs portrait, standing vs sitting, long hair vs short hair, multiple hair colors, multiple eye colors, indoor vs outdoor, day vs night, solo vs multiple characters, and conflicting outfit descriptions.",
+              "If priority is tag priority, preserve explicit tags, LoRA trigger words, character names, style tokens, pose tokens, and composition tags unless they directly conflict with stronger tags.",
+              "If priority is natural-language priority, preserve the user's natural-language intent and remove conflicting tags that would fight that intent.",
+              "Translate non-English natural-language descriptions into concise English, then remove the original non-English text from cleaned_prompt.",
+              "Deduplicate repeated ideas. Keep important subject, style, composition, colors, outfit, pose, lighting, and mood.",
+              "JSON schema: {\"cleaned_prompt\":\"comma-separated English tags after contradiction cleanup\",\"natural_language_prompt\":\"one concise English sentence that reinforces the cleaned prompt\",\"resolved_conflicts\":[\"short notes about removed or rewritten conflicts\"]}"
+            ].join("\\n"),
+            prompt_suffix: "\\nPriority: " + refinePriorityLabel + "\\nPrompt: " + prompt + "\\nJSON:",
+            max_new_tokens: 180
           })
         });
         const payload = await response.json();
@@ -2774,9 +2798,25 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         if (!completion) {
           throw new Error("LLM returned an empty completion");
         }
-        form.elements.prompt.value = completion;
-        llmPromptStatus.textContent = "LLM 보정 완료";
-        setResultPayload({status: "llm_prompt_refined", ...payload});
+        const refined = parseLlmPromptRefinement(completion, prompt, refinePriority);
+        const nextPrompt = appendNaturalLanguagePrompt(refined.cleanedPrompt, refined.naturalLanguagePrompt);
+        if (!nextPrompt) {
+          throw new Error("LLM returned an empty refined prompt");
+        }
+        form.elements.prompt.value = nextPrompt;
+        llmPromptStatus.textContent = refined.resolvedConflicts.length
+          ? `LLM 보정 완료 (${refined.resolvedConflicts.length}개 정리)`
+          : "LLM 보정 완료";
+        setResultPayload({
+          status: "llm_prompt_appended",
+          original_prompt: prompt,
+          refine_priority: refinePriority,
+          cleaned_prompt: refined.cleanedPrompt,
+          natural_language_prompt: refined.naturalLanguagePrompt,
+          resolved_conflicts: refined.resolvedConflicts,
+          llm_json_parsed: refined.jsonParsed,
+          ...payload
+        });
       } catch (error) {
         llmPromptStatus.textContent = "LLM 보정 실패";
         setResultPayload({error: String(error)});
@@ -2784,6 +2824,93 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         llmRefinePromptButton.textContent = previousText;
         llmRefinePromptButton.disabled = false;
       }
+    }
+    function appendNaturalLanguagePrompt(prompt, addition) {
+      const base = String(prompt || "").trim();
+      const natural = String(addition || "").trim().replace(/^["'`]+|["'`]+$/g, "");
+      if (!base) {
+        return natural;
+      }
+      if (!natural) {
+        return base;
+      }
+      const separator = /[,.;:]$/.test(base) ? " " : ", ";
+      return `${base}${separator}${natural}`;
+    }
+    function parseLlmPromptRefinement(rawCompletion, originalPrompt, refinePriority) {
+      const raw = String(rawCompletion || "").trim();
+      const fallbackCleaned = removeNonEnglishPromptParts(originalPrompt);
+      const parsed = parseJsonObjectFromText(raw);
+      if (parsed && typeof parsed === "object") {
+        const cleanedPrompt = stringOrEmpty(parsed.cleaned_prompt) || fallbackCleaned;
+        const naturalLanguagePrompt = stringOrEmpty(parsed.natural_language_prompt);
+        const resolvedConflicts = Array.isArray(parsed.resolved_conflicts)
+          ? parsed.resolved_conflicts.map((item) => String(item || "").trim()).filter(Boolean)
+          : [];
+        return {
+          cleanedPrompt,
+          naturalLanguagePrompt,
+          resolvedConflicts,
+          refinePriority,
+          jsonParsed: true
+        };
+      }
+      return {
+        cleanedPrompt: fallbackCleaned,
+        naturalLanguagePrompt: stripJsonCodeFence(raw),
+        resolvedConflicts: [],
+        refinePriority,
+        jsonParsed: false
+      };
+    }
+    function parseJsonObjectFromText(text) {
+      const raw = stripJsonCodeFence(text);
+      if (!raw) {
+        return null;
+      }
+      try {
+        return JSON.parse(raw);
+      } catch (_error) {
+        const start = raw.indexOf("{");
+        const end = raw.lastIndexOf("}");
+        if (start >= 0 && end > start) {
+          try {
+            return JSON.parse(raw.slice(start, end + 1));
+          } catch (_innerError) {
+            return null;
+          }
+        }
+        return null;
+      }
+    }
+    function stringOrEmpty(value) {
+      return typeof value === "string" ? value.trim().replace(/^["'`]+|["'`]+$/g, "") : "";
+    }
+    function stripJsonCodeFence(text) {
+      return String(text || "")
+        .trim()
+        .replace(/^```(?:json)?\\s*/i, "")
+        .replace(/\\s*```$/i, "")
+        .trim();
+    }
+    function removeNonEnglishPromptParts(prompt) {
+      return String(prompt || "")
+        .split(/([,\n])/)
+        .reduce((parts, chunk, index, chunks) => {
+          if (chunk === "," || chunk === "\n") {
+            return parts;
+          }
+          const value = chunk.trim();
+          if (!value || containsNonEnglishText(value)) {
+            return parts;
+          }
+          parts.push(value);
+          return parts;
+        }, [])
+        .join(", ");
+    }
+    function containsNonEnglishText(text) {
+      return /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0400-\u04ff\u0600-\u06ff\u0e00-\u0e7f]/.test(text);
     }
     function buildRequestData() {
       const data = Object.fromEntries(new FormData(form).entries());
@@ -4455,15 +4582,7 @@ def _optional_int(value: Any) -> int | None:
 
 def _lora_from_payload(value: Any) -> T2ILoraConfig:
     if isinstance(value, str):
-        parts = [part.strip() for part in value.split("|")]
-        if len(parts) == 1:
-            return T2ILoraConfig(path=parts[0])
-        if len(parts) == 2:
-            strength = float(parts[1])
-            return T2ILoraConfig(path=parts[0], model_strength=strength, clip_strength=strength)
-        if len(parts) == 3:
-            return T2ILoraConfig(path=parts[0], model_strength=float(parts[1]), clip_strength=float(parts[2]))
-        raise ValueError("lora spec must be path | path|strength | path|strength|strength")
+        return parse_lora_spec(value)
     return T2ILoraConfig(
         path=str(value.get("path", "")),
         model_strength=float(value.get("model_strength", 1.0)),

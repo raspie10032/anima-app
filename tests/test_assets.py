@@ -15,7 +15,6 @@ from anima_app.assets import (
     import_lora_file,
     list_local_checkpoints,
     list_local_loras,
-    scan_model_source,
 )
 from anima_app.config import AppPaths
 
@@ -79,20 +78,6 @@ def test_copy_face_detailer_detector_profile_keeps_local_source_when_assets_exis
 
     assert source == "local"
     assert copied == [paths.model_root / relative_path for relative_path in FACE_DETAILER_DETECTOR_ASSET_PROFILE.files]
-
-
-def test_scan_model_source_reports_known_folders(tmp_path):
-    (tmp_path / "diffusion_models").mkdir()
-    (tmp_path / "vae").mkdir()
-    (tmp_path / "diffusion_models" / "model.safetensors").write_bytes(b"model")
-
-    inventory = scan_model_source(tmp_path)
-
-    assert inventory.source_root == tmp_path.resolve()
-    assert "diffusion_models" in inventory.folders
-    assert "vae" in inventory.folders
-    assert inventory.files[0].relative_path == Path("diffusion_models") / "model.safetensors"
-    assert inventory.files[0].size_bytes == 5
 
 
 def test_copy_asset_file_copies_inside_destination(tmp_path):

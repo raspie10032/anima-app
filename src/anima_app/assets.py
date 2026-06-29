@@ -12,35 +12,8 @@ except ImportError:  # pragma: no cover - exercised only in environments missing
     hf_hub_download = None
 
 
-KNOWN_MODEL_FOLDERS = (
-    "checkpoints",
-    "diffusion_models",
-    "vae",
-    "text_encoders",
-    "clip",
-    "loras",
-    "upscale_models",
-    "detectors",
-    "ultralytics",
-    "sams",
-)
-
-
 ANIMA_T2I_HF_REPO = "circlestone-labs/Anima"
 ANIMA_T2I_HF_SUBFOLDER = "split_files"
-
-
-@dataclass(frozen=True)
-class AssetFile:
-    relative_path: Path
-    size_bytes: int
-
-
-@dataclass(frozen=True)
-class ModelInventory:
-    source_root: Path
-    folders: tuple[str, ...]
-    files: tuple[AssetFile, ...]
 
 
 @dataclass(frozen=True)
@@ -54,8 +27,6 @@ class RemoteAsset:
     repo_id: str | None = None
     filename: str | None = None
     url: str | None = None
-    reference: str = ""
-    license: str = ""
 
 
 ANIMA_T2I_ASSET_PROFILE = AssetProfile(
@@ -90,25 +61,17 @@ DETECTOR_REMOTE_ASSETS: dict[Path, RemoteAsset] = {
     Path("detectors") / "face_yolov8n.pt": RemoteAsset(
         repo_id="Bingsu/adetailer",
         filename="face_yolov8n.pt",
-        reference="https://huggingface.co/Bingsu/adetailer",
-        license="apache-2.0 model card; Ultralytics runtime/model licensing may impose AGPL/commercial obligations",
     ),
     Path("detectors") / "full_eyes_detect_v1.pt": RemoteAsset(
         repo_id="guon/hand-eyes",
         filename="full_eyes_detect_v1.pt",
-        reference="https://huggingface.co/guon/hand-eyes",
-        license="not specified by source model card",
     ),
     Path("detectors") / "sam_b.pt": RemoteAsset(
         url="https://github.com/ultralytics/assets/releases/download/v0.0.0/sam_b.pt",
-        reference="https://github.com/facebookresearch/segment-anything",
-        license="SAM reference model Apache-2.0; Ultralytics asset/runtime licensing may impose AGPL/commercial obligations",
     ),
     Path("detectors") / "sam3.pt": RemoteAsset(
         repo_id="facebook/sam3",
         filename="sam3.pt",
-        reference="https://huggingface.co/facebook/sam3",
-        license="gated model; review and accept the upstream license before local download",
     ),
 }
 
@@ -122,17 +85,6 @@ def asset_profile(name: str) -> AssetProfile:
         if name == profile.name:
             return profile
     raise ValueError(f"unknown asset profile: {name}")
-
-
-def scan_model_source(source_root: Path) -> ModelInventory:
-    source_root = source_root.resolve()
-    folders = tuple(name for name in KNOWN_MODEL_FOLDERS if (source_root / name).is_dir())
-    files: list[AssetFile] = []
-    for folder in folders:
-        for path in sorted((source_root / folder).rglob("*")):
-            if path.is_file():
-                files.append(AssetFile(path.relative_to(source_root), path.stat().st_size))
-    return ModelInventory(source_root=source_root, folders=folders, files=tuple(files))
 
 
 def copy_asset_file(source_root: Path, dest_root: Path, relative_path: Path) -> Path:

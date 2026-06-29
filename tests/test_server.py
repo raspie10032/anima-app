@@ -4,6 +4,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from anima_app.assets import FACE_DETAILER_DETECTOR_ASSET_PROFILE
@@ -1708,6 +1709,9 @@ def test_index_html_loads_history_panel():
     assert 'class="prompt-tools-block"' in INDEX_HTML
     assert ".prompt-tools-block .row" in INDEX_HTML
     assert 'id="llm-refine-prompt"' in INDEX_HTML
+    assert 'id="llm-refine-priority"' in INDEX_HTML
+    assert '<option value="tag" selected>태그 우선</option>' in INDEX_HTML
+    assert '<option value="natural">자연어 우선</option>' in INDEX_HTML
     assert 'id="llm-prompt-status"' in INDEX_HTML
     assert 'fetch("/api/llm/generate"' in INDEX_HTML
     assert "refinePromptWithLlm" in INDEX_HTML
@@ -1781,6 +1785,7 @@ def test_index_html_loads_history_panel():
     assert 'id="low-vram-highres-preset"' in INDEX_HTML
     assert "function applyLowVramHighresPreset" in INDEX_HTML
     assert 'form.elements.memory_profile.value = "low_vram_highres"' in INDEX_HTML
+
     assert "form.elements.upscale_steps.value = 10" in INDEX_HTML
     assert 'id="upscale-enabled"' in INDEX_HTML
     assert 'id="upscale-scale"' in INDEX_HTML
@@ -1937,6 +1942,26 @@ def test_index_html_loads_history_panel():
     assert "applyManifest" in INDEX_HTML
     assert "wildcardInfo.original_prompt" in INDEX_HTML
     assert "setLoraRows(request.loras || [])" in INDEX_HTML
+
+
+@pytest.mark.parametrize(
+    "needle",
+    [
+        "Detect contradictions and remove or rewrite the weaker side",
+        "full body vs portrait",
+        "Priority: ",
+        "cleaned_prompt",
+        "natural_language_prompt",
+        "resolved_conflicts",
+        "parseLlmPromptRefinement(completion, prompt, refinePriority)",
+        "stripJsonCodeFence",
+        "removeNonEnglishPromptParts(prompt)",
+        "containsNonEnglishText",
+        'status: "llm_prompt_appended"',
+    ],
+)
+def test_index_html_contains_llm_refine_contract(needle):
+    assert needle in INDEX_HTML
 
 
 def test_index_html_renders_binary_options_as_color_toggles():

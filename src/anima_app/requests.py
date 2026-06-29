@@ -30,6 +30,20 @@ class T2ILoraConfig:
     clip_strength: float = 1.0
 
 
+def parse_lora_spec(value: str) -> T2ILoraConfig:
+    parts = [chunk.strip() for chunk in value.split("|")]
+    if not parts or not parts[0]:
+        raise ValueError("lora spec cannot be empty")
+    if len(parts) == 1:
+        return T2ILoraConfig(path=parts[0])
+    if len(parts) == 2:
+        strength = float(parts[1])
+        return T2ILoraConfig(path=parts[0], model_strength=strength, clip_strength=strength)
+    if len(parts) == 3:
+        return T2ILoraConfig(path=parts[0], model_strength=float(parts[1]), clip_strength=float(parts[2]))
+    raise ValueError("lora spec must be path | path|strength | path|strength|strength")
+
+
 @dataclass(frozen=True)
 class I2ISettings:
     enabled: bool = False

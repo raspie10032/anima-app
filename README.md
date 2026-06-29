@@ -109,7 +109,7 @@ The server exposes:
 - `GET /api/llm/status`: reports whether the LLM bridge is configured and returns worker health.
 - `POST /api/llm/generate`: forwards a tinylm-compatible JSON request and returns `completion_text`, metrics, and the raw runtime payload.
 
-When the bridge is configured, the prompt tools panel shows an `LLM 보정` button. It sends the current prompt to `/api/llm/generate` and replaces the prompt field with the returned `completion_text`.
+When the bridge is configured, the prompt tools panel shows an `LLM 정리 기준` selector and a `보정` button. The selector chooses whether contradiction cleanup should prefer explicit tags or natural-language intent. The GUI asks the worker to return JSON containing cleaned English tags, one concise English natural-language reinforcement sentence, and any resolved conflict notes. If the worker returns JSON inside a code fence or with surrounding text, the GUI tries to recover it; if parsing fails, it keeps the current English tags and appends the raw completion as a fallback. Non-English description fragments are translated into English by the worker and removed from the cleaned tag prompt.
 
 When `ANIMA_LLM_RUNTIME_URL` is not set, the image-generation app still runs normally and the LLM bridge reports `configured: false`.
 

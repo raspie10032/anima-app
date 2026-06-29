@@ -13,7 +13,6 @@ from anima_app.assets import (
     import_lora_file,
     list_local_checkpoints,
     list_local_loras,
-    scan_model_source,
 )
 from anima_app.config import AppPaths, default_paths
 from anima_app.defaults import (
@@ -36,10 +35,10 @@ from anima_app.requests import (
     MEMORY_PROFILES,
     FaceDetailerSettings,
     I2ISettings,
-    T2ILoraConfig,
     T2IRequest,
     UpscaleSettings,
     VaeDecodeSettings,
+    parse_lora_spec,
 )
 from anima_app.runtime.pipeline import run_t2i
 from anima_app.wildcards import DEFAULT_WILDCARD_MODE, WILDCARD_MODES, expand_request_wildcards
@@ -55,7 +54,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     models = subparsers.add_parser("models", help="inspect or copy model assets")
     model_subparsers = models.add_subparsers(dest="models_command", required=True)
-    model_subparsers.add_parser("inventory", help="scan development model source")
     model_subparsers.add_parser("checkpoints", help="list copied local diffusion checkpoints")
     model_subparsers.add_parser("loras", help="list copied local LoRA files")
     import_lora = model_subparsers.add_parser("import-lora", help="copy an external LoRA into the project")
@@ -143,19 +141,6 @@ def main(argv: Sequence[str] | None = None, *, paths: AppPaths | None = None) ->
         return 0
 
     if args.command == "models":
-        if args.models_command == "inventory":
-            inventory = scan_model_source(resolved_paths.development_model_source)
-            payload = {
-                "source_root": str(inventory.source_root),
-                "model_root": str(resolved_paths.model_root),
-                "folders": list(inventory.folders),
-                "files": [
-                    {"relative_path": str(item.relative_path), "size_bytes": item.size_bytes}
-                    for item in inventory.files
-                ],
-            }
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
-            return 0
         if args.models_command == "copy-profile":
             profile = asset_profile(args.profile)
             source, copied_paths = copy_asset_profile(profile, resolved_paths, source=args.source)
@@ -188,7 +173,7 @@ def main(argv: Sequence[str] | None = None, *, paths: AppPaths | None = None) ->
             checkpoint=args.checkpoint,
             sampler=args.sampler,
             scheduler=args.scheduler,
-            loras=_parse_lora_args(args.lora),
+            loras=tuple(parse_lora_spec(value) for value in args.lora),
             i2i=I2ISettings(enabled=bool(args.image), image_path=args.image, denoise=args.denoise),
             upscale=UpscaleSettings(
                 enabled=args.upscale,
@@ -276,24 +261,6 @@ def default_t2i_renderer(request: T2IRequest, paths: AppPaths):
     from anima_app.runtime.comfy_t2i import render_t2i
 
     return render_t2i(request, paths)
-
-
-def _parse_lora_args(raw_specs: list[str]) -> tuple[T2ILoraConfig, ...]:
-    return tuple(_parse_lora_spec(value) for value in raw_specs)
-
-
-def _parse_lora_spec(value: str) -> T2ILoraConfig:
-    parts = [chunk.strip() for chunk in value.split("|")]
-    if not parts or not parts[0]:
-        raise ValueError("lora spec cannot be empty")
-    if len(parts) == 1:
-        return T2ILoraConfig(path=parts[0], model_strength=1.0, clip_strength=1.0)
-    if len(parts) == 2:
-        strength = float(parts[1])
-        return T2ILoraConfig(path=parts[0], model_strength=strength, clip_strength=strength)
-    if len(parts) == 3:
-        return T2ILoraConfig(path=parts[0], model_strength=float(parts[1]), clip_strength=float(parts[2]))
-    raise ValueError("lora spec must be path | path|strength | path|strength|strength")
 
 
 if __name__ == "__main__":

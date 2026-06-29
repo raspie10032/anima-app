@@ -47,21 +47,6 @@ def test_health_json_reports_missing_anima_profile(tmp_path, capsys):
     assert (tmp_path / "app" / "outputs" / "runtime_profile_cache.json").is_file()
 
 
-def test_models_inventory_outputs_development_source_files(tmp_path, capsys):
-    paths = _paths(tmp_path)
-    source_file = paths.development_model_source / "diffusion_models" / "model.safetensors"
-    source_file.parent.mkdir(parents=True)
-    source_file.write_bytes(b"model")
-
-    exit_code = main(["models", "inventory"], paths=paths)
-    payload = json.loads(capsys.readouterr().out)
-
-    assert exit_code == 0
-    assert payload["source_root"] == str(paths.development_model_source.resolve())
-    assert payload["model_root"] == str(paths.model_root)
-    assert payload["files"] == [{"relative_path": str(Path("diffusion_models") / "model.safetensors"), "size_bytes": 5}]
-
-
 def test_models_copy_profile_copies_anima_t2i_assets(tmp_path, capsys):
     paths = _paths(tmp_path)
     _write_profile_sources(paths)
