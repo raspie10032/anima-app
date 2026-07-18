@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
+from anima_app import __version__
 from anima_app.autocomplete import autocomplete_payload, warm_autocomplete_index
 from anima_app.assets import asset_profile, asset_profiles, copy_asset_profile, import_lora_file, list_local_checkpoints, list_local_loras
 from anima_app.config import AppPaths
@@ -2478,7 +2479,7 @@ def create_http_server(
     )
 
     class AnimaRequestHandler(BaseHTTPRequestHandler):
-        server_version = "AnimaAPP/0.1"
+        server_version = f"AnimaAPP/{__version__}"
 
         def do_GET(self) -> None:
             parsed = urlparse(self.path)

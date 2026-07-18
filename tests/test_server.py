@@ -1556,9 +1556,10 @@ def test_http_server_serves_version_metadata(tmp_path):
             payload = json.loads(response.read().decode("utf-8"))
 
         assert response.status == 200
-        assert payload["version"] == "0.2.0"
+        assert payload["version"] == "0.3.0"
         assert payload["repository"] == "raspie10032/anima-app"
         assert payload["repository_url"] == "https://github.com/raspie10032/anima-app"
+        assert response.headers["Server"].startswith("AnimaAPP/0.3.0")
     finally:
         server.shutdown()
         server.server_close()

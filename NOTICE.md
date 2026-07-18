@@ -28,12 +28,15 @@ The app can download detector weights into the user's local `models` tree:
 - `face_yolov8n.pt` from `Bingsu/adetailer`.
 - `full_eyes_detect_v1.pt` from `guon/hand-eyes`.
 - `sam_b.pt` from Ultralytics assets, with SAM reference material from `facebookresearch/segment-anything`.
+- `sam3.pt` from the gated `facebook/sam3` model repository.
 
-Detector weights are not included in this repository. Check the source model cards and the optional Ultralytics runtime license before redistributing detector weights or packaged builds that include them.
+Detector weights are not included in this repository. SAM3 access requires accepting the model repository's access conditions. Check each source model card, its access terms, and the optional Ultralytics runtime license before redistributing detector weights or packaged builds that include them.
 
 ## Model And LoRA Artifacts
 
-Base model assets, alternate checkpoints, LoRA files, input images, and generated output images are local user artifacts. They are ignored by git and are not part of the public source release.
+Anima checkpoints are obtained from `circlestone-labs/Anima`, including the preferred Anima Aesthetic v1.1 profile. The model repository currently identifies its license as `circlestone-labs-non-commercial-license`.
+
+Base model assets, alternate checkpoints, LoRA files, detector weights, input images, and generated output images are local user artifacts. They are ignored by git and are not part of the public source release. Review the upstream model license before using or redistributing any downloaded checkpoint.
 
 ## Wildcards
 
