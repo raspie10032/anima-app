@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from anima_app.defaults import PREFERRED_T2I_CHECKPOINT
+
 try:
     from huggingface_hub import hf_hub_download
 except ImportError:  # pragma: no cover - exercised only in environments missing the declared dependency.
@@ -36,6 +38,12 @@ ANIMA_T2I_ASSET_PROFILE = AssetProfile(
         Path("text_encoders") / "qwen_3_06b_base.safetensors",
         Path("vae") / "qwen_image_vae.safetensors",
     ),
+)
+
+
+ANIMA_AESTHETIC_V1_1_ASSET_PROFILE = AssetProfile(
+    name="anima-aesthetic-v1.1",
+    files=(Path("diffusion_models") / PREFERRED_T2I_CHECKPOINT,),
 )
 
 
@@ -77,7 +85,12 @@ DETECTOR_REMOTE_ASSETS: dict[Path, RemoteAsset] = {
 
 
 def asset_profiles() -> tuple[AssetProfile, ...]:
-    return (ANIMA_T2I_ASSET_PROFILE, FACE_DETAILER_DETECTOR_ASSET_PROFILE, SAM3_DETECTOR_ASSET_PROFILE)
+    return (
+        ANIMA_T2I_ASSET_PROFILE,
+        ANIMA_AESTHETIC_V1_1_ASSET_PROFILE,
+        FACE_DETAILER_DETECTOR_ASSET_PROFILE,
+        SAM3_DETECTOR_ASSET_PROFILE,
+    )
 
 
 def asset_profile(name: str) -> AssetProfile:
@@ -174,7 +187,7 @@ def copy_asset_profile(profile: AssetProfile, paths: Any, *, source: str = "auto
                 for relative_path in profile.files
             ],
         )
-    if profile.name == ANIMA_T2I_ASSET_PROFILE.name:
+    if profile.name in {ANIMA_T2I_ASSET_PROFILE.name, ANIMA_AESTHETIC_V1_1_ASSET_PROFILE.name}:
         selected_source = _select_anima_t2i_source(profile, paths, source)
         if selected_source == "huggingface":
             return (

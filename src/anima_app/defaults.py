@@ -8,3 +8,4 @@ DEFAULT_T2I_CFG = 3.5
 DEFAULT_T2I_SAMPLER = "euler_ancestral_cfg_pp"
 DEFAULT_T2I_SCHEDULER = "sgm_uniform"
 DEFAULT_T2I_CHECKPOINT = "anima-base-v1.0.safetensors"
+PREFERRED_T2I_CHECKPOINT = "anima-aesthetic-v1.1.safetensors"

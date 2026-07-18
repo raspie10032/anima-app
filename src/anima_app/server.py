@@ -24,6 +24,7 @@ from anima_app.defaults import (
     DEFAULT_T2I_SCHEDULER,
     DEFAULT_T2I_STEPS,
     DEFAULT_T2I_WIDTH,
+    PREFERRED_T2I_CHECKPOINT,
 )
 from anima_app.health import build_health_payload
 from anima_app.llm_runtime import default_llm_client, llm_generate_payload, llm_status_payload
@@ -1119,9 +1120,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           <div class="control-group-body">
             <section class="form-section">
               <h2>LoRA 스타일</h2>
-              <label for="checkpoint-select">베이스 체크포인트</label>
+              <label for="checkpoint-select">체크포인트</label>
               <select id="checkpoint-select" name="checkpoint" form="generate-form">
-                <option value="__DEFAULT_T2I_CHECKPOINT__">__DEFAULT_T2I_CHECKPOINT__</option>
+                <option value="">불러오는 중...</option>
               </select>
               <label>LoRA 스택</label>
               <div id="lora-list" class="lora-list" aria-label="LoRA 스택">
@@ -4285,7 +4286,9 @@ def handle_loras(*, paths: AppPaths) -> dict[str, Any]:
 
 def handle_checkpoints(*, paths: AppPaths) -> dict[str, Any]:
     items = list_local_checkpoints(paths)
-    return {"count": len(items), "default": DEFAULT_T2I_CHECKPOINT, "items": items}
+    available = {str(item["relative_path"]) for item in items}
+    default = PREFERRED_T2I_CHECKPOINT if PREFERRED_T2I_CHECKPOINT in available else DEFAULT_T2I_CHECKPOINT
+    return {"count": len(items), "default": default, "items": items}
 
 
 def handle_wildcards(*, paths: AppPaths) -> dict[str, Any]:
@@ -4714,6 +4717,8 @@ def _readiness_profile(profile: Any, paths: AppPaths) -> dict[str, Any]:
 def _profile_label(name: str) -> str:
     if name == "anima-t2i":
         return "Anima Base"
+    if name == "anima-aesthetic-v1.1":
+        return "Anima Aesthetic v1.1"
     if name == "face-detailer-detectors":
         return "Face Detectors"
     if name == "sam3-detector":

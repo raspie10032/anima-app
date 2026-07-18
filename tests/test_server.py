@@ -701,6 +701,8 @@ def test_http_server_serves_readiness_and_prepares_detector_profile(tmp_path):
         assert response.status == 200
         assert profiles["anima-t2i"]["ready"] is False
         assert profiles["anima-t2i"]["missing_count"] == 3
+        assert profiles["anima-aesthetic-v1.1"]["ready"] is False
+        assert profiles["anima-aesthetic-v1.1"]["missing_count"] == 1
         assert profiles["face-detailer-detectors"]["ready"] is False
         assert profiles["face-detailer-detectors"]["missing_count"] == 3
         assert profiles["sam3-detector"]["ready"] is False
@@ -1504,6 +1506,8 @@ def test_http_server_serves_checkpoint_inventory(tmp_path):
     checkpoint = paths.model_root / "diffusion_models" / "variants" / "anima-alt.safetensors"
     checkpoint.parent.mkdir(parents=True)
     checkpoint.write_bytes(b"alternate")
+    preferred = paths.model_root / "diffusion_models" / "anima-aesthetic-v1.1.safetensors"
+    preferred.write_bytes(b"aesthetic")
     server = create_http_server("127.0.0.1", 0, paths=paths, default_dry_run=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -1514,9 +1518,12 @@ def test_http_server_serves_checkpoint_inventory(tmp_path):
 
         assert response.status == 200
         assert payload == {
-            "count": 1,
-            "default": "anima-base-v1.0.safetensors",
-            "items": [{"relative_path": "variants/anima-alt.safetensors", "size_bytes": 9}],
+            "count": 2,
+            "default": "anima-aesthetic-v1.1.safetensors",
+            "items": [
+                {"relative_path": "anima-aesthetic-v1.1.safetensors", "size_bytes": 9},
+                {"relative_path": "variants/anima-alt.safetensors", "size_bytes": 9},
+            ],
         }
     finally:
         server.shutdown()
@@ -1728,7 +1735,7 @@ def test_index_html_loads_history_panel():
     assert 'id="scheduler" name="scheduler"' in INDEX_HTML
     assert '<option value="sgm_uniform" selected>SGM Uniform</option>' in INDEX_HTML
     assert 'id="checkpoint-select" name="checkpoint"' in INDEX_HTML
-    assert '<option value="anima-base-v1.0.safetensors">anima-base-v1.0.safetensors</option>' in INDEX_HTML
+    assert '<option value="">불러오는 중...</option>' in INDEX_HTML
     assert "이미지 설정" in INDEX_HTML
     assert "와일드카드와 프리셋" in INDEX_HTML
     assert "모델과 스타일" in INDEX_HTML

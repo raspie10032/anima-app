@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from anima_app.assets import (
+    ANIMA_AESTHETIC_V1_1_ASSET_PROFILE,
     ANIMA_T2I_ASSET_PROFILE,
     ANIMA_T2I_HF_REPO,
     ANIMA_T2I_HF_SUBFOLDER,
@@ -28,6 +29,33 @@ def test_anima_t2i_profile_lists_required_files():
         str(Path("text_encoders") / "qwen_3_06b_base.safetensors"),
         str(Path("vae") / "qwen_image_vae.safetensors"),
     )
+
+
+def test_anima_aesthetic_v1_1_profile_lists_checkpoint():
+    assert ANIMA_AESTHETIC_V1_1_ASSET_PROFILE.name == "anima-aesthetic-v1.1"
+    assert tuple(str(path) for path in ANIMA_AESTHETIC_V1_1_ASSET_PROFILE.files) == (
+        str(Path("diffusion_models") / "anima-aesthetic-v1.1.safetensors"),
+    )
+
+
+def test_anima_aesthetic_v1_1_profile_downloads_when_local_source_is_missing(tmp_path, monkeypatch):
+    paths = AppPaths(project_root=tmp_path / "app", development_model_source=tmp_path / "missing")
+    downloaded: list[Path] = []
+
+    def fake_download(dest_root, relative_path):
+        target = dest_root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"aesthetic")
+        downloaded.append(relative_path)
+        return target
+
+    monkeypatch.setattr("anima_app.assets.download_asset_file_from_huggingface", fake_download)
+
+    source, copied = copy_asset_profile(ANIMA_AESTHETIC_V1_1_ASSET_PROFILE, paths)
+
+    assert source == "huggingface"
+    assert downloaded == list(ANIMA_AESTHETIC_V1_1_ASSET_PROFILE.files)
+    assert copied == [paths.model_root / relative_path for relative_path in ANIMA_AESTHETIC_V1_1_ASSET_PROFILE.files]
 
 
 def test_face_detailer_detector_profile_names_required_detector_files():
