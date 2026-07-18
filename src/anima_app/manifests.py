@@ -10,7 +10,16 @@ from anima_app.output_names import allocate_manifest_path
 from anima_app.requests import T2IRequest
 
 
-PIPELINE_STAGES = ["tokenize", "text_encode", "base_t2i", "high_res_fix", "vae_decode", "face_detailer"]
+PIPELINE_STAGES = [
+    "tokenize",
+    "text_encode",
+    "base_t2i",
+    "high_res_fix",
+    "vae_decode",
+    "face_detailer",
+    "face_eye_detailer",
+    "hand_detailer",
+]
 
 
 def write_t2i_manifest(
@@ -67,6 +76,8 @@ def _manifest_variants(variants: dict[str, Path] | None) -> dict[str, dict[str, 
         "original": "Original",
         "upscale": "Upscale",
         "face_detailer": "Face Detailer",
+        "face_eye_detailer": "Face + Eyes",
+        "hand_detailer": "Hands",
     }
     return {
         key: {

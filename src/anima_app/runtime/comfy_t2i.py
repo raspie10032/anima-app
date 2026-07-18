@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import time
 from typing import Sequence
@@ -14,7 +14,7 @@ from anima_app.config import AppPaths
 from anima_app.defaults import DEFAULT_T2I_CHECKPOINT
 from anima_app.gpu import configure_default_cuda_device
 from anima_app.output_names import allocate_output_path
-from anima_app.requests import T2ILoraConfig, T2IRequest, VaeDecodeSettings
+from anima_app.requests import FaceDetailerSettings, T2ILoraConfig, T2IRequest, VaeDecodeSettings
 from anima_app.runtime.pipeline import T2IRenderOutput, latent_shape_for_request
 
 
@@ -164,33 +164,65 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
     else:
         variants["original"] = output_path
     face_detailer_stage: dict[str, object] | None = None
+    detailer_stages: dict[str, dict[str, object]] = {}
     warnings: tuple[str, ...] = ()
     if request.face_detailer.enabled:
         from anima_app.runtime.face_detailer import run_face_detailer
 
-        def repaint_face_crop(crop: Image.Image, _crop_mask: Image.Image, repaint_request: T2IRequest, repaint_paths: AppPaths) -> Image.Image:
-            return _repaint_face_crop(
-                crop,
-                request=repaint_request,
-                paths=repaint_paths,
-                model=model,
-                vae=vae,
-                positive=positive,
-                negative=negative,
+        for stage_key, variant_key, concepts, output_suffix, pass_settings, prompt_suffix, negative_suffix in _detailer_pass_specs(
+            request.face_detailer
+        ):
+            pass_request = replace(
+                request,
+                prompt=f"{request.prompt}, {prompt_suffix}" if prompt_suffix else request.prompt,
+                negative_prompt=f"{request.negative_prompt}, {negative_suffix}" if negative_suffix else request.negative_prompt,
+                face_detailer=pass_settings,
             )
+            pass_positive = _encode_prompt(clip, pass_request.prompt)
+            pass_negative = _encode_prompt(clip, pass_request.negative_prompt)
 
-        stage_started = time.perf_counter()
-        face_result = run_face_detailer(
-            output_path,
-            request=request,
-            paths=paths,
-            repaint=repaint_face_crop,
-        )
-        metrics.record("face_detailer", stage_started)
-        output_path = face_result.output_path
-        variants["face_detailer"] = output_path
-        face_detailer_stage = face_result.metadata
-        warnings = face_result.warnings
+            def repaint_detail_crop(
+                crop: Image.Image,
+                _crop_mask: Image.Image,
+                repaint_request: T2IRequest,
+                repaint_paths: AppPaths,
+            ) -> Image.Image:
+                return _repaint_face_crop(
+                    crop,
+                    request=repaint_request,
+                    paths=repaint_paths,
+                    model=model,
+                    vae=vae,
+                    positive=pass_positive,
+                    negative=pass_negative,
+                )
+
+            stage_started = time.perf_counter()
+            pass_result = run_face_detailer(
+                output_path,
+                request=pass_request,
+                paths=paths,
+                repaint=repaint_detail_crop,
+                concepts=concepts,
+                output_suffix=output_suffix,
+            )
+            metrics.record(stage_key, stage_started)
+            output_path = pass_result.output_path
+            detailer_stages[stage_key] = pass_result.metadata
+            if pass_result.metadata.get("status") == "completed":
+                variants[variant_key] = output_path
+            warnings += pass_result.warnings
+
+        pass_statuses = [stage.get("status") for stage in detailer_stages.values()]
+        face_detailer_stage = {
+            "enabled": True,
+            "status": "completed" if "completed" in pass_statuses else "skipped",
+            "reason": "" if "completed" in pass_statuses else ("no_targets" if not pass_statuses else "all_passes_skipped"),
+            "passes": detailer_stages,
+        }
+        if "completed" in pass_statuses:
+            face_detailer_stage["output_path"] = str(output_path)
+            variants["face_detailer"] = output_path
     return T2IRenderOutput(
         output_path=output_path,
         stages=_build_renderer_stages(
@@ -198,11 +230,46 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
             resolved_loras=resolved_loras,
             vae_decode_method=vae_decode_method,
             face_detailer_stage=face_detailer_stage,
+            detailer_stages=detailer_stages,
             runtime_metrics=metrics.snapshot(),
         ),
         warnings=warnings,
         variants=variants,
     )
+
+
+def _detailer_pass_specs(
+    settings: FaceDetailerSettings,
+) -> tuple[tuple[str, str, tuple[str, ...] | None, str, FaceDetailerSettings, str, str], ...]:
+    if settings.mask_backend != "sam3":
+        return (("face_detailer", "face_detailer", None, "face_detail", settings, "", ""),)
+
+    passes = []
+    if settings.sam3_face_eyes:
+        passes.append(
+            (
+                "face_eye_detailer",
+                "face_eye_detailer",
+                ("face", "eyes"),
+                "face_eye_detail",
+                settings,
+                "detailed face, detailed eyes, symmetrical eyes",
+                "deformed face, malformed eyes, asymmetrical eyes",
+            )
+        )
+    if settings.sam3_hands:
+        passes.append(
+            (
+                "hand_detailer",
+                "hand_detailer",
+                ("hand", "hands"),
+                "hand_detail",
+                replace(settings, denoise=settings.hand_denoise, exclude_forehead_ratio=0.0),
+                "detailed hands, five fingers, natural fingers",
+                "bad hands, malformed hands, extra fingers, missing fingers, fused fingers",
+            )
+        )
+    return tuple(passes)
 
 
 def _variant_output_path(output_path: Path, name: str) -> Path:
@@ -474,6 +541,7 @@ def _build_renderer_stages(
     resolved_loras: Sequence[Path],
     vae_decode_method: str,
     face_detailer_stage: dict[str, object] | None = None,
+    detailer_stages: dict[str, dict[str, object]] | None = None,
     runtime_metrics: dict[str, object] | None = None,
 ) -> dict[str, object]:
     face_stage = _face_detailer_stage_for_request(request, face_detailer_stage)
@@ -527,6 +595,8 @@ def _build_renderer_stages(
         },
         "face_detailer": face_stage,
     }
+    if detailer_stages:
+        stages.update(detailer_stages)
     if runtime_metrics is not None:
         stages["runtime_metrics"] = runtime_metrics
     return stages
@@ -548,6 +618,9 @@ def _face_detailer_stage_for_request(
         "exclude_forehead_ratio": request.face_detailer.exclude_forehead_ratio,
         "steps": request.face_detailer.steps,
         "denoise": request.face_detailer.denoise,
+        "sam3_face_eyes": request.face_detailer.sam3_face_eyes,
+        "sam3_hands": request.face_detailer.sam3_hands,
+        "hand_denoise": request.face_detailer.hand_denoise,
     }
     if not request.face_detailer.enabled:
         return stage

@@ -1294,6 +1294,29 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 <option value="sam_b">SAM-B</option>
                 <option value="sam3">SAM3</option>
               </select>
+              <div id="sam3-detailer-controls" hidden>
+                <label>SAM3 보정 부위</label>
+                <div class="row" id="sam3-detailer-targets">
+                  <label class="toggle-switch" for="face-sam3-face-eyes">
+                    <input id="face-sam3-face-eyes" name="face_sam3_face_eyes" type="checkbox" value="1" form="generate-form" checked>
+                    <span class="toggle-track" aria-hidden="true"></span>
+                    <span class="toggle-copy">
+                      <span class="toggle-title">얼굴 + 눈</span>
+                      <span class="toggle-state" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                  <label class="toggle-switch" for="face-sam3-hands">
+                    <input id="face-sam3-hands" name="face_sam3_hands" type="checkbox" value="1" form="generate-form">
+                    <span class="toggle-track" aria-hidden="true"></span>
+                    <span class="toggle-copy">
+                      <span class="toggle-title">손</span>
+                      <span class="toggle-state" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                </div>
+                <label for="hand-denoise">손 디노이즈</label>
+                <input id="hand-denoise" name="hand_denoise" type="number" min="0" max="1" step="0.01" value="0.35" form="generate-form">
+              </div>
               <div class="row">
                 <div>
                   <label for="face-threshold">얼굴 임계값</label>
@@ -1499,6 +1522,8 @@ _PROGRESS_STAGE_LABELS = {
     "high_res_fix": "고해상도 / 업스케일",
     "vae_decode": "VAE 디코드",
     "face_detailer": "페이스 디테일러",
+    "face_eye_detailer": "얼굴 + 눈 보정",
+    "hand_detailer": "손 보정",
     "metadata": "메타데이터 저장",
 }
 _PROGRESS_STAGE_ORDER = tuple(_PROGRESS_STAGE_LABELS)
@@ -1933,6 +1958,17 @@ def _initial_progress_stages(payload: dict[str, Any]) -> dict[str, dict[str, Any
         stages["high_res_fix"]["status"] = "skipped"
     if not bool(face_detailer.get("enabled")):
         stages["face_detailer"]["status"] = "skipped"
+        stages["face_eye_detailer"]["status"] = "skipped"
+        stages["hand_detailer"]["status"] = "skipped"
+    elif str(face_detailer.get("mask_backend", "sam_b")) == "sam3":
+        stages["face_detailer"]["status"] = "skipped"
+        if not bool(face_detailer.get("sam3_face_eyes", True)):
+            stages["face_eye_detailer"]["status"] = "skipped"
+        if not bool(face_detailer.get("sam3_hands", False)):
+            stages["hand_detailer"]["status"] = "skipped"
+    else:
+        stages["face_eye_detailer"]["status"] = "skipped"
+        stages["hand_detailer"]["status"] = "skipped"
     return stages
 
 
@@ -2711,6 +2747,9 @@ def _face_detailer_from_payload(value: Any) -> FaceDetailerSettings:
         exclude_forehead_ratio=float(value.get("exclude_forehead_ratio", 0)),
         steps=int(value.get("steps", DEFAULT_FACE_DETAILER_STEPS)),
         denoise=float(value.get("denoise", 0.28)),
+        sam3_face_eyes=bool(value.get("sam3_face_eyes", True)),
+        sam3_hands=bool(value.get("sam3_hands", False)),
+        hand_denoise=float(value.get("hand_denoise", 0.35)),
     )
 
 

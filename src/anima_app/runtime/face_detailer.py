@@ -15,6 +15,7 @@ FACE_DETECTOR = "face_yolov8n.pt"
 EYE_DETECTOR = "full_eyes_detect_v1.pt"
 SAM_DETECTOR = "sam_b.pt"
 SAM3_DETECTOR = "sam3.pt"
+SAM3_CONFIDENCE = 0.25
 
 
 @dataclass(frozen=True)
@@ -54,8 +55,9 @@ def detector_paths(paths: AppPaths) -> FaceDetailerDetectorPaths:
 
 def missing_detector_paths(paths: AppPaths, settings: FaceDetailerSettings | None = None) -> tuple[Path, ...]:
     expected = detector_paths(paths)
-    sam_path = expected.sam3 if settings and settings.mask_backend == "sam3" else expected.sam
-    return tuple(path for path in (expected.face, expected.eyes, sam_path) if not path.is_file())
+    if settings and settings.mask_backend == "sam3":
+        return () if expected.sam3.is_file() else (expected.sam3,)
+    return tuple(path for path in (expected.face, expected.eyes, expected.sam) if not path.is_file())
 
 
 def align_mask_to_grid(mask: np.ndarray, box_size: int = 32, grid_step: int = 8, threshold: float = 0.3) -> np.ndarray:
@@ -132,6 +134,8 @@ def run_face_detailer(
     paths: AppPaths,
     detailer: object | None = None,
     repaint: FaceRepaintBackend | None = None,
+    concepts: tuple[str, ...] | None = None,
+    output_suffix: str = "face_detail",
 ) -> FaceDetailerStageResult:
     if not request.face_detailer.enabled:
         return FaceDetailerStageResult(
@@ -143,7 +147,10 @@ def run_face_detailer(
         base = opened.convert("RGB")
     active_detailer = detailer or AnimeFaceDetailer(paths)
     try:
-        mask_result = active_detailer.build_mask(base, request.face_detailer)
+        if concepts is None:
+            mask_result = active_detailer.build_mask(base, request.face_detailer)
+        else:
+            mask_result = active_detailer.build_mask(base, request.face_detailer, concepts=concepts)
     except FileNotFoundError as exc:
         return _skipped(image_path, reason="missing_detectors", warning=str(exc))
     except ImportError as exc:
@@ -158,8 +165,10 @@ def run_face_detailer(
         )
 
     boxes = [list(box) for box in mask_result.boxes]
+    mask_box = mask_result.mask.getbbox()
+    source_box = tuple(float(value) for value in mask_box) if mask_box else mask_result.boxes[0]
     crop_box = expand_box(
-        mask_result.boxes[0],
+        source_box,
         image_size=base.size,
         crop_scale=request.face_detailer.crop_scale,
         padding=request.face_detailer.padding,
@@ -178,6 +187,7 @@ def run_face_detailer(
         "crop_box": list(crop_box),
         "exclude_forehead_ratio": request.face_detailer.exclude_forehead_ratio,
         "excluded_forehead_pixels": excluded_forehead_pixels,
+        "concepts": list(concepts or ()),
     }
     if repaint is None:
         return FaceDetailerStageResult(
@@ -204,7 +214,7 @@ def run_face_detailer(
         mask=crop_mask,
         feather=request.face_detailer.feather,
     )
-    output_path = image_path.with_name(f"{image_path.stem}_face_detail.png")
+    output_path = image_path.with_name(f"{image_path.stem}_{output_suffix}.png")
     composited.save(output_path)
     metadata["status"] = "completed"
     metadata["output_path"] = str(output_path)
@@ -229,43 +239,52 @@ class AnimeFaceDetailer:
         self.sam_model = None
         self.sam3_predictor = None
 
-    def build_mask(self, image: Image.Image, settings: FaceDetailerSettings) -> FaceDetailerMaskResult | None:
+    def build_mask(
+        self,
+        image: Image.Image,
+        settings: FaceDetailerSettings,
+        *,
+        concepts: tuple[str, ...] = ("face", "eyes"),
+    ) -> FaceDetailerMaskResult | None:
         missing = missing_detector_paths(self.paths, settings)
         if missing:
             raise FileNotFoundError("missing face detailer detector assets: " + ", ".join(str(path) for path in missing))
 
-        from ultralytics import SAM, YOLO
-
         expected = detector_paths(self.paths)
         device = self._select_device()
-        if self.yolo_model is None:
-            self.yolo_model = YOLO(str(expected.face)).to(device)
-        if self.eyes_model is None:
-            self.eyes_model = YOLO(str(expected.eyes)).to(device)
-        if settings.mask_backend == "sam_b" and self.sam_model is None:
-            self.sam_model = SAM(str(expected.sam)).to(device)
-
-        boxes = self._detect_boxes(image, settings.threshold)
-        if not boxes:
-            return None
-
         image_np = np.array(image.convert("RGB"))
-        combined_mask = np.zeros(image_np.shape[:2], dtype=np.uint8)
         if settings.mask_backend == "sam3":
-            combined_mask = self._build_sam3_mask(image_np, image.size, device)
+            combined_mask = self._build_sam3_mask(image_np, image.size, device, concepts)
+            mask_box = Image.fromarray(combined_mask).getbbox()
+            if mask_box is None:
+                return None
+            boxes = [tuple(float(value) for value in mask_box)]
         else:
-            combined_mask = self._build_sam_b_mask(image_np, image.size, boxes, combined_mask)
+            from ultralytics import SAM, YOLO
 
-        if not np.any(combined_mask):
-            for box in boxes:
-                x1, y1, x2, y2 = [int(value) for value in box]
-                combined_mask[y1:y2, x1:x2] = 255
+            if self.yolo_model is None:
+                self.yolo_model = YOLO(str(expected.face)).to(device)
+            if self.eyes_model is None:
+                self.eyes_model = YOLO(str(expected.eyes)).to(device)
+            if self.sam_model is None:
+                self.sam_model = SAM(str(expected.sam)).to(device)
+            boxes = self._detect_boxes(image, settings.threshold)
+            if not boxes:
+                return None
+            combined_mask = np.zeros(image_np.shape[:2], dtype=np.uint8)
+            combined_mask = self._build_sam_b_mask(image_np, image.size, boxes, combined_mask)
+            if not np.any(combined_mask):
+                for box in boxes:
+                    x1, y1, x2, y2 = [int(value) for value in box]
+                    combined_mask[y1:y2, x1:x2] = 255
 
         grid_mask = align_mask_to_grid(combined_mask)
         return FaceDetailerMaskResult(
             mask=Image.fromarray(grid_mask),
             boxes=tuple(boxes),
-            detector=f"{settings.detector}:{settings.mask_backend}",
+            detector=f"{settings.detector}:{settings.mask_backend}:{'+'.join(concepts)}"
+            if settings.mask_backend == "sam3"
+            else f"{settings.detector}:{settings.mask_backend}",
         )
 
     def _detect_boxes(self, image: Image.Image, threshold: float) -> list[tuple[float, float, float, float]]:
@@ -295,14 +314,20 @@ class AnimeFaceDetailer:
             pass
         return combined_mask
 
-    def _build_sam3_mask(self, image_np: np.ndarray, image_size: tuple[int, int], device: str) -> np.ndarray:
+    def _build_sam3_mask(
+        self,
+        image_np: np.ndarray,
+        image_size: tuple[int, int],
+        device: str,
+        concepts: tuple[str, ...],
+    ) -> np.ndarray:
         from ultralytics.models.sam import SAM3SemanticPredictor
 
         expected = detector_paths(self.paths)
         if self.sam3_predictor is None:
             self.sam3_predictor = SAM3SemanticPredictor(
                 overrides={
-                    "conf": 0.25,
+                    "conf": SAM3_CONFIDENCE,
                     "task": "segment",
                     "mode": "predict",
                     "model": str(expected.sam3),
@@ -313,13 +338,14 @@ class AnimeFaceDetailer:
                 }
             )
         self.sam3_predictor.set_image(image_np)
-        sam_results = self.sam3_predictor(text=["face"])
         combined_mask = np.zeros(image_np.shape[:2], dtype=np.uint8)
-        if sam_results and sam_results[0].masks is not None:
-            for mask_tensor in sam_results[0].masks.data:
-                mask_np = mask_tensor.cpu().numpy()
-                mask_image = Image.fromarray((mask_np * 255).astype(np.uint8)).resize(image_size, Image.NEAREST)
-                combined_mask = np.maximum(combined_mask, np.array(mask_image))
+        for concept in concepts:
+            sam_results = self.sam3_predictor(text=[concept])
+            if sam_results and sam_results[0].masks is not None:
+                for mask_tensor in sam_results[0].masks.data:
+                    mask_np = mask_tensor.cpu().numpy()
+                    mask_image = Image.fromarray((mask_np * 255).astype(np.uint8)).resize(image_size, Image.NEAREST)
+                    combined_mask = np.maximum(combined_mask, np.array(mask_image))
         return combined_mask
 
     @staticmethod

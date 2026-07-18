@@ -11,6 +11,7 @@ from anima_app.requests import FaceDetailerSettings, I2ISettings, T2ILoraConfig,
 from anima_app.runtime.comfy_t2i import (
     _build_renderer_stages,
     _decode_samples,
+    _detailer_pass_specs,
     _load_image_tensor,
     _make_initial_latent,
     _resolve_i2i_image_path,
@@ -272,3 +273,46 @@ def test_build_renderer_stages_records_execution_evidence():
         "cuda_peak_reserved_mb": 7450.0,
         "stages": {"base_sample": {"elapsed_sec": 1.5, "cuda_peak_reserved_mb": 6400.0}},
     }
+
+
+def test_sam3_detailer_passes_are_ordered_face_then_hands():
+    settings = FaceDetailerSettings(
+        enabled=True,
+        mask_backend="sam3",
+        sam3_face_eyes=True,
+        sam3_hands=True,
+        denoise=0.28,
+        hand_denoise=0.36,
+    )
+
+    passes = _detailer_pass_specs(settings)
+
+    assert [item[0] for item in passes] == ["face_eye_detailer", "hand_detailer"]
+    assert passes[0][2] == ("face", "eyes")
+    assert passes[0][4].denoise == 0.28
+    assert passes[1][2] == ("hand", "hands")
+    assert passes[1][4].denoise == 0.36
+    assert passes[1][4].exclude_forehead_ratio == 0
+
+
+def test_build_renderer_stages_includes_sam3_pass_results():
+    request = T2IRequest(
+        prompt="detail passes",
+        face_detailer=FaceDetailerSettings(enabled=True, mask_backend="sam3", sam3_hands=True),
+    )
+    pass_stages = {
+        "face_eye_detailer": {"status": "completed", "concepts": ["face", "eyes"]},
+        "hand_detailer": {"status": "skipped", "reason": "no_detections", "concepts": ["hands"]},
+    }
+
+    stages = _build_renderer_stages(
+        request,
+        resolved_loras=[],
+        vae_decode_method="standard",
+        face_detailer_stage={"enabled": True, "status": "completed", "passes": pass_stages},
+        detailer_stages=pass_stages,
+    )
+
+    assert stages["face_detailer"]["status"] == "completed"
+    assert stages["face_eye_detailer"]["concepts"] == ["face", "eyes"]
+    assert stages["hand_detailer"]["reason"] == "no_detections"

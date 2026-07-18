@@ -1,5 +1,6 @@
     const animaDefaults = JSON.parse(document.getElementById("anima-defaults").textContent);
     const form = document.getElementById("generate-form");
+    const sam3DetailerControls = document.getElementById("sam3-detailer-controls");
     const loraImportForm = document.getElementById("lora-import-form");
     const generateButton = document.getElementById("generate-button");
     const autoQueuePanel = document.getElementById("auto-queue-panel");
@@ -304,7 +305,10 @@
       const size = payload.width && payload.height ? `${payload.width}x${payload.height}` : "알 수 없음";
       const seed = payload.seed ?? "랜덤";
       const upscale = payload.upscale?.enabled ? `${payload.upscale.scale || 1}x${payload.upscale.tiled ? " 타일" : ""}` : "꺼짐";
-      const face = payload.face_detailer?.enabled ? `${payload.face_detailer.steps || "자동"} 스텝` : "꺼짐";
+      const faceTargets = payload.face_detailer?.mask_backend === "sam3"
+        ? [payload.face_detailer?.sam3_face_eyes !== false ? "얼굴+눈" : "", payload.face_detailer?.sam3_hands ? "손" : ""].filter(Boolean).join(" / ")
+        : "얼굴";
+      const face = payload.face_detailer?.enabled ? `${faceTargets || "선택 없음"} · ${payload.face_detailer.steps || "자동"} 스텝` : "꺼짐";
       resultTitle.textContent = payload.prompt || "현재 결과";
       resultStatus.textContent = resultMode(payload);
       const items = [
@@ -324,15 +328,20 @@
     }
     function variantEntries(payload = currentManifest) {
       const variants = payload?.variants || {};
-      return [
+      const slots = [
         {key: "original", label: "원본"},
         {key: "upscale", label: "업스케일"},
-        {key: "face_detailer", label: "페이스 디테일러"}
-      ].map((slot) => {
+        {key: "face_eye_detailer", label: "얼굴 + 눈"},
+        {key: "hand_detailer", label: "손"}
+      ];
+      if (variants.face_detailer && !variants.face_eye_detailer && !variants.hand_detailer) {
+        slots.push({key: "face_detailer", label: "페이스 디테일러"});
+      }
+      return slots.map((slot) => {
         const variant = variants[slot.key] || {};
         return {
-          ...slot,
           ...variant,
+          ...slot,
           output_url: variant.output_url || "",
           output_path: variant.output_path || ""
         };
@@ -400,7 +409,12 @@
         {key: "base_t2i", label: "기본 렌더"},
         {key: "high_res_fix", label: "고해상도 / 업스케일", optional: !data.upscale?.enabled},
         {key: "vae_decode", label: "VAE 디코드"},
-        {key: "face_detailer", label: "페이스 디테일러", optional: !data.face_detailer?.enabled},
+        ...(data.face_detailer?.mask_backend === "sam3"
+          ? [
+              {key: "face_eye_detailer", label: "얼굴 + 눈 보정", optional: !data.face_detailer?.enabled || data.face_detailer?.sam3_face_eyes === false},
+              {key: "hand_detailer", label: "손 보정", optional: !data.face_detailer?.enabled || !data.face_detailer?.sam3_hands}
+            ]
+          : [{key: "face_detailer", label: "페이스 디테일러", optional: !data.face_detailer?.enabled}]),
         {key: "metadata", label: "메타데이터 저장"}
       ];
     }
@@ -1478,7 +1492,10 @@
           feather: Number(data.face_feather || 24),
           exclude_forehead_ratio: Number(data.face_exclude_forehead || 0),
           steps: Number(data.face_steps || 10),
-          denoise: Number(data.face_denoise || 0.28)
+          denoise: Number(data.face_denoise || 0.28),
+          sam3_face_eyes: Boolean(data.face_sam3_face_eyes),
+          sam3_hands: Boolean(data.face_sam3_hands),
+          hand_denoise: Number(data.hand_denoise || 0.35)
         };
       }
       const loras = selectedLoras();
@@ -1508,6 +1525,9 @@
       delete data.face_exclude_forehead;
       delete data.face_steps;
       delete data.face_denoise;
+      delete data.face_sam3_face_eyes;
+      delete data.face_sam3_hands;
+      delete data.hand_denoise;
       delete data.lora_path;
       delete data.lora_strength;
       delete data.queue_count;
@@ -1520,6 +1540,9 @@
         data.seed = Number(data.seed);
       }
       return data;
+    }
+    function syncSam3DetailerControls() {
+      sam3DetailerControls.hidden = form.elements.face_mask_backend.value !== "sam3";
     }
     function applyPreset(item) {
       const request = item.request || {};
@@ -1560,6 +1583,10 @@
       form.elements.face_exclude_forehead.value = request.face_detailer?.exclude_forehead_ratio ?? 0;
       form.elements.face_steps.value = request.face_detailer?.steps ?? 10;
       form.elements.face_denoise.value = request.face_detailer?.denoise ?? 0.28;
+      form.elements.face_sam3_face_eyes.checked = request.face_detailer?.sam3_face_eyes !== false;
+      form.elements.face_sam3_hands.checked = Boolean(request.face_detailer?.sam3_hands);
+      form.elements.hand_denoise.value = request.face_detailer?.hand_denoise ?? 0.35;
+      syncSam3DetailerControls();
       referenceImageSection.open = Boolean(request.i2i?.image_path || request.upscale?.enabled || request.upscale?.tiled || (request.vae_decode?.mode && request.vae_decode.mode !== "auto"));
       faceDetailerSection.open = Boolean(request.face_detailer?.enabled);
       setLoraRows(request.loras || []);
@@ -1929,6 +1956,8 @@
       }
     });
     addLoraRow();
+    form.elements.face_mask_backend.addEventListener("change", syncSam3DetailerControls);
+    syncSam3DetailerControls();
     renderSam3Presets();
     function reportStartupError(label, error) {
       setResultPayload({status: "startup_error", error: `${label} 불러오기 실패: ${String(error)}`});

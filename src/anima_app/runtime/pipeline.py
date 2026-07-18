@@ -130,7 +130,19 @@ def dry_run_stages_for_request(request: T2IRequest) -> dict[str, object]:
             "exclude_forehead_ratio": request.face_detailer.exclude_forehead_ratio,
             "steps": request.face_detailer.steps,
             "denoise": request.face_detailer.denoise,
+            "sam3_face_eyes": request.face_detailer.sam3_face_eyes,
+            "sam3_hands": request.face_detailer.sam3_hands,
+            "hand_denoise": request.face_detailer.hand_denoise,
         }
+        if request.face_detailer.mask_backend == "sam3":
+            stages["face_eye_detailer"] = {
+                "status": "skipped",
+                "reason": "dry_run_not_executed" if request.face_detailer.sam3_face_eyes else "disabled",
+            }
+            stages["hand_detailer"] = {
+                "status": "skipped",
+                "reason": "dry_run_not_executed" if request.face_detailer.sam3_hands else "disabled",
+            }
     return stages
 
 

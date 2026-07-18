@@ -82,6 +82,9 @@ class FaceDetailerSettings:
     exclude_forehead_ratio: float = 0.0
     steps: int = DEFAULT_FACE_DETAILER_STEPS
     denoise: float = 0.28
+    sam3_face_eyes: bool = True
+    sam3_hands: bool = False
+    hand_denoise: float = 0.35
 
 
 @dataclass(frozen=True)
@@ -154,6 +157,7 @@ class T2IRequest:
         if self.face_detailer.steps <= 0:
             raise ValueError("face detailer steps must be positive")
         _validate_denoise(self.face_detailer.denoise, "face detailer denoise")
+        _validate_denoise(self.face_detailer.hand_denoise, "hand detailer denoise")
         if self.vae_decode.mode not in {"auto", "tiled", "standard"}:
             raise ValueError("vae decode mode must be one of: auto, standard, tiled")
         _validate_tile_settings(self.vae_decode.tile_size, self.vae_decode.overlap, "vae")

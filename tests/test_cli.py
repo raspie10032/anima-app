@@ -317,6 +317,9 @@ def test_t2i_dry_run_outputs_manifest_payload(tmp_path, capsys):
         "exclude_forehead_ratio": 0.25,
         "steps": 3,
         "denoise": 0.22,
+        "sam3_face_eyes": True,
+        "sam3_hands": False,
+        "hand_denoise": 0.35,
     }
 
 

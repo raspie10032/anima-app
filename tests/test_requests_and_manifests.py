@@ -111,7 +111,16 @@ def test_dry_run_writes_manifest_without_output_path(tmp_path):
     assert payload["checkpoint"] == "variants/anima-alt.safetensors"
     assert payload["output_path"] is None
     assert payload["model_root"] == str(tmp_path / "models")
-    assert payload["pipeline"] == ["tokenize", "text_encode", "base_t2i", "high_res_fix", "vae_decode", "face_detailer"]
+    assert payload["pipeline"] == [
+        "tokenize",
+        "text_encode",
+        "base_t2i",
+        "high_res_fix",
+        "vae_decode",
+        "face_detailer",
+        "face_eye_detailer",
+        "hand_detailer",
+    ]
     assert payload["latent"]["channels"] == 16
     assert payload["i2i"]["enabled"] is True
     assert payload["upscale"]["enabled"] is True
@@ -180,6 +189,9 @@ def test_dry_run_records_face_detailer_skipped_reason_when_enabled(tmp_path):
         "exclude_forehead_ratio": 0.25,
         "steps": 10,
         "denoise": 0.28,
+        "sam3_face_eyes": True,
+        "sam3_hands": False,
+        "hand_denoise": 0.35,
     }
 
 

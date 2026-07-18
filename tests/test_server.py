@@ -101,6 +101,9 @@ def test_request_from_payload_accepts_gui_fields():
                 "exclude_forehead_ratio": 0.25,
                 "steps": 3,
                 "denoise": 0.22,
+                "sam3_face_eyes": True,
+                "sam3_hands": True,
+                "hand_denoise": 0.36,
             },
         }
     )
@@ -127,6 +130,9 @@ def test_request_from_payload_accepts_gui_fields():
     assert request.face_detailer.mask_backend == "sam3"
     assert request.face_detailer.threshold == 0.45
     assert request.face_detailer.exclude_forehead_ratio == 0.25
+    assert request.face_detailer.sam3_face_eyes is True
+    assert request.face_detailer.sam3_hands is True
+    assert request.face_detailer.hand_denoise == 0.36
 
 
 def test_request_from_payload_uses_default_generation_settings():
@@ -1823,6 +1829,9 @@ def test_index_html_loads_history_panel():
     assert 'id="face-detailer-enabled"' in INDEX_HTML
     assert 'id="face-detector"' in INDEX_HTML
     assert 'id="face-mask-backend"' in INDEX_HTML
+    assert 'id="face-sam3-face-eyes"' in INDEX_HTML
+    assert 'id="face-sam3-hands"' in INDEX_HTML
+    assert 'id="hand-denoise"' in INDEX_HTML
     assert 'id="face-threshold"' in INDEX_HTML
     assert 'id="face-steps"' in INDEX_HTML
     assert 'id="face-denoise"' in INDEX_HTML
@@ -1873,6 +1882,11 @@ def test_index_html_loads_history_panel():
     assert "data.vae_decode = {" in INDEX_HTML
     assert "data.face_detailer = {" in INDEX_HTML
     assert "mask_backend: data.face_mask_backend || \"sam_b\"" in INDEX_HTML
+    assert "sam3_face_eyes: Boolean(data.face_sam3_face_eyes)" in INDEX_HTML
+    assert "sam3_hands: Boolean(data.face_sam3_hands)" in INDEX_HTML
+    assert "hand_denoise: Number(data.hand_denoise || 0.35)" in INDEX_HTML
+    assert '{key: "face_eye_detailer", label: "얼굴 + 눈 보정"' in INDEX_HTML
+    assert '{key: "hand_detailer", label: "손 보정"' in INDEX_HTML
     assert "threshold: Number(data.face_threshold || 0.5)" in INDEX_HTML
     assert "denoise: Number(data.face_denoise || 0.28)" in INDEX_HTML
     assert "exclude_forehead_ratio: Number(data.face_exclude_forehead || 0)" in INDEX_HTML
@@ -1920,6 +1934,7 @@ def test_index_html_loads_history_panel():
     assert "summaryItem(\"상태\", resultMode(payload))" in INDEX_HTML
     assert "summaryItem(\"Output\", payload.output_url || payload.output_path || \"manifest only\")" not in INDEX_HTML
     assert "function variantEntries" in INDEX_HTML
+    assert "variants.face_detailer && !variants.face_eye_detailer && !variants.hand_detailer" in INDEX_HTML
     assert "function renderCompareGrid" in INDEX_HTML
     assert "function syncCompareControls" in INDEX_HTML
     assert "toggleCompareButton.hidden" in INDEX_HTML
@@ -2003,14 +2018,21 @@ def test_index_html_contains_llm_refine_contract(needle):
 
 
 def test_index_html_renders_binary_options_as_color_toggles():
-    assert INDEX_HTML.count('class="toggle-switch"') == 4
+    assert INDEX_HTML.count('class="toggle-switch"') == 6
     assert "toggle-switch:has(input:checked)" in INDEX_HTML
     assert "background: #a9444f" in INDEX_HTML
     assert "background: #2f9f55" in INDEX_HTML
     assert 'class="toggle-track" aria-hidden="true"' in INDEX_HTML
     assert 'class="toggle-state" aria-hidden="true"' in INDEX_HTML
     assert 'class="check-label"' not in INDEX_HTML
-    for field_id in ("upscale-enabled", "upscale-tiled", "face-detailer-enabled", "queue-infinite"):
+    for field_id in (
+        "upscale-enabled",
+        "upscale-tiled",
+        "face-detailer-enabled",
+        "face-sam3-face-eyes",
+        "face-sam3-hands",
+        "queue-infinite",
+    ):
         assert f'<label class="toggle-switch" for="{field_id}">' in INDEX_HTML
         assert f'id="{field_id}"' in INDEX_HTML
         assert 'type="checkbox" value="1"' in INDEX_HTML
