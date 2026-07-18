@@ -1,12 +1,13 @@
 # Anima APP Acceptance
 
-This checklist records the accepted public source-checkout alpha scope.
+This checklist records the accepted public `0.3.0` source-checkout beta scope.
 
 ## Implemented
 
 - [x] Python package source exists under `src\anima_app`.
 - [x] Runtime assets are read from the project-local `models` tree.
 - [x] The `anima-t2i` asset profile can download required base assets from Hugging Face.
+- [x] The `anima-aesthetic-v1.1` profile can download the preferred checkpoint, which the GUI selects when installed.
 - [x] A local model mirror can be configured with `ANIMA_APP_MODEL_SOURCE`.
 - [x] Additional Anima-family diffusion checkpoints can be listed and selected by relative `.safetensors` path.
 - [x] Optional face-detailer detector assets can be downloaded automatically or copied from a user-configured local source.
@@ -24,6 +25,7 @@ This checklist records the accepted public source-checkout alpha scope.
 - [x] Runtime Status can perform a read-only GitHub release/tag update check for the app.
 - [x] GUI history item clicks load the final image into the center result panel.
 - [x] Enhanced generations can expose an Original / Upscale / Face Detailer compare grid from the result panel.
+- [x] SAM3 face detailing can run independent Face + Eyes and Hands passes with separate switches, hand denoise, progress stages, manifest evidence, and compare outputs.
 - [x] Browser GUI labels are Korean by default while API request keys remain stable.
 - [x] Local browser GUI includes prompt controls, model/checkpoint controls, LoRA controls, image settings, enhancement settings, prompt tools, saved settings, progress display, current result view, and history.
 - [x] The Windows user launcher is `Run-AnimaAPP-GUI.cmd`.
@@ -32,10 +34,11 @@ This checklist records the accepted public source-checkout alpha scope.
 
 ## Release Boundary
 
-- [x] Current release target is a source-checkout alpha.
+- [x] Current release target is a `0.3.0` source-checkout beta.
 - [x] GitHub source archives are the intended public release artifact for this version.
 - [ ] Standalone binary packaging is not finalized.
 - [ ] Final wheel redistribution policy for vendored runtime assets is not finalized.
+- [ ] The wheel is not a standalone generation build because it does not bundle the root-level vendored Comfy runtime.
 
 ## Verification Policy
 

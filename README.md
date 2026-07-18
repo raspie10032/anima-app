@@ -31,6 +31,13 @@ $env:PYTHONPATH='src'
 python -m anima_app.cli models copy-profile anima-t2i
 ```
 
+Prepare the preferred Anima Aesthetic v1.1 checkpoint:
+
+```powershell
+$env:PYTHONPATH='src'
+python -m anima_app.cli models copy-profile anima-aesthetic-v1.1
+```
+
 By default, the app downloads the base profile from Hugging Face when a configured local mirror is not available. To use a local model mirror, set:
 
 ```powershell
@@ -42,6 +49,8 @@ Required base files are copied into the project-local `models` tree:
 - `models\diffusion_models\anima-base-v1.0.safetensors`
 - `models\text_encoders\qwen_3_06b_base.safetensors`
 - `models\vae\qwen_image_vae.safetensors`
+
+When `models\diffusion_models\anima-aesthetic-v1.1.safetensors` is installed, the GUI selects it by default. If it is missing, the app falls back to `anima-base-v1.0.safetensors`.
 
 Additional Anima-family diffusion checkpoints can be placed under `models\diffusion_models` and selected by relative `.safetensors` path.
 
@@ -66,6 +75,8 @@ The GUI can create SAM3 text-prompt masks for the current result image, such as 
 - `Noise mask`: keeps the original crop latent and limits sampling to the mask. This is the default for non-inpaint checkpoints.
 - `VAE inpaint`: blanks the masked area before VAE encoding. This is available for comparison but usually needs an inpaint-friendly model.
 - `Crop i2i`: regenerates the crop and composites it through the mask.
+
+When the face detailer uses SAM3, the GUI exposes independent `얼굴 + 눈` and `손` switches. Enabled targets run as sequential detailer passes: the face/eyes pass uses the normal face denoise value, while the hands pass uses its own denoise value. Missing target masks skip only that pass. History comparison can show Original, Upscale, Face + Eyes, and Hands outputs.
 
 Local LoRA files can be imported into `models\loras` and stacked in the GUI:
 
@@ -193,3 +204,4 @@ Click a history item to load that generation's final image in the center result 
 - The optional LLM bridge does not launch Gemma4 itself; `ANIMA_LLM_RUNTIME_URL` must point at a separately managed local worker.
 - Local model weights, detector weights, LoRA files, input images, and generated outputs are ignored by git and are not part of the public release.
 - Set `ANIMA_APP_CUDA_VISIBLE_DEVICES` when you need to choose a CUDA device for Anima APP. Direct CLI runs also respect an existing `CUDA_VISIBLE_DEVICES` value when the app-specific variable is not set.
+- GitHub source archives are the supported release artifact. The Python wheel does not currently bundle the root-level vendored Comfy runtime and is not a standalone generation build.

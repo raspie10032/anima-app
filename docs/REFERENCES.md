@@ -4,8 +4,9 @@ This document keeps public source references, model layout, and release boundari
 
 ## Public Sources
 
-- Anima base model source: `circlestone-labs/Anima`
-- Anima base model subfolder: `split_files`
+- Anima model source: `circlestone-labs/Anima`
+- Anima model subfolder: `split_files`
+- Preferred checkpoint: `split_files/diffusion_models/anima-aesthetic-v1.1.safetensors`
 - Face detector source: `Bingsu/adetailer` file `face_yolov8n.pt`
 - Eye detector source: `guon/hand-eyes` file `full_eyes_detect_v1.pt`
 - SAM detector source: Ultralytics asset `sam_b.pt`; SAM reference project: https://github.com/facebookresearch/segment-anything
@@ -30,6 +31,15 @@ The command below prepares the base profile. It downloads from Hugging Face unle
 $env:PYTHONPATH='src'
 python -m anima_app.cli models copy-profile anima-t2i
 ```
+
+The preferred Aesthetic v1.1 checkpoint is a separate profile:
+
+```powershell
+$env:PYTHONPATH='src'
+python -m anima_app.cli models copy-profile anima-aesthetic-v1.1
+```
+
+The GUI selects Aesthetic v1.1 when installed and otherwise falls back to the base checkpoint.
 
 Additional Anima-family diffusion checkpoints can be placed under `models\diffusion_models` and selected by relative `.safetensors` path.
 
@@ -62,6 +72,8 @@ Expected SAM3 filename:
 - `sam3.pt`
 
 Source: https://huggingface.co/facebook/sam3
+
+For face detailing, SAM3 can run one combined `face` + `eyes` mask pass and one `hand` + `hands` mask pass. These are sequential repaint passes with separate denoise values; a missing concept mask skips only its own pass.
 
 Optional fallback detector folders can be supplied with `ANIMA_APP_FACE_DETECTOR_FALLBACKS`, separated by the platform path separator.
 
@@ -118,7 +130,7 @@ The included wildcard files may be derived from ComfyUI Impact Pack wildcard fil
 
 ## Release Boundary
 
-Current release target: source-checkout alpha.
+Current release target: `0.3.0` source-checkout beta.
 
 Included:
 
@@ -141,3 +153,4 @@ Not finalized:
 - Standalone binary packaging.
 - Final wheel redistribution policy for vendored runtime assets.
 - Automated public release packaging beyond GitHub source archives.
+- A standalone wheel containing the root-level vendored Comfy runtime.
