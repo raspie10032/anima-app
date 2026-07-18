@@ -1019,6 +1019,7 @@ def test_http_server_runs_masked_inpaint(tmp_path, monkeypatch):
         assert settings.image_path == "/outputs/images/source.png"
         assert settings.mask_path == "/outputs/images/source_mask.png"
         assert settings.prompt == "yellow sundress"
+        assert settings.checkpoint == "anima-aesthetic-v1.1.safetensors"
         assert settings.method == "noise_mask"
         assert settings.denoise == 0.7
         assert settings.steps == 20
@@ -1045,6 +1046,7 @@ def test_http_server_runs_masked_inpaint(tmp_path, monkeypatch):
                 "image_path": "/outputs/images/source.png",
                 "mask_path": "/outputs/images/source_mask.png",
                 "prompt": "yellow sundress",
+                "checkpoint": "anima-aesthetic-v1.1.safetensors",
                 "method": "noise_mask",
                 "denoise": 0.7,
                 "steps": 20,
@@ -1926,6 +1928,7 @@ def test_index_html_loads_history_panel():
     assert 'fetch("/api/sam3/compare"' in INDEX_HTML
     assert 'fetch("/api/masks/adjust"' in INDEX_HTML
     assert 'fetch("/api/inpaint/masked"' in INDEX_HTML
+    assert "checkpoint: checkpointSelect.value" in INDEX_HTML
     assert "sam3ClothingComparePrompts" in INDEX_HTML
     assert "renderSam3CompareResults" in INDEX_HTML
     assert "#output-link[hidden]" in INDEX_HTML

@@ -2186,6 +2186,7 @@ def handle_masked_inpaint(payload: dict[str, Any], *, paths: AppPaths) -> tuple[
                 image_path=str(payload.get("image_path", "")),
                 mask_path=str(payload.get("mask_path", "")),
                 prompt=str(payload.get("prompt", "")),
+                checkpoint=str(payload.get("checkpoint") or handle_checkpoints(paths)["default"]),
                 negative_prompt=str(payload.get("negative_prompt", "")),
                 method=str(payload.get("method", "noise_mask")),
                 denoise=float(payload.get("denoise", 0.65)),

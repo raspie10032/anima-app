@@ -734,6 +734,7 @@
             image_path: currentOutputUrl,
             mask_path: currentMaskUrl,
             prompt,
+            checkpoint: checkpointSelect.value,
             negative_prompt: inpaintNegativeInput.value,
             method: inpaintMethodSelect.value || "noise_mask",
             denoise: Number(inpaintDenoiseInput.value || 0.65),

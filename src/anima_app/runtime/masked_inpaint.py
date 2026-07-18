@@ -32,6 +32,7 @@ class MaskedInpaintSettings:
     image_path: str
     mask_path: str
     prompt: str
+    checkpoint: str
     negative_prompt: str = ""
     method: str = "noise_mask"
     denoise: float = 0.65
@@ -70,6 +71,7 @@ def run_masked_inpaint(settings: MaskedInpaintSettings, *, paths: AppPaths) -> M
     request = T2IRequest(
         prompt=settings.prompt,
         negative_prompt=settings.negative_prompt,
+        checkpoint=settings.checkpoint,
         width=width,
         height=height,
         steps=settings.steps,
