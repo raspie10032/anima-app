@@ -40,5 +40,8 @@ anima-app = "anima_app.cli:console_main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+anima_app = ["static/*.js"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]

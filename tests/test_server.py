@@ -1,4 +1,6 @@
 import json
+import shutil
+import subprocess
 import threading
 import urllib.error
 import urllib.request
@@ -10,7 +12,10 @@ from PIL import Image
 from anima_app.assets import FACE_DETAILER_DETECTOR_ASSET_PROFILE
 from anima_app.config import AppPaths
 from anima_app.runtime.pipeline import T2IRenderOutput
-from anima_app.server import INDEX_HTML, create_http_server, handle_generate, handle_wildcard_preview, request_from_payload
+from anima_app.server import APP_JS, INDEX_HTML as INDEX_DOCUMENT, create_http_server, handle_generate, handle_wildcard_preview, request_from_payload
+
+
+INDEX_HTML = INDEX_DOCUMENT + APP_JS
 
 
 def _paths(tmp_path: Path) -> AppPaths:
@@ -387,6 +392,11 @@ def test_http_server_serves_index_and_dry_run_generate(tmp_path):
         base_url = f"http://127.0.0.1:{server.server_address[1]}"
         index_body = urllib.request.urlopen(base_url, timeout=5).read().decode("utf-8")
         assert "Anima APP" in index_body
+        assert '<script src="/app.js"></script>' in index_body
+        with urllib.request.urlopen(f"{base_url}/app.js", timeout=5) as response:
+            assert response.status == 200
+            assert response.headers.get_content_type() == "text/javascript"
+            assert "const animaDefaults" in response.read().decode("utf-8")
         with urllib.request.urlopen(f"{base_url}/favicon.ico", timeout=5) as response:
             assert response.status == 204
 
@@ -1665,6 +1675,9 @@ def test_http_server_import_lora_rejects_bad_path(tmp_path):
 
 
 def test_index_html_loads_history_panel():
+    assert '<script id="anima-defaults" type="application/json">' in INDEX_DOCUMENT
+    assert '<script src="/app.js"></script>' in INDEX_DOCUMENT
+    assert "const animaDefaults" not in INDEX_DOCUMENT
     assert 'id="status-panel"' in INDEX_HTML
     assert 'id="readiness-panel"' in INDEX_HTML
     assert 'id="update-panel"' in INDEX_HTML
@@ -1770,13 +1783,13 @@ def test_index_html_loads_history_panel():
     assert "이 결과 설정 불러오기" in INDEX_HTML
     assert "단계 비교" in INDEX_HTML
     assert "primary-action" in INDEX_HTML
-    assert "request.width || 832" in INDEX_HTML
-    assert "request.height || 1216" in INDEX_HTML
-    assert "request.steps || 20" in INDEX_HTML
-    assert "request.cfg || 3.5" in INDEX_HTML
-    assert 'form.elements.sampler.value = request.sampler || "euler_ancestral_cfg_pp"' in INDEX_HTML
-    assert 'form.elements.scheduler.value = request.scheduler || "sgm_uniform"' in INDEX_HTML
-    assert 'setSelectValue(checkpointSelect, request.checkpoint || "anima-base-v1.0.safetensors")' in INDEX_HTML
+    assert "request.width || animaDefaults.width" in INDEX_HTML
+    assert "request.height || animaDefaults.height" in INDEX_HTML
+    assert "request.steps || animaDefaults.steps" in INDEX_HTML
+    assert "request.cfg || animaDefaults.cfg" in INDEX_HTML
+    assert "form.elements.sampler.value = request.sampler || animaDefaults.sampler" in INDEX_HTML
+    assert "form.elements.scheduler.value = request.scheduler || animaDefaults.scheduler" in INDEX_HTML
+    assert "setSelectValue(checkpointSelect, request.checkpoint || animaDefaults.checkpoint)" in INDEX_HTML
     assert "const startingSizePresets = {" in INDEX_HTML
     assert "square: {width: 1024, height: 1024}" in INDEX_HTML
     assert "portrait_2x3: {width: 832, height: 1216}" in INDEX_HTML
@@ -1831,7 +1844,7 @@ def test_index_html_loads_history_panel():
     assert 'id="wildcard-preview"' in INDEX_HTML
     assert "const loras = selectedLoras();" in INDEX_HTML
     assert "data.loras = loras;" in INDEX_HTML
-    assert 'data.checkpoint = data.checkpoint || "anima-base-v1.0.safetensors"' in INDEX_HTML
+    assert "data.checkpoint = data.checkpoint || animaDefaults.checkpoint" in INDEX_HTML
     assert 'name="wildcard_mode"' in INDEX_HTML
     assert 'fetch("/api/wildcards")' in INDEX_HTML
     assert 'fetch("/api/wildcards/preview"' in INDEX_HTML
@@ -1953,6 +1966,20 @@ def test_index_html_loads_history_panel():
     assert "applyManifest" in INDEX_HTML
     assert "wildcardInfo.original_prompt" in INDEX_HTML
     assert "setLoraRows(request.loras || [])" in INDEX_HTML
+
+
+def test_app_js_has_valid_syntax():
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is not installed")
+
+    subprocess.run(
+        [node, "--check", "-"],
+        input=APP_JS,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
 
 
 @pytest.mark.parametrize(
