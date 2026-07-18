@@ -735,6 +735,7 @@
             mask_path: currentMaskUrl,
             prompt,
             checkpoint: checkpointSelect.value,
+            loras: selectedLoras(),
             negative_prompt: inpaintNegativeInput.value,
             method: inpaintMethodSelect.value || "noise_mask",
             denoise: Number(inpaintDenoiseInput.value || 0.65),

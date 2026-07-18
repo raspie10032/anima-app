@@ -10,7 +10,7 @@ from PIL import Image
 from anima_app.comfy_runtime import bootstrap_comfy_runtime
 from anima_app.config import AppPaths
 from anima_app.gpu import configure_default_cuda_device
-from anima_app.requests import T2IRequest, VaeDecodeSettings
+from anima_app.requests import T2ILoraConfig, T2IRequest, VaeDecodeSettings
 from anima_app.runtime.comfy_t2i import (
     _apply_loras,
     _decode_samples,
@@ -33,6 +33,7 @@ class MaskedInpaintSettings:
     mask_path: str
     prompt: str
     checkpoint: str
+    loras: tuple[T2ILoraConfig, ...] = ()
     negative_prompt: str = ""
     method: str = "noise_mask"
     denoise: float = 0.65
@@ -72,6 +73,7 @@ def run_masked_inpaint(settings: MaskedInpaintSettings, *, paths: AppPaths) -> M
         prompt=settings.prompt,
         negative_prompt=settings.negative_prompt,
         checkpoint=settings.checkpoint,
+        loras=settings.loras,
         width=width,
         height=height,
         steps=settings.steps,
