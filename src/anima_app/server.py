@@ -2595,7 +2595,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     function currentAutocompleteFragment(input) {
       const cursor = input.selectionStart ?? input.value.length;
       const before = input.value.slice(0, cursor);
-      const marker = Math.max(before.lastIndexOf(","), before.lastIndexOf("\n"));
+      const marker = Math.max(before.lastIndexOf(","), before.lastIndexOf("\\n"));
       const rawStart = marker + 1;
       const leading = before.slice(rawStart).match(/^\\s*/)?.[0] || "";
       const start = rawStart + leading.length;
@@ -2784,7 +2784,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               "If priority is natural-language priority, preserve the user's natural-language intent and remove conflicting tags that would fight that intent.",
               "Translate non-English natural-language descriptions into concise English, then remove the original non-English text from cleaned_prompt.",
               "Deduplicate repeated ideas. Keep important subject, style, composition, colors, outfit, pose, lighting, and mood.",
-              "JSON schema: {\"cleaned_prompt\":\"comma-separated English tags after contradiction cleanup\",\"natural_language_prompt\":\"one concise English sentence that reinforces the cleaned prompt\",\"resolved_conflicts\":[\"short notes about removed or rewritten conflicts\"]}"
+              "JSON schema: {\\\"cleaned_prompt\\\":\\\"comma-separated English tags after contradiction cleanup\\\",\\\"natural_language_prompt\\\":\\\"one concise English sentence that reinforces the cleaned prompt\\\",\\\"resolved_conflicts\\\":[\\\"short notes about removed or rewritten conflicts\\\"]}"
             ].join("\\n"),
             prompt_suffix: "\\nPriority: " + refinePriorityLabel + "\\nPrompt: " + prompt + "\\nJSON:",
             max_new_tokens: 180
@@ -2895,9 +2895,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     }
     function removeNonEnglishPromptParts(prompt) {
       return String(prompt || "")
-        .split(/([,\n])/)
+        .split(/([,\\n])/)
         .reduce((parts, chunk, index, chunks) => {
-          if (chunk === "," || chunk === "\n") {
+          if (chunk === "," || chunk === "\\n") {
             return parts;
           }
           const value = chunk.trim();

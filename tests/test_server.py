@@ -1831,6 +1831,10 @@ def test_index_html_loads_history_panel():
     assert 'id="autocomplete-menu"' in INDEX_HTML
     assert 'fetch(`/api/autocomplete?q=${encodeURIComponent(fragment.query)}&limit=24`)' in INDEX_HTML
     assert "function setupAutocomplete" in INDEX_HTML
+    assert 'before.lastIndexOf("\\n")' in INDEX_HTML
+    assert '\\"cleaned_prompt\\"' in INDEX_HTML
+    assert '.split(/([,\\n])/' in INDEX_HTML
+    assert 'chunk === "," || chunk === "\\n"' in INDEX_HTML
     assert "autocompleteTargets().forEach" in INDEX_HTML
     assert "insertWildcard" in INDEX_HTML
     assert "insertPresetWildcard" in INDEX_HTML
