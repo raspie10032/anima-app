@@ -4194,7 +4194,7 @@ def test_http_server_imports_lora_from_local_path(tmp_path):
             payload = json.loads(response.read().decode("utf-8"))
 
         assert response.status == 200
-        assert payload["imported"].endswith("models\\loras\\new_style.safetensors")
+        assert payload["imported"] == str(paths.model_root / "loras" / "new_style.safetensors")
         assert payload["loras"] == {
             "count": 1,
             "items": [{"relative_path": "new_style.safetensors", "size_bytes": source.stat().st_size}],

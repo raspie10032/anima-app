@@ -1,12 +1,12 @@
 comfy_aimdo-0.3.0.dist-info/INSTALLER,sha256=zuuue4knoyJ-UwPPXg8fezS7VCrXJQrAP7zeNuwvFQg,4
-comfy_aimdo-0.3.0.dist-info/METADATA,sha256=5aaH2IZdQtLL4uEBKLukTlOzCl21iyRzR52Ar8bHg78,4231
+comfy_aimdo-0.3.0.dist-info/METADATA,sha256=3TCsHtKdnC5kfluZJoMRtYD1Fk6Rf1Sgq-HsmueuCLk,4166
 comfy_aimdo-0.3.0.dist-info/RECORD,,
 comfy_aimdo-0.3.0.dist-info/REQUESTED,sha256=47DEQpj8HBSa-_TImW-5JCeuQeRkm5NMpJWZG3hSuFU,0
 comfy_aimdo-0.3.0.dist-info/WHEEL,sha256=i4Ct5g1MFZwV98eHmNmGsfrPgf1eOZ2l4yC1L9Cta5Q,99
-comfy_aimdo-0.3.0.dist-info/licenses/LICENSE,sha256=MwVzuu5rx0gyS7xfkC-yx1TG1fwBV7mkTa_0-czhUMk,36091
+comfy_aimdo-0.3.0.dist-info/licenses/LICENSE,sha256=W5q7c4DaYmvGIFZkW4yyBaPjchkmoFvzkLjJxk1xsl8,35411
 comfy_aimdo-0.3.0.dist-info/top_level.txt,sha256=cNWcDS5wXiEuUfzhMh6GxznoMCD_qYI3__LLMv4A0_c,12
 comfy_aimdo/__init__.py,sha256=nreCBvaiM8xdyv61BG_s565yVskdp81HDg-UwkQSzEY,76
-comfy_aimdo/_version.py,sha256=9mSqOgWIGrioTrCbYFhR4B7ma4n-Gz2QAbD_6oa6wRI,746
+comfy_aimdo/_version.py,sha256=YNNqhYdzIQsbrBGolpcl1mMVrM94t2yLMZByiImENdw,712
 comfy_aimdo/control.py,sha256=6wqYadvn66z2xVsx9GRhEPoGo4VJZ2pkIjy-nZiPfWk,545
 comfy_aimdo/host_buffer.py,sha256=WDXXjEiCRRqHjtybzR7UtJcX6hNmkdN0ianu__UJlbY,353
 comfy_aimdo/model_mmap.py,sha256=UIWrM5OAmED0nqG9W52HVXwFlzuoyurn1FtVkM1cQNI,363

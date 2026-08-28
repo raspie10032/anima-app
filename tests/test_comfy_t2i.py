@@ -101,8 +101,13 @@ def test_render_rejects_corrupt_models_before_comfy_bootstrap(monkeypatch, tmp_p
     )
 
 
-def test_qwen_image_tokenizer_uses_comfy_prompt_weights():
+def test_qwen_image_tokenizer_uses_comfy_prompt_weights(monkeypatch):
     bootstrap_comfy_runtime(AppPaths())
+
+    from comfy.cli_args import args
+
+    if not torch.cuda.is_available():
+        monkeypatch.setattr(args, "cpu", True)
 
     from comfy.text_encoders.qwen_image import QwenImageTokenizer
 
