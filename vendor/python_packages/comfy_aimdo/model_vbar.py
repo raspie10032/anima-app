@@ -1,4 +1,4 @@
-"""Model VBAR fallback for the GemmAnima no-aimdo shim."""
+"""Model VBAR fallback for the Anima APP no-aimdo shim."""
 
 
 class ModelVBAR:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,7 +11,18 @@ from PIL import Image
 from anima_app.comfy_runtime import bootstrap_comfy_runtime
 from anima_app.config import AppPaths
 from anima_app.gpu import configure_default_cuda_device
-from anima_app.requests import T2ILoraConfig, T2IRequest, VaeDecodeSettings
+from anima_app.requests import (
+    MAX_BASE_IMAGE_PIXELS,
+    MAX_CFG,
+    MAX_GENERATION_DIMENSION,
+    MAX_OUTPUT_IMAGE_PIXELS,
+    MAX_PROMPT_CHARACTERS,
+    MAX_SAMPLING_STEPS,
+    MAX_SEED,
+    T2ILoraConfig,
+    T2IRequest,
+    VaeDecodeSettings,
+)
 from anima_app.runtime.comfy_t2i import (
     _apply_loras,
     _decode_samples,
@@ -58,8 +70,10 @@ def run_masked_inpaint(settings: MaskedInpaintSettings, *, paths: AppPaths) -> M
     source_path = resolve_segment_source(settings.image_path, paths)
     mask_path = resolve_mask_path(settings.mask_path, paths)
     with Image.open(source_path) as opened:
+        _validate_output_image_size(opened.size, "source image")
         base = opened.convert("RGB")
     with Image.open(mask_path) as opened:
+        _validate_output_image_size(opened.size, "mask image")
         mask = opened.convert("L")
     if mask.size != base.size:
         mask = mask.resize(base.size, Image.NEAREST)
@@ -68,6 +82,7 @@ def run_masked_inpaint(settings: MaskedInpaintSettings, *, paths: AppPaths) -> M
     crop_mask = mask.crop(crop_box)
     width = settings.width or _nearest_multiple(crop.width, 8)
     height = settings.height or _nearest_multiple(crop.height, 8)
+    _validate_render_size(width, height)
     seed = settings.seed if settings.seed is not None else int(torch.randint(0, 2**31 - 1, (1,)).item())
     request = T2IRequest(
         prompt=settings.prompt,
@@ -211,13 +226,57 @@ def _validate_settings(settings: MaskedInpaintSettings) -> None:
         raise ValueError("masked inpaint method must be one of: crop_i2i_composite, noise_mask, vae_inpaint")
     if not settings.prompt.strip():
         raise ValueError("prompt is required")
-    if settings.denoise < 0 or settings.denoise > 1:
-        raise ValueError("denoise must be between 0 and 1")
-    if settings.steps <= 0:
-        raise ValueError("steps must be positive")
-    if settings.cfg < 0:
-        raise ValueError("cfg must be >= 0")
-    if settings.width is not None and (settings.width <= 0 or settings.width % 8):
-        raise ValueError("width must be positive and divisible by 8")
-    if settings.height is not None and (settings.height <= 0 or settings.height % 8):
-        raise ValueError("height must be positive and divisible by 8")
+    if len(settings.prompt) > MAX_PROMPT_CHARACTERS:
+        raise ValueError(f"prompt must not exceed {MAX_PROMPT_CHARACTERS} characters")
+    if len(settings.negative_prompt) > MAX_PROMPT_CHARACTERS:
+        raise ValueError(f"negative prompt must not exceed {MAX_PROMPT_CHARACTERS} characters")
+    if not math.isfinite(settings.denoise) or settings.denoise < 0 or settings.denoise > 1:
+        raise ValueError("denoise must be finite and between 0 and 1")
+    if (
+        isinstance(settings.steps, bool)
+        or not isinstance(settings.steps, int)
+        or settings.steps <= 0
+        or settings.steps > MAX_SAMPLING_STEPS
+    ):
+        raise ValueError(f"steps must be an integer between 1 and {MAX_SAMPLING_STEPS}")
+    if not math.isfinite(settings.cfg) or settings.cfg < 0 or settings.cfg > MAX_CFG:
+        raise ValueError(f"cfg must be finite and between 0 and {MAX_CFG:g}")
+    if settings.seed is not None and (
+        isinstance(settings.seed, bool)
+        or not isinstance(settings.seed, int)
+        or settings.seed < 0
+        or settings.seed > MAX_SEED
+    ):
+        raise ValueError(f"seed must be an integer between 0 and {MAX_SEED}")
+    _validate_requested_dimension(settings.width, "width")
+    _validate_requested_dimension(settings.height, "height")
+    if settings.width is not None and settings.height is not None:
+        _validate_render_size(settings.width, settings.height)
+
+
+def _validate_requested_dimension(value: int | None, label: str) -> None:
+    if value is None:
+        return
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 8
+        or value > MAX_GENERATION_DIMENSION
+        or value % 8
+    ):
+        raise ValueError(
+            f"{label} must be an integer between 8 and {MAX_GENERATION_DIMENSION} and divisible by 8"
+        )
+
+
+def _validate_render_size(width: int, height: int) -> None:
+    if width > MAX_GENERATION_DIMENSION or height > MAX_GENERATION_DIMENSION:
+        raise ValueError(f"width and height must be <= {MAX_GENERATION_DIMENSION}")
+    if width * height > MAX_BASE_IMAGE_PIXELS:
+        raise ValueError(f"masked inpaint render must not exceed {MAX_BASE_IMAGE_PIXELS} pixels")
+
+
+def _validate_output_image_size(size: tuple[int, int], label: str) -> None:
+    width, height = size
+    if width * height > MAX_OUTPUT_IMAGE_PIXELS:
+        raise ValueError(f"{label} must not exceed {MAX_OUTPUT_IMAGE_PIXELS} pixels")

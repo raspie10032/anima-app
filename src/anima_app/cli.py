@@ -218,6 +218,7 @@ def main(argv: Sequence[str] | None = None, *, paths: AppPaths | None = None) ->
                 {
                     "status": result.status,
                     "manifest_path": str(result.manifest_path),
+                    "manifest_name": result.manifest_path.name,
                     "output_path": str(result.output_path) if result.output_path else None,
                     "warnings": list(result.warnings),
                     "stages": manifest.get("stages", {}),

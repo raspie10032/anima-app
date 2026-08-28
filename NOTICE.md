@@ -4,7 +4,7 @@ Anima APP is a lightweight local Anima image-generation app.
 
 ## Runtime Code
 
-The `vendor/anima_runtime` tree contains ComfyUI-derived runtime code. Keep the upstream license and attribution notices with redistributed source or packaged builds.
+The `vendor/anima_runtime` tree contains a ComfyUI 0.22.2-derived runtime snapshot. The reported version is preserved in `vendor/anima_runtime/comfyui_version.py`; the exact upstream commit was not preserved. Keep the upstream license and attribution notices with redistributed source or packaged builds, and do not claim commit-level reproducibility for this snapshot.
 
 Relevant upstream project:
 
@@ -15,9 +15,10 @@ Relevant upstream project:
 The `vendor/python_packages` tree contains selected runtime packages and their metadata:
 
 - `comfy-kitchen` 0.2.8, Apache-2.0, https://github.com/Comfy-Org/comfy-kitchen
-- `comfy-aimdo` 0.3.0, repository metadata at https://github.com/Comfy-Org/comfy-aimdo
+- An Anima APP no-native compatibility shim based on `comfy-aimdo` 0.3.0, GPL-3.0, with repository metadata at https://github.com/Comfy-Org/comfy-aimdo
 
 Keep each package's bundled license files and notices with redistributed builds.
+The `comfy-aimdo` base version is retained in its metadata, but several Python modules and its `RECORD` are intentionally patched for Anima APP. See `vendor/README.md` for the exact disclosure and remaining native-binary boundary.
 
 ## Optional Detector Runtime
 
@@ -40,7 +41,7 @@ Base model assets, alternate checkpoints, LoRA files, detector weights, input im
 
 ## Wildcards
 
-The `wildcards` folder may include text wildcard files derived from ComfyUI Impact Pack wildcard files.
+The `wildcards` folder includes text wildcard files copied or derived from a local ComfyUI Impact Pack checkout. The observed upstream license was GPL-3.0; the exact source revision was not preserved.
 
 Relevant upstream project:
 

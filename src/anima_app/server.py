@@ -1,21 +1,49 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import copy
+import io
+import ipaddress
 import json
+import math
+import os
 import random
 import re
+import tempfile
 import threading
 import time
+import warnings
 from collections import deque
+from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
+
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from anima_app import __version__
 from anima_app.autocomplete import autocomplete_payload, warm_autocomplete_index
-from anima_app.assets import asset_profile, asset_profiles, copy_asset_profile, import_lora_file, list_local_checkpoints, list_local_loras
+from anima_app.assets import (
+    MAX_LORA_UPLOAD_BYTES,
+    MAX_REFERENCE_UPLOAD_BYTES,
+    REFERENCE_IMAGE_CONTENT_TYPES,
+    asset_file_is_ready,
+    asset_profile,
+    asset_profile_prepare_plan,
+    asset_profiles,
+    copy_asset_profile,
+    import_lora_file,
+    list_local_checkpoints,
+    list_local_loras,
+    reference_upload_content_type,
+    required_t2i_model_files,
+    store_lora_upload,
+    store_reference_upload,
+    validate_lora_upload_filename,
+)
 from anima_app.config import AppPaths
 from anima_app.defaults import (
     DEFAULT_T2I_CHECKPOINT,
@@ -29,21 +57,39 @@ from anima_app.defaults import (
 )
 from anima_app.health import build_health_payload
 from anima_app.llm_runtime import default_llm_client, llm_generate_payload, llm_status_payload
-from anima_app.manifests import read_manifest, read_t2i_history
+from anima_app.manifests import _write_json_atomically, history_sort_key, read_manifest, read_t2i_history
 from anima_app.memory_profiles import resolve_auto_memory_profile
+from anima_app.openapi import build_openapi_document
+from anima_app.path_safety import path_is_link as _path_is_link
 from anima_app.requests import (
     DEFAULT_FACE_DETAILER_STEPS,
     DEFAULT_TILE_SIZE,
     DEFAULT_UPSCALE_STEPS,
     FaceDetailerSettings,
     I2ISettings,
+    MAX_BASE_IMAGE_PIXELS,
+    MAX_CFG,
+    MAX_FACE_CROP_SCALE,
+    MAX_FACE_FEATHER,
+    MAX_FACE_PADDING,
+    MAX_GENERATION_DIMENSION,
+    MAX_LORA_COUNT,
+    MAX_LORA_STRENGTH,
+    MAX_OUTPUT_IMAGE_PIXELS,
+    MAX_PROMPT_CHARACTERS,
+    MAX_SAMPLING_STEPS,
+    MAX_SEED,
+    MAX_TILE_SIZE,
+    MAX_UPSCALE_SCALE,
+    MIN_TILE_SIZE,
     T2ILoraConfig,
     T2IRequest,
     UpscaleSettings,
     VaeDecodeSettings,
     parse_lora_spec,
 )
-from anima_app.runtime.pipeline import T2IRenderer, run_t2i
+from anima_app.runtime.pipeline import ModelsNotReadyError, T2IRenderer, run_t2i
+from anima_app.runtime.comfy_t2i import resolve_managed_lora_path, resolve_managed_reference_path
 from anima_app.runtime.masked_inpaint import MaskedInpaintSettings, run_masked_inpaint
 from anima_app.runtime.sam3_segment import (
     Sam3MaskAdjustmentResult,
@@ -53,7 +99,39 @@ from anima_app.runtime.sam3_segment import (
     segment_image_concepts,
 )
 from anima_app.updates import check_github_update, version_payload
-from anima_app.wildcards import expand_request_wildcards, expand_text_wildcards, list_prompt_presets, list_wildcards
+from anima_app.wildcards import (
+    DEFAULT_WILDCARD_MODE,
+    WILDCARD_MODES,
+    expand_request_wildcards,
+    expand_text_wildcards,
+    list_prompt_presets,
+    list_wildcards,
+)
+
+
+MAX_JSON_BODY_BYTES = 1024 * 1024
+UPLOAD_STREAM_CHUNK_BYTES = 1024 * 1024
+MAX_JSON_NESTING_DEPTH = 64
+MAX_QUEUE_JOBS = 99
+MAX_QUEUE_DELAY_SECONDS = 60
+MAX_BROWSER_SAFE_SEED = (1 << 53) - 1
+MAX_HISTORY_QUERY_CHARACTERS = 256
+MAX_HISTORY_CURSOR_FILENAME_CHARACTERS = 255
+HISTORY_TYPES = frozenset({"all", "images", "dry-run"})
+HISTORY_THUMBNAIL_MAX_DIMENSION = 320
+HISTORY_THUMBNAIL_JPEG_QUALITY = 82
+MAX_HISTORY_THUMBNAIL_SOURCE_BYTES = 256 * 1024 * 1024
+MAX_CONCURRENT_HISTORY_THUMBNAILS = 2
+PRESET_BUNDLE_SCHEMA = "anima-app/presets.v1"
+MAX_PRESET_NAME_CHARACTERS = 120
+MAX_PRESET_IMPORT_ITEMS = 256
+MAX_PRESET_FILE_BYTES = MAX_JSON_BODY_BYTES
+WINDOWS_RESERVED_PRESET_SLUGS = frozenset(
+    {"con", "prn", "aux", "nul", *(f"com{index}" for index in range(1, 10)), *(f"lpt{index}" for index in range(1, 10))}
+)
+
+
+_preset_lock = threading.RLock()
 
 
 _INDEX_HTML_TEMPLATE = """<!doctype html>
@@ -74,6 +152,17 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       min-height: 100vh;
       overflow: hidden;
     }
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
     .app-shell {
       min-height: 100vh;
       display: grid;
@@ -82,6 +171,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     }
     .control-frame,
     .history-frame {
+      box-sizing: border-box;
       height: 100vh;
       min-width: 0;
       overflow: auto;
@@ -96,6 +186,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       padding: 18px;
     }
     .workspace-frame {
+      box-sizing: border-box;
       min-width: 0;
       height: 100vh;
       overflow: auto;
@@ -387,6 +478,39 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       min-height: 34px;
       padding: 7px 9px;
     }
+    .file-drop-zone {
+      display: grid;
+      gap: 7px;
+      padding: 10px;
+      border: 1px dashed #596171;
+      border-radius: 6px;
+      background: #171b22;
+    }
+    .file-drop-zone[data-dragging="true"] {
+      border-color: #82aaff;
+      background: #1e2736;
+    }
+    .file-drop-zone input[type="file"] {
+      width: 100%;
+    }
+    .upload-status {
+      min-height: 20px;
+      margin: 6px 0 0;
+      color: #b9c2d0;
+      font-size: 13px;
+      word-break: break-word;
+    }
+    .reference-preview {
+      display: block;
+      max-width: 100%;
+      max-height: 220px;
+      height: auto;
+      margin-top: 8px;
+      object-fit: contain;
+    }
+    .reference-preview[hidden] {
+      display: none;
+    }
     .preset-strip {
       margin: 10px 0;
       padding: 8px;
@@ -535,6 +659,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       border-radius: 6px;
       background: #151a22;
     }
+    .sam3-tools[hidden] {
+      display: none;
+    }
     .sam3-tools .row {
       grid-template-columns: 1fr auto;
       gap: 8px;
@@ -651,6 +778,21 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       color: #b9c2d0;
       font-size: 12px;
     }
+    .history-search {
+      margin-bottom: 10px;
+    }
+    .history-search input {
+      box-sizing: border-box;
+      width: 100%;
+      margin: 0;
+    }
+    .history-storage {
+      margin: -2px 0 10px;
+      color: #b9c2d0;
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
     .history-tabs {
       display: flex;
       gap: 8px;
@@ -673,6 +815,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       display: grid;
       grid-template-columns: 1fr;
       gap: 10px;
+    }
+    .history-load-more {
+      margin-top: 10px;
     }
     .status-panel {
       display: grid;
@@ -871,6 +1016,13 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       border-color: #ff8b7b;
       background: #ff8b7b;
     }
+    .stage-item[data-state="cancelled"] {
+      color: #d8c48c;
+    }
+    .stage-item[data-state="cancelled"] .stage-marker {
+      border-color: #c7ad64;
+      background: #c7ad64;
+    }
     .stage-state {
       font-size: 12px;
       color: #b9c2d0;
@@ -890,6 +1042,16 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       100% {
         transform: scale(1);
         opacity: 1;
+      }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
       }
     }
     .history-item {
@@ -979,6 +1141,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       font-size: 13px;
     }
     @media (max-width: 1180px) {
+      body {
+        overflow: auto;
+      }
       .app-shell {
         grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
       }
@@ -1011,6 +1176,34 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         border-right: 0;
         border-bottom: 1px solid #373b44;
       }
+      button,
+      input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]),
+      select {
+        min-height: 44px;
+      }
+      .control-frame button,
+      .readiness-panel.compact .readiness-action,
+      .history-action {
+        min-height: 44px;
+      }
+      .toggle-switch,
+      .control-group > summary,
+      .form-section summary,
+      .side-status-panel > summary,
+      .result-json summary {
+        box-sizing: border-box;
+        min-height: 44px;
+      }
+      #update-link {
+        box-sizing: border-box;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        padding: 0 10px;
+        color: #151515;
+        text-decoration: none;
+      }
     }
   </style>
 </head>
@@ -1026,9 +1219,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
             <section class="form-section">
               <h2>프롬프트</h2>
               <label for="prompt">프롬프트</label>
-              <textarea id="prompt" name="prompt" form="generate-form" required>anime portrait, clean lineart</textarea>
+              <textarea id="prompt" name="prompt" maxlength="__MAX_PROMPT_CHARACTERS__" form="generate-form" required>anime portrait, clean lineart</textarea>
               <label for="negative">네거티브</label>
-              <input id="negative" name="negative_prompt" value="low quality" form="generate-form">
+              <input id="negative" name="negative_prompt" maxlength="__MAX_PROMPT_CHARACTERS__" value="low quality" form="generate-form">
               <div class="prompt-tools-block" aria-label="프롬프트 와일드카드와 프리셋">
                 <h2>와일드카드와 프리셋</h2>
                 <label for="wildcard-mode">와일드카드 방식</label>
@@ -1068,14 +1261,14 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <h2>시작 설정</h2>
               <label>크기</label>
               <div class="starting-point-grid" role="group" aria-label="시작 크기">
-                <button type="button" id="starting-square" class="secondary-button" data-size-preset="square">1024x1024</button>
-                <button type="button" id="starting-portrait-2x3" class="secondary-button" data-size-preset="portrait_2x3">832x1216</button>
-                <button type="button" id="starting-portrait-3x4" class="secondary-button" data-size-preset="portrait_3x4">896x1152</button>
+                <button type="button" id="starting-square" class="secondary-button" data-size-preset="square" aria-pressed="false">1024x1024</button>
+                <button type="button" id="starting-portrait-2x3" class="secondary-button" data-size-preset="portrait_2x3" aria-pressed="true">832x1216</button>
+                <button type="button" id="starting-portrait-3x4" class="secondary-button" data-size-preset="portrait_3x4" aria-pressed="false">896x1152</button>
               </div>
               <label>방향</label>
               <div class="orientation-grid" role="group" aria-label="시작 방향">
-                <button type="button" id="orientation-portrait" class="secondary-button" data-orientation="portrait">세로</button>
-                <button type="button" id="orientation-landscape" class="secondary-button" data-orientation="landscape">가로</button>
+                <button type="button" id="orientation-portrait" class="secondary-button" data-orientation="portrait" aria-pressed="true">세로</button>
+                <button type="button" id="orientation-landscape" class="secondary-button" data-orientation="landscape" aria-pressed="false">가로</button>
               </div>
             </section>
             <section class="form-section">
@@ -1086,7 +1279,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 <div class="row">
                   <div>
                     <label for="queue-count">큐 횟수</label>
-                    <input id="queue-count" name="queue_count" type="number" min="1" max="99" value="4">
+                    <input id="queue-count" name="queue_count" type="number" min="1" max="__MAX_QUEUE_JOBS__" value="4">
                   </div>
                   <div>
                     <label for="queue-seed-mode">시드 방식</label>
@@ -1106,10 +1299,10 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   </span>
                 </label>
                 <label for="queue-delay">지연(초)</label>
-                <input id="queue-delay" name="queue_delay" type="number" min="0" max="60" step="0.5" value="0">
+                <input id="queue-delay" name="queue_delay" type="number" min="0" max="__MAX_QUEUE_DELAY_SECONDS__" step="0.5" value="0">
                 <div class="queue-actions">
                   <button type="button" id="start-queue" class="secondary-button">큐 시작</button>
-                  <button type="button" id="stop-queue" class="secondary-button" disabled>정지</button>
+                  <button type="button" id="stop-queue" class="secondary-button" disabled>현재 작업 정지</button>
                 </div>
                 <p id="queue-status" class="queue-status" aria-live="polite">대기</p>
               </section>
@@ -1132,9 +1325,13 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
             </section>
             <form id="lora-import-form" class="form-section">
               <h2>LoRA 가져오기</h2>
-              <label for="lora-path">LoRA 파일 가져오기</label>
-              <input id="lora-path" name="path" placeholder="path\\to\\style.safetensors">
-              <button type="submit" class="secondary-button">앱으로 LoRA 복사</button>
+              <label for="lora-file">LoRA 파일 선택</label>
+              <div id="lora-drop-zone" class="file-drop-zone">
+                <input id="lora-file" type="file" accept=".safetensors,application/octet-stream" aria-describedby="lora-file-hint lora-upload-status">
+                <span id="lora-file-hint">한 개의 .safetensors 파일을 선택하거나 여기에 놓으세요. 최대 __MAX_LORA_UPLOAD_GIB__ GiB.</span>
+              </div>
+              <p id="lora-upload-status" class="upload-status" aria-live="polite">선택된 파일 없음</p>
+              <button type="submit" class="secondary-button">앱으로 LoRA 업로드</button>
             </form>
           </div>
         </details>
@@ -1146,21 +1343,21 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <div class="row">
                 <div>
                   <label for="width">너비</label>
-                  <input id="width" name="width" type="number" min="8" step="8" value="__DEFAULT_T2I_WIDTH__" form="generate-form">
+                  <input id="width" name="width" type="number" min="8" max="__MAX_GENERATION_DIMENSION__" step="8" value="__DEFAULT_T2I_WIDTH__" form="generate-form">
                 </div>
                 <div>
                   <label for="height">높이</label>
-                  <input id="height" name="height" type="number" min="8" step="8" value="__DEFAULT_T2I_HEIGHT__" form="generate-form">
+                  <input id="height" name="height" type="number" min="8" max="__MAX_GENERATION_DIMENSION__" step="8" value="__DEFAULT_T2I_HEIGHT__" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
                   <label for="steps">스텝</label>
-                  <input id="steps" name="steps" type="number" min="1" value="__DEFAULT_T2I_STEPS__" form="generate-form">
+                  <input id="steps" name="steps" type="number" min="1" max="__MAX_SAMPLING_STEPS__" value="__DEFAULT_T2I_STEPS__" form="generate-form">
                 </div>
                 <div>
                   <label for="cfg">CFG</label>
-                  <input id="cfg" name="cfg" type="number" min="0" step="0.1" value="__DEFAULT_T2I_CFG__" form="generate-form">
+                  <input id="cfg" name="cfg" type="number" min="0" max="__MAX_CFG__" step="0.1" value="__DEFAULT_T2I_CFG__" form="generate-form">
                 </div>
               </div>
               <div class="row">
@@ -1181,7 +1378,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 </div>
               </div>
               <label for="seed">시드</label>
-              <input id="seed" name="seed" type="number" placeholder="랜덤" form="generate-form">
+              <input id="seed" name="seed" type="number" min="0" max="__MAX_BROWSER_SAFE_SEED__" step="1" placeholder="랜덤" form="generate-form">
               <div class="row">
                 <div>
                   <label for="memory-profile">VRAM 프로필</label>
@@ -1204,8 +1401,15 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           <div class="control-group-body">
             <details id="reference-image-section" class="form-section">
               <summary>참조 이미지와 업스케일</summary>
-              <label for="i2i-image">참조 이미지 경로</label>
-              <input id="i2i-image" name="i2i_image" placeholder="inputs\\reference.png" form="generate-form">
+              <input id="i2i-image" name="i2i_image" type="hidden" form="generate-form">
+              <label for="reference-file">참조 이미지 선택</label>
+              <div id="reference-drop-zone" class="file-drop-zone">
+                <input id="reference-file" type="file" accept="image/png,image/jpeg,image/webp" aria-describedby="reference-file-hint reference-upload-status">
+                <span id="reference-file-hint">PNG, JPEG 또는 WebP 한 장을 선택하거나 여기에 놓으세요. 최대 __MAX_REFERENCE_UPLOAD_MIB__ MiB.</span>
+              </div>
+              <p id="reference-upload-status" class="upload-status" aria-live="polite">선택된 이미지 없음</p>
+              <img id="reference-preview" class="reference-preview" alt="선택한 참조 이미지 미리보기" hidden>
+              <button type="button" id="remove-reference" class="secondary-button" hidden>참조 이미지 제거</button>
               <div class="row">
                 <label class="toggle-switch" for="upscale-enabled">
                   <input id="upscale-enabled" name="upscale_enabled" type="checkbox" value="1" form="generate-form">
@@ -1231,13 +1435,13 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 </div>
                 <div>
                   <label for="upscale-scale">업스케일 배율</label>
-                  <input id="upscale-scale" name="upscale_scale" type="number" min="0.1" step="0.1" value="1.5" form="generate-form">
+                  <input id="upscale-scale" name="upscale_scale" type="number" min="0.1" max="__MAX_UPSCALE_SCALE__" step="0.1" value="1.5" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
                   <label for="upscale-steps">업스케일 스텝</label>
-                  <input id="upscale-steps" name="upscale_steps" type="number" min="1" value="10" form="generate-form">
+                  <input id="upscale-steps" name="upscale_steps" type="number" min="1" max="__MAX_SAMPLING_STEPS__" value="10" form="generate-form">
                 </div>
                 <div>
                   <label for="upscale-denoise">업스케일 디노이즈</label>
@@ -1254,11 +1458,11 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <div class="row">
                 <div>
                   <label for="upscale-tile-size">업스케일 타일</label>
-                  <input id="upscale-tile-size" name="upscale_tile_size" type="number" min="1" value="128" form="generate-form">
+                  <input id="upscale-tile-size" name="upscale_tile_size" type="number" min="__MIN_TILE_SIZE__" max="__MAX_TILE_SIZE__" value="128" form="generate-form">
                 </div>
                 <div>
                   <label for="upscale-overlap">업스케일 겹침</label>
-                  <input id="upscale-overlap" name="upscale_overlap" type="number" min="0" value="8" form="generate-form">
+                  <input id="upscale-overlap" name="upscale_overlap" type="number" min="0" max="__DEFAULT_TILE_OVERLAP_MAX__" value="8" form="generate-form">
                 </div>
               </div>
               <div class="row">
@@ -1272,11 +1476,11 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 </div>
                 <div>
                   <label for="vae-tile-size">VAE 타일</label>
-                  <input id="vae-tile-size" name="vae_tile_size" type="number" min="1" value="128" form="generate-form">
+                  <input id="vae-tile-size" name="vae_tile_size" type="number" min="__MIN_TILE_SIZE__" max="__MAX_TILE_SIZE__" value="128" form="generate-form">
                 </div>
               </div>
               <label for="vae-overlap">VAE 겹침</label>
-              <input id="vae-overlap" name="vae_overlap" type="number" min="0" value="8" form="generate-form">
+              <input id="vae-overlap" name="vae_overlap" type="number" min="0" max="__DEFAULT_TILE_OVERLAP_MAX__" value="8" form="generate-form">
             </details>
             <details id="face-detailer-section" class="form-section">
               <summary>페이스 디테일러</summary>
@@ -1331,23 +1535,23 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <div class="row">
                 <div>
                   <label for="face-steps">얼굴 스텝</label>
-                  <input id="face-steps" name="face_steps" type="number" min="1" value="10" form="generate-form">
+                  <input id="face-steps" name="face_steps" type="number" min="1" max="__MAX_SAMPLING_STEPS__" value="10" form="generate-form">
                 </div>
                 <div>
                   <label for="face-crop-scale">얼굴 크롭</label>
-                  <input id="face-crop-scale" name="face_crop_scale" type="number" min="0.1" step="0.05" value="1.5" form="generate-form">
+                  <input id="face-crop-scale" name="face_crop_scale" type="number" min="0.1" max="__MAX_FACE_CROP_SCALE__" step="0.05" value="1.5" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
                   <label for="face-padding">얼굴 패딩</label>
-                  <input id="face-padding" name="face_padding" type="number" min="0" value="32" form="generate-form">
+                  <input id="face-padding" name="face_padding" type="number" min="0" max="__MAX_FACE_PADDING__" value="32" form="generate-form">
                 </div>
               </div>
               <div class="row">
                 <div>
                   <label for="face-feather">얼굴 페더</label>
-                  <input id="face-feather" name="face_feather" type="number" min="0" value="24" form="generate-form">
+                  <input id="face-feather" name="face_feather" type="number" min="0" max="__MAX_FACE_FEATHER__" value="24" form="generate-form">
                 </div>
                 <div>
                   <label for="face-exclude-forehead">이마 제외</label>
@@ -1363,20 +1567,21 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
             <section class="form-section">
               <h2>저장된 설정</h2>
               <label for="preset-name">설정 이름</label>
-              <input id="preset-name" placeholder="세로 초안">
+              <input id="preset-name" maxlength="__MAX_PRESET_NAME_CHARACTERS__" placeholder="세로 초안" aria-describedby="preset-status">
               <label for="preset-select">저장된 설정</label>
               <select id="preset-select">
                 <option value="">저장된 프리셋 없음</option>
               </select>
               <div class="row">
                 <button type="button" id="save-preset" class="secondary-button">설정 저장</button>
-                <button type="button" id="apply-preset" class="secondary-button">설정 불러오기</button>
+                <button type="button" id="apply-preset" class="secondary-button" disabled>설정 불러오기</button>
               </div>
               <input id="preset-import-file" type="file" accept="application/json,.json" hidden>
               <div class="row">
                 <button type="button" id="export-presets" class="secondary-button">설정 내보내기</button>
                 <button type="button" id="import-presets" class="secondary-button">설정 가져오기</button>
               </div>
+              <p id="preset-status" class="queue-status" role="status" aria-live="polite" aria-atomic="true">저장된 설정을 불러오는 중</p>
             </section>
           </div>
         </details>
@@ -1395,20 +1600,20 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           <h2 id="result-title">현재 결과</h2>
           <span id="result-status">준비됨</span>
         </div>
-        <div id="result-summary" class="result-summary"></div>
+        <div id="result-summary" class="result-summary" aria-live="polite" aria-atomic="true"></div>
         <div id="compare-toolbar" class="compare-toolbar" hidden>
           <button type="button" id="toggle-compare" class="secondary-button" hidden>단계 비교</button>
         </div>
         <section id="compare-grid" class="compare-grid" aria-label="생성 단계 비교" hidden></section>
-        <img id="preview" alt="" hidden>
+        <img id="preview" alt="생성 결과 이미지" hidden>
         <div class="result-actions">
           <a id="output-link" href="" hidden>출력 열기</a>
           <button type="button" id="apply-manifest" class="secondary-button">이 결과 설정 불러오기</button>
         </div>
-        <section class="sam3-tools" id="sam3-tools">
+        <section class="sam3-tools" id="sam3-tools" hidden>
           <label for="sam3-prompt">SAM3 마스크</label>
           <div class="row">
-            <input id="sam3-prompt" value="clothes" placeholder="clothes, dress, hair, eyes">
+            <input id="sam3-prompt" maxlength="__MAX_PROMPT_CHARACTERS__" value="clothes" placeholder="clothes, dress, hair, eyes">
             <button type="button" id="sam3-segment" class="secondary-button">마스크 생성</button>
           </div>
           <div class="sam3-presets" id="sam3-presets" aria-label="SAM3 프롬프트 후보"></div>
@@ -1426,9 +1631,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           </div>
           <button type="button" id="mask-adjust" class="secondary-button">마스크 조정</button>
           <label for="inpaint-prompt">바꿀 내용</label>
-          <textarea id="inpaint-prompt" rows="2" placeholder="pastel yellow sundress, light floral pattern, thin shoulder straps"></textarea>
+          <textarea id="inpaint-prompt" maxlength="__MAX_PROMPT_CHARACTERS__" rows="2" placeholder="pastel yellow sundress, light floral pattern, thin shoulder straps"></textarea>
           <label for="inpaint-negative">피할 내용</label>
-          <input id="inpaint-negative" value="low quality, bad anatomy, changed face, changed hair, gray blob">
+          <input id="inpaint-negative" maxlength="__MAX_PROMPT_CHARACTERS__" value="low quality, bad anatomy, changed face, changed hair, gray blob">
           <div class="row">
             <div>
               <label for="inpaint-method">인페인트 방식</label>
@@ -1446,18 +1651,21 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           <div class="row">
             <div>
               <label for="inpaint-steps">스텝</label>
-              <input id="inpaint-steps" type="number" min="1" max="100" step="1" value="20">
+              <input id="inpaint-steps" type="number" min="1" max="__MAX_SAMPLING_STEPS__" step="1" value="20">
             </div>
             <div>
               <label for="inpaint-cfg">CFG</label>
-              <input id="inpaint-cfg" type="number" min="0" max="20" step="0.1" value="3.5">
+              <input id="inpaint-cfg" type="number" min="0" max="__MAX_CFG__" step="0.1" value="3.5">
             </div>
           </div>
           <div class="row">
-            <input id="inpaint-seed" placeholder="시드 비우면 랜덤">
+            <div>
+              <label for="inpaint-seed">시드</label>
+              <input id="inpaint-seed" inputmode="numeric" placeholder="비우면 랜덤">
+            </div>
             <button type="button" id="masked-inpaint" class="secondary-button">인페인트</button>
           </div>
-          <span id="sam3-status" class="sam3-status">결과 이미지를 선택하면 마스크를 만들 수 있습니다.</span>
+          <span id="sam3-status" class="sam3-status" role="status" aria-live="polite" aria-atomic="true">결과 이미지를 선택하면 마스크를 만들 수 있습니다.</span>
         </section>
         <details class="result-json">
           <summary>상세 생성 정보</summary>
@@ -1465,7 +1673,8 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         </details>
       </section>
     </main>
-    <div id="autocomplete-menu" class="autocomplete-menu" role="listbox" hidden></div>
+    <div id="autocomplete-status" class="visually-hidden" role="status" aria-live="polite" aria-atomic="true"></div>
+    <div id="autocomplete-menu" class="autocomplete-menu" role="listbox" aria-label="자동완성 제안" hidden></div>
     <aside class="history-frame" aria-label="생성 히스토리">
       <details class="side-status-panel" id="side-status-panel">
         <summary>런타임 상태</summary>
@@ -1484,18 +1693,23 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       <section class="history-panel" aria-label="최근 생성">
         <div class="history-header">
           <h2>최근</h2>
-          <span id="history-count">결과 0개</span>
+          <span id="history-count" aria-live="polite">결과 0개</span>
         </div>
+        <form id="history-search-form" class="history-search" role="search">
+          <input id="history-search" type="search" maxlength="__MAX_HISTORY_QUERY_CHARACTERS__" autocomplete="off" placeholder="프롬프트, 모델, LoRA 검색" aria-label="히스토리 검색">
+        </form>
+        <p id="history-storage" class="history-storage" aria-live="polite">저장공간 확인 중</p>
         <div class="history-tabs" role="group" aria-label="히스토리 필터">
-          <button type="button" class="history-filter active" data-history-filter="all">전체</button>
-          <button type="button" class="history-filter" data-history-filter="images">이미지</button>
-          <button type="button" class="history-filter" data-history-filter="dry-run">드라이런</button>
+          <button type="button" class="history-filter active" data-history-filter="all" aria-pressed="true">전체</button>
+          <button type="button" class="history-filter" data-history-filter="images" aria-pressed="false">이미지</button>
+          <button type="button" class="history-filter" data-history-filter="dry-run" aria-pressed="false">드라이런</button>
         </div>
         <section class="history" id="history" aria-label="히스토리 카드"></section>
+        <button type="button" id="history-load-more" class="secondary-button history-load-more" hidden>더 보기</button>
       </section>
     </aside>
   </div>
-  <script id="anima-defaults" type="application/json">{"width": __DEFAULT_T2I_WIDTH__, "height": __DEFAULT_T2I_HEIGHT__, "steps": __DEFAULT_T2I_STEPS__, "cfg": __DEFAULT_T2I_CFG__, "sampler": "__DEFAULT_T2I_SAMPLER__", "scheduler": "__DEFAULT_T2I_SCHEDULER__", "checkpoint": "__DEFAULT_T2I_CHECKPOINT__"}</script>
+  <script id="anima-defaults" type="application/json">{"width": __DEFAULT_T2I_WIDTH__, "height": __DEFAULT_T2I_HEIGHT__, "steps": __DEFAULT_T2I_STEPS__, "cfg": __DEFAULT_T2I_CFG__, "sampler": "__DEFAULT_T2I_SAMPLER__", "scheduler": "__DEFAULT_T2I_SCHEDULER__", "checkpoint": "__DEFAULT_T2I_CHECKPOINT__", "limits": {"max_loras": __MAX_LORA_COUNT__, "max_lora_strength": __MAX_LORA_STRENGTH__, "max_seed_safe": __MAX_BROWSER_SAFE_SEED__, "max_base_image_pixels": __MAX_BASE_IMAGE_PIXELS__, "max_output_image_pixels": __MAX_OUTPUT_IMAGE_PIXELS__, "max_reference_upload_bytes": __MAX_REFERENCE_UPLOAD_BYTES__, "max_lora_upload_bytes": __MAX_LORA_UPLOAD_BYTES__}}</script>
   <script src="/app.js"></script>
 </body>
 </html>
@@ -1510,6 +1724,30 @@ INDEX_HTML = (
     .replace("__DEFAULT_T2I_SAMPLER__", DEFAULT_T2I_SAMPLER)
     .replace("__DEFAULT_T2I_SCHEDULER__", DEFAULT_T2I_SCHEDULER)
     .replace("__DEFAULT_T2I_CHECKPOINT__", DEFAULT_T2I_CHECKPOINT)
+    .replace("__MAX_QUEUE_JOBS__", str(MAX_QUEUE_JOBS))
+    .replace("__MAX_QUEUE_DELAY_SECONDS__", str(MAX_QUEUE_DELAY_SECONDS))
+    .replace("__MAX_BROWSER_SAFE_SEED__", str(MAX_BROWSER_SAFE_SEED))
+    .replace("__MAX_BASE_IMAGE_PIXELS__", str(MAX_BASE_IMAGE_PIXELS))
+    .replace("__MAX_OUTPUT_IMAGE_PIXELS__", str(MAX_OUTPUT_IMAGE_PIXELS))
+    .replace("__MAX_PROMPT_CHARACTERS__", str(MAX_PROMPT_CHARACTERS))
+    .replace("__MAX_GENERATION_DIMENSION__", str(MAX_GENERATION_DIMENSION))
+    .replace("__MAX_SAMPLING_STEPS__", str(MAX_SAMPLING_STEPS))
+    .replace("__MAX_CFG__", str(MAX_CFG))
+    .replace("__MAX_UPSCALE_SCALE__", str(MAX_UPSCALE_SCALE))
+    .replace("__MIN_TILE_SIZE__", str(MIN_TILE_SIZE))
+    .replace("__MAX_TILE_SIZE__", str(MAX_TILE_SIZE))
+    .replace("__DEFAULT_TILE_OVERLAP_MAX__", str(DEFAULT_TILE_SIZE // 4))
+    .replace("__MAX_FACE_CROP_SCALE__", str(MAX_FACE_CROP_SCALE))
+    .replace("__MAX_FACE_PADDING__", str(MAX_FACE_PADDING))
+    .replace("__MAX_FACE_FEATHER__", str(MAX_FACE_FEATHER))
+    .replace("__MAX_LORA_COUNT__", str(MAX_LORA_COUNT))
+    .replace("__MAX_LORA_STRENGTH__", str(MAX_LORA_STRENGTH))
+    .replace("__MAX_REFERENCE_UPLOAD_BYTES__", str(MAX_REFERENCE_UPLOAD_BYTES))
+    .replace("__MAX_LORA_UPLOAD_BYTES__", str(MAX_LORA_UPLOAD_BYTES))
+    .replace("__MAX_HISTORY_QUERY_CHARACTERS__", str(MAX_HISTORY_QUERY_CHARACTERS))
+    .replace("__MAX_PRESET_NAME_CHARACTERS__", str(MAX_PRESET_NAME_CHARACTERS))
+    .replace("__MAX_REFERENCE_UPLOAD_MIB__", str(MAX_REFERENCE_UPLOAD_BYTES // (1024 * 1024)))
+    .replace("__MAX_LORA_UPLOAD_GIB__", str(MAX_LORA_UPLOAD_BYTES // (1024 * 1024 * 1024)))
 )
 APP_JS = (Path(__file__).with_name("static") / "app.js").read_text(encoding="utf-8")
 
@@ -1592,6 +1830,21 @@ class ProgressStore:
                     stage["status"] = "failed" if key != "metadata" else "skipped"
             item["updated_at"] = time.time()
 
+    def cancel(self, progress_id: str, error: str = "생성이 취소되었습니다.") -> None:
+        with self._lock:
+            item = self._items.get(progress_id)
+            if item is None:
+                return
+            item["status"] = "cancelled"
+            item["summary"] = "취소됨"
+            item["error"] = error
+            for stage in item["stages"].values():
+                if stage.get("status") == "active":
+                    stage["status"] = "cancelled"
+                elif stage.get("status") == "pending":
+                    stage["status"] = "skipped"
+            item["updated_at"] = time.time()
+
     def get(self, progress_id: str) -> dict[str, Any] | None:
         with self._lock:
             item = self._items.get(progress_id)
@@ -1644,20 +1897,68 @@ class JobQueue:
             self._condition.notify_all()
 
     def enqueue(self, payload: dict[str, Any]) -> tuple[int, dict[str, Any]]:
-        request = payload.get("request", payload)
-        if not isinstance(request, dict):
+        raw_request = payload.get("request", payload)
+        if not isinstance(raw_request, dict):
             return HTTPStatus.BAD_REQUEST, {"error": "job request must be an object"}
-        count = _bounded_job_count(payload.get("count", 1))
-        infinite = bool(payload.get("infinite", payload.get("queue_infinite", False)))
+        request = copy.deepcopy(raw_request)
+        if not str(request.get("checkpoint", "")).strip():
+            request["checkpoint"] = handle_checkpoints(paths=self._paths)["default"]
+        try:
+            parsed_request = request_from_payload(request)
+            _validate_managed_generation_inputs(parsed_request, self._paths)
+            count = _bounded_job_count(payload.get("count", 1))
+            delay_seconds = _bounded_queue_delay(payload.get("delay_seconds", payload.get("delay", 0)))
+            dry_run = _boolean_value(request.get("dry_run", self._default_dry_run), "dry_run")
+        except (AttributeError, FileNotFoundError, OverflowError, TypeError, ValueError) as exc:
+            return HTTPStatus.BAD_REQUEST, {
+                "error_code": "generation_invalid_request",
+                "error": str(exc),
+            }
+        if not dry_run:
+            checkpoint = str(request["checkpoint"])
+            try:
+                generation = _generation_readiness(self._paths, checkpoint=checkpoint, dry_run=False)
+            except ValueError as exc:
+                return HTTPStatus.BAD_REQUEST, {
+                    "error_code": "generation_invalid_request",
+                    "error": str(exc),
+                }
+            if not generation["ready"]:
+                return HTTPStatus.CONFLICT, {
+                    "error_code": "models_not_ready",
+                    "error": "필수 모델 파일이 없거나 손상되었습니다.",
+                    "missing_files": generation["missing_files"],
+                    "invalid_files": generation["invalid_files"],
+                }
+        raw_infinite = payload.get("infinite", payload.get("queue_infinite", False))
+        if not isinstance(raw_infinite, bool):
+            return HTTPStatus.BAD_REQUEST, {
+                "error_code": "queue_invalid_request",
+                "error": "infinite must be a boolean",
+            }
+        infinite = raw_infinite
         seed_mode = str(payload.get("seed_mode", payload.get("queue_seed_mode", "increment"))).strip().lower()
         if seed_mode not in {"fixed", "increment", "random"}:
             return HTTPStatus.BAD_REQUEST, {"error": "seed_mode must be fixed, increment, or random"}
-        delay_seconds = _bounded_queue_delay(payload.get("delay_seconds", payload.get("delay", 0)))
         base_seed = _optional_queue_seed(request.get("seed"))
         base_seed_provided = "seed" in request and base_seed is not None
         batch_id = self._new_id("batch")
         created: list[dict[str, Any]] = []
         with self._condition:
+            total = 1 if infinite else count
+            active_count = sum(
+                1
+                for job in self._jobs.values()
+                if job.get("status") in {"queued", "waiting", "running"}
+            )
+            if active_count + total > MAX_QUEUE_JOBS:
+                return HTTPStatus.TOO_MANY_REQUESTS, {
+                    "error_code": "queue_full",
+                    "error": f"active queue cannot exceed {MAX_QUEUE_JOBS} jobs",
+                    "active_count": active_count,
+                    "requested_count": total,
+                    "max_active_jobs": MAX_QUEUE_JOBS,
+                }
             self._batches[batch_id] = {
                 "id": batch_id,
                 "infinite": infinite,
@@ -1669,7 +1970,6 @@ class JobQueue:
                 "delay_seconds": delay_seconds,
                 "next_index": 0,
             }
-            total = 1 if infinite else count
             for index in range(total):
                 created.append(self._append_batch_job_locked(batch_id, index, delay_seconds if index > 0 else 0))
             self._batches[batch_id]["next_index"] = total
@@ -1722,6 +2022,7 @@ class JobQueue:
                 interrupt_requested = _set_runtime_interrupt(True)
             response = self._public_job_locked(job)
             response["interrupt_requested"] = interrupt_requested
+            self._prune_batches_locked()
             self._condition.notify_all()
         return HTTPStatus.OK, {"status": response["status"], "job": response}
 
@@ -1753,8 +2054,8 @@ class JobQueue:
             job = self._jobs.get(job_id)
             if job is None or job.get("status") == "cancelled":
                 return {}
-            job["status"] = "waiting" if job.get("delay_seconds", 0) > 0 else "running"
-            job["started_at"] = time.time() if job["status"] == "running" else None
+            job["status"] = "waiting"
+            job["started_at"] = None
             job["updated_at"] = time.time()
             return copy.deepcopy(job)
 
@@ -1775,35 +2076,64 @@ class JobQueue:
             current = self._jobs.get(job_id)
             if current is None or current.get("status") == "cancelled" or current.get("cancel_requested"):
                 return False
-            current["status"] = "running"
-            current["started_at"] = time.time()
-            current["updated_at"] = time.time()
         return True
+
+    def _mark_running(self, job_id: str) -> bool:
+        with self._condition:
+            job = self._jobs.get(job_id)
+            if job is None or job.get("status") == "cancelled" or job.get("cancel_requested"):
+                return False
+            job["status"] = "running"
+            job["started_at"] = time.time()
+            job["updated_at"] = time.time()
+            return True
+
+    def _cancel_requested(self, job_id: str) -> bool:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            return bool(job and job.get("cancel_requested"))
 
     def _run_job(self, job: dict[str, Any]) -> None:
         job_id = str(job["id"])
         payload = copy.deepcopy(job["request"])
         payload["progress_id"] = str(job.get("progress_id", job_id))
-        _set_runtime_interrupt(False)
-        try:
-            with self._generation_lock:
-                status, response = handle_generate(
-                    payload,
-                    paths=self._paths,
-                    renderer=self._renderer,
-                    default_dry_run=self._default_dry_run,
-                    progress_store=self._progress_store,
-                )
-        except BaseException as exc:
-            if exc.__class__.__name__ == "InterruptProcessingException":
-                status = 499
-                response = {"error": "generation interrupted"}
-            else:
-                status = 500
-                response = {"error": str(exc)}
-        finally:
+        with self._generation_lock:
             _set_runtime_interrupt(False)
-        self._finish_job(job_id, int(status), response)
+            try:
+                if not self._mark_running(job_id):
+                    return
+                try:
+                    status, response = handle_generate(
+                        payload,
+                        paths=self._paths,
+                        renderer=self._renderer,
+                        default_dry_run=self._default_dry_run,
+                        progress_store=self._progress_store,
+                        enforce_managed_inputs=True,
+                    )
+                except BaseException as exc:
+                    if exc.__class__.__name__ == "InterruptProcessingException" and self._cancel_requested(job_id):
+                        status = 499
+                        response = {
+                            "status": "cancelled",
+                            "error_code": "generation_cancelled",
+                            "error": "생성이 취소되었습니다.",
+                        }
+                        self._progress_store.cancel(str(payload["progress_id"]), str(response["error"]))
+                    else:
+                        status = 499 if exc.__class__.__name__ == "InterruptProcessingException" else 500
+                        response = {
+                            "error_code": "generation_interrupted" if status == 499 else "generation_failed",
+                            "error": (
+                                "generation interrupted"
+                                if status == 499
+                                else f"이미지 생성 중 오류가 발생했습니다: {exc}"
+                            ),
+                        }
+                        self._progress_store.fail(str(payload["progress_id"]), str(response["error"]))
+                self._finish_job(job_id, int(status), response)
+            finally:
+                _set_runtime_interrupt(False)
 
     def _finish_job(self, job_id: str, http_status: int, response: dict[str, Any]) -> None:
         enqueue_next = False
@@ -1814,15 +2144,23 @@ class JobQueue:
             job["http_status"] = http_status
             job["result"] = copy.deepcopy(response)
             job["error"] = str(response.get("error", "")) if http_status >= 400 else ""
-            job["status"] = "completed" if http_status < 400 else "failed"
+            was_cancelled = bool(job.get("cancel_requested")) and http_status == 499
+            job["status"] = "cancelled" if was_cancelled else ("completed" if http_status < 400 else "failed")
             job["finished_at"] = time.time()
             job["updated_at"] = time.time()
             batch = self._batches.get(str(job.get("batch_id")))
-            enqueue_next = bool(batch and batch.get("infinite") and not batch.get("stopped") and not job.get("cancel_requested"))
+            enqueue_next = bool(
+                http_status < 400
+                and batch
+                and batch.get("infinite")
+                and not batch.get("stopped")
+                and not job.get("cancel_requested")
+            )
             if enqueue_next:
                 index = int(batch.get("next_index", 0))
                 self._append_batch_job_locked(str(batch["id"]), index, float(batch.get("delay_seconds", 0) or 0))
                 batch["next_index"] = index + 1
+            self._prune_batches_locked()
             self._prune_locked()
             self._condition.notify_all()
 
@@ -1868,14 +2206,33 @@ class JobQueue:
         return copy.deepcopy(job)
 
     def _prune_locked(self) -> None:
-        if len(self._order) <= self._max_entries:
-            return
-        removable = self._order[: len(self._order) - self._max_entries]
-        self._order = self._order[len(removable) :]
-        for job_id in removable:
-            job = self._jobs.get(job_id)
-            if job and job.get("status") not in {"queued", "waiting", "running"}:
+        ordered_ids = [job_id for job_id in self._order if job_id in self._jobs]
+        known_ids = set(ordered_ids)
+        ordered_ids.extend(job_id for job_id in self._jobs if job_id not in known_ids)
+        active_ids = [
+            job_id
+            for job_id in ordered_ids
+            if self._jobs[job_id].get("status") in {"queued", "waiting", "running"}
+        ]
+        active_id_set = set(active_ids)
+        terminal_ids = [job_id for job_id in ordered_ids if job_id not in active_id_set]
+        terminal_budget = max(0, self._max_entries - len(active_ids))
+        kept_terminal_ids = terminal_ids[-terminal_budget:] if terminal_budget else []
+        kept_ids = active_id_set | set(kept_terminal_ids)
+        self._order = [job_id for job_id in ordered_ids if job_id in kept_ids]
+        for job_id in list(self._jobs):
+            if job_id not in kept_ids and self._jobs[job_id].get("status") not in {"queued", "waiting", "running"}:
                 self._jobs.pop(job_id, None)
+
+    def _prune_batches_locked(self) -> None:
+        active_batch_ids = {
+            str(job.get("batch_id"))
+            for job in self._jobs.values()
+            if job.get("status") in {"queued", "waiting", "running"}
+        }
+        for batch_id in list(self._batches):
+            if batch_id not in active_batch_ids:
+                self._batches.pop(batch_id, None)
 
 
 def _job_id_from_path(value: str) -> str:
@@ -1892,19 +2249,25 @@ def _optional_queue_seed(value: Any) -> int | None:
 
 
 def _bounded_job_count(value: Any) -> int:
-    try:
-        count = int(value)
-    except (TypeError, ValueError):
-        count = 1
-    return max(1, min(count, 999))
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"count must be an integer between 1 and {MAX_QUEUE_JOBS}")
+    count = value
+    if count < 1 or count > MAX_QUEUE_JOBS:
+        raise ValueError(f"count must be between 1 and {MAX_QUEUE_JOBS}")
+    return count
 
 
 def _bounded_queue_delay(value: Any) -> float:
+    error = f"delay_seconds must be a finite number between 0 and {MAX_QUEUE_DELAY_SECONDS}"
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(error)
     try:
         delay = float(value)
-    except (TypeError, ValueError):
-        delay = 0.0
-    return max(0.0, min(delay, 60.0))
+    except OverflowError:
+        raise ValueError(error) from None
+    if not math.isfinite(delay) or delay < 0 or delay > MAX_QUEUE_DELAY_SECONDS:
+        raise ValueError(error)
+    return delay
 
 
 def _request_for_queue_index(
@@ -1920,7 +2283,7 @@ def _request_for_queue_index(
         queued["seed"] = _QUEUE_RANDOM.randint(0, 2147483646)
     elif seed_mode == "increment":
         seed = base_seed if base_seed is not None else int(time.time() * 1000) % 2147483647
-        queued["seed"] = seed + index
+        queued["seed"] = (seed + index) % (MAX_SEED + 1)
     elif base_seed_provided and base_seed is not None:
         queued["seed"] = base_seed
     else:
@@ -1996,24 +2359,36 @@ def _completed_progress_stages(
 
 
 def request_from_payload(payload: dict[str, Any]) -> T2IRequest:
+    raw_loras = payload.get("loras", [])
+    if not isinstance(raw_loras, (list, tuple)):
+        raise ValueError("loras must be a list")
+    if len(raw_loras) > MAX_LORA_COUNT:
+        raise ValueError(f"no more than {MAX_LORA_COUNT} LoRAs are allowed")
     return T2IRequest(
         prompt=str(payload.get("prompt", "")),
         negative_prompt=str(payload.get("negative_prompt", payload.get("negative", ""))),
         memory_profile=str(payload.get("memory_profile", "auto")),
-        width=int(payload.get("width", DEFAULT_T2I_WIDTH)),
-        height=int(payload.get("height", DEFAULT_T2I_HEIGHT)),
-        steps=int(payload.get("steps", DEFAULT_T2I_STEPS)),
-        cfg=float(payload.get("cfg", DEFAULT_T2I_CFG)),
-        seed=_optional_int(payload.get("seed")),
+        width=_integer_value(payload.get("width", DEFAULT_T2I_WIDTH), "width"),
+        height=_integer_value(payload.get("height", DEFAULT_T2I_HEIGHT), "height"),
+        steps=_integer_value(payload.get("steps", DEFAULT_T2I_STEPS), "steps"),
+        cfg=_number_value(payload.get("cfg", DEFAULT_T2I_CFG), "cfg"),
+        seed=_optional_seed(payload.get("seed")),
         checkpoint=str(payload.get("checkpoint", DEFAULT_T2I_CHECKPOINT)),
         sampler=str(payload.get("sampler", DEFAULT_T2I_SAMPLER)),
         scheduler=str(payload.get("scheduler", DEFAULT_T2I_SCHEDULER)),
-        loras=tuple(_lora_from_payload(item) for item in payload.get("loras", [])),
+        loras=tuple(_lora_from_payload(item) for item in raw_loras),
         i2i=_i2i_from_payload(payload.get("i2i", {}), payload),
         upscale=_upscale_from_payload(payload.get("upscale", {})),
         face_detailer=_face_detailer_from_payload(payload.get("face_detailer", {})),
         vae_decode=_vae_decode_from_payload(payload.get("vae_decode", {})),
     )
+
+
+def _validate_managed_generation_inputs(request: T2IRequest, paths: AppPaths) -> None:
+    if request.i2i.enabled:
+        resolve_managed_reference_path(request.i2i.image_path, paths)
+    for lora in request.loras:
+        resolve_managed_lora_path(lora.path, paths)
 
 
 def handle_generate(
@@ -2023,7 +2398,11 @@ def handle_generate(
     renderer: T2IRenderer | None = None,
     default_dry_run: bool = False,
     progress_store: ProgressStore | None = None,
+    enforce_managed_inputs: bool = False,
 ) -> tuple[int, dict[str, Any]]:
+    payload = dict(payload)
+    if not str(payload.get("checkpoint", "")).strip():
+        payload["checkpoint"] = handle_checkpoints(paths=paths)["default"]
     progress_id = _progress_id_from_payload(payload)
     if progress_store is not None and progress_id is not None:
         progress_store.start(progress_id, payload)
@@ -2031,6 +2410,8 @@ def handle_generate(
         progress_store.update_summary(progress_id, "요청 확인 중")
     try:
         request = request_from_payload(payload)
+        if enforce_managed_inputs:
+            _validate_managed_generation_inputs(request, paths)
         request = resolve_auto_memory_profile(request, paths=paths)
         if progress_store is not None and progress_id is not None:
             progress_store.update_stage(progress_id, "request", "completed")
@@ -2043,13 +2424,14 @@ def handle_generate(
             progress_store.update_stage(progress_id, "text_encode", "completed")
             progress_store.update_stage(progress_id, "base_t2i", "active")
             progress_store.update_summary(progress_id, "렌더링 중")
-        dry_run = bool(payload.get("dry_run", default_dry_run))
+        dry_run = _boolean_value(payload.get("dry_run", default_dry_run), "dry_run")
         result = run_t2i(request, paths=paths, dry_run=dry_run, renderer=None if dry_run else renderer, wildcards=wildcard_expansion)
         manifest = read_manifest(result.manifest_path)
         output_path = str(result.output_path) if result.output_path else None
         response = {
             "status": result.status,
             "manifest_path": str(result.manifest_path),
+            "manifest_name": result.manifest_path.name,
             "output_path": output_path,
             "output_url": _output_url(result.output_path, paths) if result.output_path else None,
             "variants": _variants_with_urls(manifest, paths),
@@ -2062,10 +2444,53 @@ def handle_generate(
         if progress_store is not None and progress_id is not None:
             progress_store.complete(progress_id, response)
         return HTTPStatus.OK, response
-    except (NotImplementedError, ValueError, TypeError) as exc:
+    except ModelsNotReadyError as exc:
+        error = "필수 모델 파일이 없거나 손상되었습니다."
+        if progress_store is not None and progress_id is not None:
+            progress_store.fail(progress_id, error)
+        model_root = paths.model_root.resolve()
+        missing_files = []
+        invalid_files = []
+        for path in exc.missing:
+            relative_path = path.resolve().relative_to(model_root).as_posix()
+            (invalid_files if path.is_file() else missing_files).append(relative_path)
+        return HTTPStatus.CONFLICT, {
+            "error_code": "models_not_ready",
+            "error": error,
+            "missing_files": missing_files,
+            "invalid_files": invalid_files,
+        }
+    except FileNotFoundError as exc:
+        error = f"생성에 필요한 입력 파일을 찾을 수 없습니다: {exc}"
+        if progress_store is not None and progress_id is not None:
+            progress_store.fail(progress_id, error)
+        return HTTPStatus.BAD_REQUEST, {
+            "error_code": "generation_input_missing",
+            "error": error,
+        }
+    except (AttributeError, NotImplementedError, OverflowError, TypeError, ValueError) as exc:
         if progress_store is not None and progress_id is not None:
             progress_store.fail(progress_id, str(exc))
-        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+        return HTTPStatus.BAD_REQUEST, {
+            "error_code": "generation_invalid_request",
+            "error": str(exc),
+        }
+    except (ImportError, OSError, RuntimeError) as exc:
+        error = f"이미지 생성 중 오류가 발생했습니다: {exc}"
+        if progress_store is not None and progress_id is not None:
+            progress_store.fail(progress_id, error)
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {
+            "error_code": "generation_failed",
+            "error": error,
+        }
+    except Exception as exc:
+        error = f"이미지 생성 중 오류가 발생했습니다: {exc}"
+        if progress_store is not None and progress_id is not None:
+            progress_store.fail(progress_id, error)
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {
+            "error_code": "generation_failed",
+            "error": error,
+        }
 
 
 def handle_progress(name: str, *, progress_store: ProgressStore) -> tuple[int, dict[str, Any]]:
@@ -2094,16 +2519,62 @@ def handle_job_cancel(name: str, *, job_queue: JobQueue) -> tuple[int, dict[str,
     return job_queue.cancel(name)
 
 
-def handle_history(*, paths: AppPaths, limit: int = 20) -> dict[str, Any]:
-    items = [_history_item(payload, paths) for payload in read_t2i_history(paths, limit=limit)]
-    return {"count": len(items), "items": items}
+def handle_history(
+    *,
+    paths: AppPaths,
+    limit: int = 20,
+    cursor: str = "",
+    query: str = "",
+    history_type: str = "all",
+) -> dict[str, Any]:
+    query = _validated_history_query(query)
+    history_type = _validated_history_type(history_type)
+    before = _decode_history_cursor(cursor) if cursor else None
+    all_payloads = read_t2i_history(paths, limit=None, query=query, kind=history_type)
+    total_count = len(all_payloads)
+    payloads = (
+        [payload for payload in all_payloads if history_sort_key(payload) < before]
+        if before is not None
+        else all_payloads
+    )
+    visible = payloads[:limit]
+    has_more = len(payloads) > limit
+    items = [_history_item(payload, paths) for payload in visible]
+    next_cursor = _encode_history_cursor(history_sort_key(visible[-1])) if has_more and visible else None
+    return {
+        "count": len(items),
+        "total_count": total_count,
+        "items": items,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
+        "query": query,
+        "type": history_type,
+    }
 
 
-def handle_readiness(*, paths: AppPaths) -> dict[str, Any]:
+def handle_readiness(
+    *,
+    paths: AppPaths,
+    checkpoint: str = DEFAULT_T2I_CHECKPOINT,
+    dry_run: bool = False,
+) -> dict[str, Any]:
     profiles = [_readiness_profile(profile, paths) for profile in asset_profiles()]
+    try:
+        generation = _generation_readiness(paths, checkpoint=checkpoint, dry_run=dry_run)
+    except ValueError as exc:
+        generation = {
+            "ready": False,
+            "checkpoint": str(checkpoint),
+            "dry_run": dry_run,
+            "missing_files": [],
+            "invalid_files": [],
+            "error": str(exc),
+        }
     return {
         "profiles": profiles,
         "ready": all(profile["ready"] for profile in profiles),
+        "required_ready": all(profile["ready"] for profile in profiles if profile["requirement"] == "required"),
+        "generation": generation,
     }
 
 
@@ -2118,8 +2589,16 @@ def handle_model_prepare(payload: dict[str, Any], *, paths: AppPaths) -> tuple[i
             "copied": [str(path) for path in copied_paths],
             "readiness": _readiness_profile(profile, paths),
         }
-    except (FileNotFoundError, RuntimeError, ValueError) as exc:
-        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+    except (FileNotFoundError, ValueError) as exc:
+        return HTTPStatus.BAD_REQUEST, {
+            "error_code": "model_prepare_invalid",
+            "error": str(exc),
+        }
+    except Exception as exc:
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {
+            "error_code": "model_prepare_failed",
+            "error": f"모델 준비 중 오류가 발생했습니다: {exc}",
+        }
 
 
 def handle_sam3_segment(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
@@ -2128,13 +2607,13 @@ def handle_sam3_segment(payload: dict[str, Any], *, paths: AppPaths) -> tuple[in
             str(payload.get("image_path", "")),
             prompt=str(payload.get("prompt", "")),
             paths=paths,
-            threshold=float(payload.get("threshold", 0.25)),
+            threshold=_number_value(payload.get("threshold", 0.25), "SAM3 threshold"),
         )
         return HTTPStatus.OK, {
             "status": "sam3_segmented",
             **_sam3_result_payload(result, paths),
         }
-    except (FileNotFoundError, ImportError, RuntimeError, ValueError) as exc:
+    except (AttributeError, FileNotFoundError, ImportError, OverflowError, RuntimeError, TypeError, ValueError) as exc:
         return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
 
 
@@ -2147,7 +2626,7 @@ def handle_sam3_compare(payload: dict[str, Any], *, paths: AppPaths) -> tuple[in
             str(payload.get("image_path", "")),
             prompts=[str(prompt) for prompt in raw_prompts],
             paths=paths,
-            threshold=float(payload.get("threshold", 0.25)),
+            threshold=_number_value(payload.get("threshold", 0.25), "SAM3 threshold"),
         )
         items = [_sam3_result_payload(result, paths) for result in results]
         best = max(items, key=lambda item: (len(item["boxes"]), max(item["scores"] or [0.0])), default=None)
@@ -2157,7 +2636,7 @@ def handle_sam3_compare(payload: dict[str, Any], *, paths: AppPaths) -> tuple[in
             "best": best,
             "results": items,
         }
-    except (FileNotFoundError, ImportError, RuntimeError, ValueError) as exc:
+    except (AttributeError, FileNotFoundError, ImportError, OverflowError, RuntimeError, TypeError, ValueError) as exc:
         return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
 
 
@@ -2167,35 +2646,49 @@ def handle_mask_adjust(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int
             str(payload.get("image_path", "")),
             mask_path=str(payload.get("mask_path", "")),
             paths=paths,
-            dilation=int(payload.get("dilation", 0)),
-            feather=int(payload.get("feather", 0)),
-            threshold=int(payload.get("threshold", 8)),
+            dilation=_integer_value(payload.get("dilation", 0), "mask dilation"),
+            feather=_integer_value(payload.get("feather", 0), "mask feather"),
+            threshold=_integer_value(payload.get("threshold", 8), "mask threshold"),
         )
         return HTTPStatus.OK, {
             "status": "mask_adjusted",
             **_mask_adjustment_payload(result, paths),
         }
-    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+    except (AttributeError, FileNotFoundError, OverflowError, RuntimeError, TypeError, ValueError) as exc:
         return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
 
 
-def handle_masked_inpaint(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
+def handle_masked_inpaint(
+    payload: dict[str, Any],
+    *,
+    paths: AppPaths,
+    enforce_managed_loras: bool = False,
+) -> tuple[int, dict[str, Any]]:
     try:
+        raw_loras = payload.get("loras", [])
+        if not isinstance(raw_loras, (list, tuple)):
+            raise ValueError("loras must be a list")
+        if len(raw_loras) > MAX_LORA_COUNT:
+            raise ValueError(f"no more than {MAX_LORA_COUNT} LoRAs are allowed")
+        loras = tuple(_lora_from_payload(item) for item in raw_loras)
+        if enforce_managed_loras:
+            for lora in loras:
+                resolve_managed_lora_path(lora.path, paths)
         result = run_masked_inpaint(
             MaskedInpaintSettings(
                 image_path=str(payload.get("image_path", "")),
                 mask_path=str(payload.get("mask_path", "")),
                 prompt=str(payload.get("prompt", "")),
-                checkpoint=str(payload.get("checkpoint") or handle_checkpoints(paths)["default"]),
-                loras=tuple(_lora_from_payload(item) for item in payload.get("loras", [])),
+                checkpoint=str(payload.get("checkpoint") or handle_checkpoints(paths=paths)["default"]),
+                loras=loras,
                 negative_prompt=str(payload.get("negative_prompt", "")),
                 method=str(payload.get("method", "noise_mask")),
-                denoise=float(payload.get("denoise", 0.65)),
-                steps=int(payload.get("steps", DEFAULT_T2I_STEPS)),
-                cfg=float(payload.get("cfg", DEFAULT_T2I_CFG)),
-                seed=_optional_int(payload.get("seed")),
-                width=_optional_int(payload.get("width")),
-                height=_optional_int(payload.get("height")),
+                denoise=_number_value(payload.get("denoise", 0.65), "masked inpaint denoise"),
+                steps=_integer_value(payload.get("steps", DEFAULT_T2I_STEPS), "masked inpaint steps"),
+                cfg=_number_value(payload.get("cfg", DEFAULT_T2I_CFG), "masked inpaint cfg"),
+                seed=_optional_seed(payload.get("seed")),
+                width=_optional_integer_value(payload.get("width"), "masked inpaint width"),
+                height=_optional_integer_value(payload.get("height"), "masked inpaint height"),
             ),
             paths=paths,
         )
@@ -2209,7 +2702,7 @@ def handle_masked_inpaint(payload: dict[str, Any], *, paths: AppPaths) -> tuple[
             "crop_path": str(result.crop_path),
             "crop_url": _output_url(result.crop_path, paths),
         }
-    except (FileNotFoundError, ImportError, RuntimeError, ValueError) as exc:
+    except (AttributeError, FileNotFoundError, ImportError, OverflowError, RuntimeError, TypeError, ValueError) as exc:
         return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
 
 
@@ -2244,143 +2737,419 @@ def _mask_adjustment_payload(result: Sam3MaskAdjustmentResult, paths: AppPaths) 
 
 
 def handle_manifest_detail(name: str, *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
-    manifest_name = Path(unquote(name)).name
+    try:
+        manifest_name = _route_filename(name, label="manifest")
+    except ValueError as exc:
+        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
     if not manifest_name.endswith(".json"):
         return HTTPStatus.BAD_REQUEST, {"error": "manifest name must end with .json"}
-    manifest_path = (paths.manifest_root / manifest_name).resolve()
-    try:
-        manifest_path.relative_to(paths.manifest_root.resolve())
-    except ValueError:
+    if _path_is_link(paths.output_root) or _path_is_link(paths.manifest_root):
+        return HTTPStatus.FORBIDDEN, {"error": "forbidden"}
+    manifest_path = paths.manifest_root / manifest_name
+    if _path_is_link(manifest_path):
         return HTTPStatus.FORBIDDEN, {"error": "forbidden"}
     if not manifest_path.is_file():
         return HTTPStatus.NOT_FOUND, {"error": "manifest not found"}
-    payload = read_manifest(manifest_path)
-    payload["output_url"] = _output_url(Path(str(payload["output_path"])), paths) if payload.get("output_path") else None
+    try:
+        payload = read_manifest(manifest_path)
+        if not isinstance(payload, dict):
+            raise ValueError("manifest body must be an object")
+    except (json.JSONDecodeError, OSError, UnicodeError, ValueError) as exc:
+        return HTTPStatus.BAD_REQUEST, {"error_code": "manifest_invalid", "error": str(exc)}
+    payload["manifest_name"] = manifest_name
+    output_path, _ = _managed_regular_image_path(str(payload.get("output_path", "")), paths)
+    payload["output_url"] = _output_url(output_path, paths) if output_path is not None else None
     payload["variants"] = _variants_with_urls(payload, paths)
     return HTTPStatus.OK, payload
 
 
 def handle_manifest_delete(name: str, *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
-    manifest_name = Path(unquote(name)).name
+    try:
+        manifest_name = _route_filename(name, label="manifest")
+    except ValueError as exc:
+        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
     if not manifest_name.endswith(".json"):
         return HTTPStatus.BAD_REQUEST, {"error": "manifest name must end with .json"}
-    manifest_path = (paths.manifest_root / manifest_name).resolve()
-    try:
-        manifest_path.relative_to(paths.manifest_root.resolve())
-    except ValueError:
+    if _path_is_link(paths.output_root) or _path_is_link(paths.manifest_root):
+        return HTTPStatus.FORBIDDEN, {"error": "forbidden"}
+    manifest_path = paths.manifest_root / manifest_name
+    if _path_is_link(manifest_path):
         return HTTPStatus.FORBIDDEN, {"error": "forbidden"}
     if not manifest_path.is_file():
         return HTTPStatus.NOT_FOUND, {"error": "manifest not found"}
 
     try:
         payload = read_manifest(manifest_path)
-        deleted_output = False
-        output_skip_reason = None
-        output_path_value = payload.get("output_path")
-        if output_path_value:
-            output_path = Path(str(output_path_value)).resolve()
-            try:
-                output_path.relative_to(paths.image_root.resolve())
-            except ValueError:
-                output_skip_reason = "output path is outside the managed image root"
-            else:
-                if output_path.is_file():
-                    output_path.unlink()
-                    deleted_output = True
-                else:
-                    output_skip_reason = "output file was already missing"
-        for variant in (payload.get("variants", {}) or {}).values():
-            if not isinstance(variant, dict):
-                continue
-            variant_output = variant.get("output_path")
-            if not variant_output:
-                continue
-            variant_path = Path(str(variant_output)).resolve()
-            try:
-                variant_path.relative_to(paths.image_root.resolve())
-            except ValueError:
-                continue
-            if output_path_value and variant_path == Path(str(output_path_value)).resolve():
-                continue
-            if variant_path.is_file():
-                variant_path.unlink()
-        manifest_path.unlink()
+        if not isinstance(payload, dict):
+            raise ValueError("manifest body must be an object")
+        raw_targets = _manifest_output_values(payload, strict=True)
+    except (json.JSONDecodeError, OSError, UnicodeError, ValueError) as exc:
+        return HTTPStatus.BAD_REQUEST, {"error_code": "manifest_invalid", "error": str(exc)}
+
+    retained_files: list[dict[str, str]] = []
+    target_records: dict[Path, dict[str, Any]] = {}
+    output_skip_reason: str | None = None
+    for raw_path, is_main in raw_targets:
+        managed_path, reason = _managed_regular_image_path(raw_path, paths)
+        if managed_path is None:
+            retained = {"path": str(raw_path), "reason": reason}
+            if retained not in retained_files:
+                retained_files.append(retained)
+            if is_main:
+                output_skip_reason = reason
+            continue
+        record = target_records.setdefault(managed_path, {"is_main": False})
+        record["is_main"] = bool(record["is_main"] or is_main)
+
+    shared_paths = _other_manifest_image_references(paths, excluded=manifest_path)
+    deletable: list[tuple[Path, int, bool]] = []
+    for target, record in target_records.items():
+        if target in shared_paths:
+            retained_files.append({"path": str(target), "reason": "referenced_by_another_manifest"})
+            if record["is_main"]:
+                output_skip_reason = "referenced_by_another_manifest"
+            continue
+        try:
+            size = target.stat().st_size
+        except OSError as exc:
+            return HTTPStatus.BAD_REQUEST, {"error_code": "manifest_delete_failed", "error": str(exc)}
+        deletable.append((target, size, bool(record["is_main"])))
+
+    deleted_files = [str(target) for target, _, _ in deletable]
+    deleted_bytes = sum(size for _, size, _ in deletable)
+    deleted_output = any(is_main for _, _, is_main in deletable)
+    try:
+        recovery_files = _unlink_files_with_rollback(
+            [target for target, _, _ in deletable] + [manifest_path],
+            staging_root=paths.output_root,
+        )
     except OSError as exc:
-        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+        return HTTPStatus.BAD_REQUEST, {"error_code": "manifest_delete_failed", "error": str(exc)}
 
     response: dict[str, Any] = {
         "status": "deleted",
         "manifest_name": manifest_name,
         "deleted_manifest": True,
         "deleted_output": deleted_output,
+        "deleted_files": deleted_files,
+        "deleted_bytes": deleted_bytes,
+        "retained_files": retained_files,
     }
     if output_skip_reason:
         response["output_skip_reason"] = output_skip_reason
+    if recovery_files:
+        response["cleanup_warning"] = "delete staging cleanup was incomplete"
+        response["recovery_files"] = [str(path) for path in recovery_files]
     return HTTPStatus.OK, response
 
 
+def _route_filename(value: str, *, label: str) -> str:
+    decoded = unquote(value)
+    if (
+        not decoded
+        or decoded in {".", ".."}
+        or "/" in decoded
+        or "\\" in decoded
+        or "\x00" in decoded
+        or Path(decoded).name != decoded
+    ):
+        raise ValueError(f"invalid {label} name")
+    return decoded
+
+
+def _manifest_output_values(payload: dict[str, Any], *, strict: bool) -> list[tuple[str, bool]]:
+    values: list[tuple[str, bool]] = []
+    output_path = payload.get("output_path")
+    if output_path is not None and output_path != "":
+        if not isinstance(output_path, str):
+            if strict:
+                raise ValueError("manifest output_path must be a string")
+        else:
+            values.append((output_path, True))
+
+    variants = payload.get("variants", {})
+    if variants is None:
+        variants = {}
+    if not isinstance(variants, dict):
+        if strict:
+            raise ValueError("manifest variants must be an object")
+        return values
+    for variant in variants.values():
+        if not isinstance(variant, dict):
+            if strict:
+                raise ValueError("each manifest variant must be an object")
+            continue
+        variant_path = variant.get("output_path")
+        if variant_path is None or variant_path == "":
+            continue
+        if not isinstance(variant_path, str):
+            if strict:
+                raise ValueError("variant output_path must be a string")
+            continue
+        values.append((variant_path, False))
+    return values
+
+
+def _other_manifest_image_references(paths: AppPaths, *, excluded: Path) -> set[Path]:
+    references: set[Path] = set()
+    if not paths.manifest_root.is_dir():
+        return references
+    for manifest_path in paths.manifest_root.glob("*.json"):
+        if manifest_path == excluded or _path_is_link(manifest_path) or not manifest_path.is_file():
+            continue
+        try:
+            payload = read_manifest(manifest_path)
+        except (json.JSONDecodeError, OSError, UnicodeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        raw_references = [value for value, _ in _manifest_output_values(payload, strict=False)]
+        i2i = payload.get("i2i")
+        if isinstance(i2i, dict):
+            image_path = i2i.get("image_path")
+            if isinstance(image_path, str) and image_path:
+                raw_references.append(image_path)
+        for raw_path in raw_references:
+            managed_path, _ = _managed_regular_image_path(raw_path, paths)
+            if managed_path is not None:
+                references.add(managed_path)
+    return references
+
+
+def _unlink_files_with_rollback(files: list[Path], *, staging_root: Path) -> list[Path]:
+    staging_root.mkdir(parents=True, exist_ok=True)
+    staging_directory = Path(tempfile.mkdtemp(prefix=".anima-delete-", dir=staging_root))
+    backups: list[tuple[Path, Path]] = []
+    removed: list[tuple[Path, Path]] = []
+    try:
+        for index, source in enumerate(files):
+            backup = staging_directory / f"{index:04d}.backup"
+            os.link(source, backup)
+            backups.append((source, backup))
+        for source, backup in backups:
+            source.unlink()
+            removed.append((source, backup))
+    except OSError as exc:
+        rollback_errors = []
+        preserved_backups: set[Path] = set()
+        for source, backup in reversed(removed):
+            if source.exists():
+                continue
+            try:
+                os.link(backup, source)
+            except OSError as rollback_exc:
+                try:
+                    os.replace(backup, source)
+                except OSError as replace_exc:
+                    preserved_backups.add(backup)
+                    rollback_errors.append(f"{rollback_exc}; fallback restore failed: {replace_exc}")
+        cleanup_files = _cleanup_delete_staging(
+            staging_directory,
+            backups,
+            preserve=preserved_backups,
+        )
+        details = [str(exc)]
+        if rollback_errors:
+            details.append(f"rollback failed: {'; '.join(rollback_errors)}")
+        if cleanup_files:
+            details.append(f"recovery files retained: {', '.join(str(path) for path in cleanup_files)}")
+        raise OSError("; ".join(details)) from exc
+    return _cleanup_delete_staging(staging_directory, backups)
+
+
+def _cleanup_delete_staging(
+    directory: Path,
+    backups: list[tuple[Path, Path]],
+    *,
+    preserve: set[Path] | None = None,
+) -> list[Path]:
+    preserved = preserve or set()
+    remaining: list[Path] = []
+    for _, backup in backups:
+        if backup in preserved:
+            remaining.append(backup)
+            continue
+        try:
+            os.unlink(backup)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            remaining.append(backup)
+    if not remaining:
+        try:
+            os.rmdir(directory)
+        except OSError:
+            remaining.append(directory)
+    return remaining
+
+
 def handle_presets(*, paths: AppPaths) -> dict[str, Any]:
-    items = [_read_preset(path) for path in _preset_root(paths).glob("*.json")] if _preset_root(paths).is_dir() else []
-    items.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
-    return {"count": len(items), "items": items}
+    root = _preset_root(paths)
+    if not root.exists():
+        return {"count": 0, "items": [], "invalid_count": 0, "errors": []}
+    try:
+        _validate_preset_storage(paths, create=False)
+    except (OSError, ValueError) as exc:
+        return {
+            "count": 0,
+            "items": [],
+            "invalid_count": 0,
+            "errors": [],
+            "error_code": "preset_storage_unsafe",
+            "error": str(exc),
+        }
+
+    items: list[dict[str, Any]] = []
+    errors: list[dict[str, str]] = []
+    with _preset_lock:
+        for path in root.glob("*.json"):
+            try:
+                items.append(_read_preset(path, paths=paths))
+            except (OSError, TypeError, ValueError) as exc:
+                errors.append({"filename": path.name, "error": str(exc)})
+    items.sort(key=lambda item: float(item["updated_at"]), reverse=True)
+    return {"count": len(items), "items": items, "invalid_count": len(errors), "errors": errors}
 
 
 def handle_preset_export(*, paths: AppPaths) -> dict[str, Any]:
     presets_payload = handle_presets(paths=paths)
     return {
-        "schema": "anima-app/presets.v1",
+        "schema": PRESET_BUNDLE_SCHEMA,
         "count": presets_payload["count"],
         "items": presets_payload["items"],
+        "invalid_count": presets_payload.get("invalid_count", 0),
+        "errors": presets_payload.get("errors", []),
+        **(
+            {"error_code": presets_payload["error_code"], "error": presets_payload["error"]}
+            if presets_payload.get("error")
+            else {}
+        ),
     }
 
 
 def handle_preset_save(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
     try:
-        name = str(payload.get("name", "")).strip()
-        if not name:
-            raise ValueError("preset name is required")
-        request_payload = payload.get("request", {})
-        if not isinstance(request_payload, dict):
-            raise ValueError("preset request must be an object")
-        request_from_payload(request_payload)
-        slug = _preset_slug(name)
-        if not slug:
-            raise ValueError("preset name must contain letters or numbers")
-        item = {"name": name, "slug": slug, "request": request_payload}
-        root = _preset_root(paths)
-        root.mkdir(parents=True, exist_ok=True)
-        (root / f"{slug}.json").write_text(json.dumps(item, ensure_ascii=False, indent=2), encoding="utf-8")
+        item = _prepare_preset_item(payload)
+        with _preset_lock:
+            root = _validate_preset_storage(paths, create=True)
+            _validate_preset_target(root, item, paths=paths)
+            _write_json_atomically(root / f"{item['slug']}.json", item)
         return HTTPStatus.OK, item
-    except (ValueError, TypeError) as exc:
-        return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
+    except _PresetNameError as exc:
+        return HTTPStatus.BAD_REQUEST, {"error_code": "preset_name_invalid", "error": str(exc)}
+    except _PresetSlugConflict as exc:
+        return HTTPStatus.CONFLICT, {"error_code": "preset_slug_conflict", "error": str(exc)}
+    except _PresetStorageUnsafe as exc:
+        return HTTPStatus.FORBIDDEN, {"error_code": "preset_storage_unsafe", "error": str(exc)}
+    except (AttributeError, OverflowError, TypeError, ValueError) as exc:
+        return HTTPStatus.BAD_REQUEST, {"error_code": "preset_invalid", "error": str(exc)}
+    except OSError as exc:
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {"error_code": "preset_write_failed", "error": str(exc)}
 
 
 def handle_preset_import(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int, dict[str, Any]]:
+    schema = payload.get("schema")
+    if schema is not None and schema != PRESET_BUNDLE_SCHEMA:
+        return HTTPStatus.BAD_REQUEST, {
+            "error_code": "preset_import_schema_invalid",
+            "error": f"preset import schema must be {PRESET_BUNDLE_SCHEMA}",
+            "imported_count": 0,
+            "items": [],
+            "errors": [],
+        }
     items_payload = payload.get("items")
     if items_payload is None and {"name", "request"}.issubset(payload):
         items_payload = [payload]
     if not isinstance(items_payload, list):
-        return HTTPStatus.BAD_REQUEST, {"error": "preset import requires an items list", "imported_count": 0, "errors": []}
+        return HTTPStatus.BAD_REQUEST, {
+            "error_code": "preset_import_invalid",
+            "error": "preset import requires an items list",
+            "imported_count": 0,
+            "items": [],
+            "errors": [],
+        }
+    if len(items_payload) > MAX_PRESET_IMPORT_ITEMS:
+        return HTTPStatus.BAD_REQUEST, {
+            "error_code": "preset_import_invalid",
+            "error": f"preset import must not exceed {MAX_PRESET_IMPORT_ITEMS} items",
+            "imported_count": 0,
+            "items": [],
+            "errors": [],
+        }
 
-    imported: list[dict[str, Any]] = []
+    prepared: list[dict[str, Any]] = []
     errors: list[dict[str, Any]] = []
+    seen_slugs: dict[str, int] = {}
     for index, item in enumerate(items_payload):
         if not isinstance(item, dict):
             errors.append({"index": index, "error": "preset item must be an object"})
             continue
-        status, response = handle_preset_save({"name": item.get("name", ""), "request": item.get("request", {})}, paths=paths)
-        if status == HTTPStatus.OK:
-            imported.append(response)
-        else:
-            errors.append({"index": index, "name": item.get("name", ""), "error": response.get("error", "unknown error")})
+        try:
+            prepared_item = _prepare_preset_item({"name": item.get("name", ""), "request": item.get("request", {})})
+        except (AttributeError, OverflowError, TypeError, ValueError) as exc:
+            errors.append({"index": index, "name": item.get("name", ""), "error": str(exc)})
+            continue
+        duplicate_index = seen_slugs.get(str(prepared_item["slug"]))
+        if duplicate_index is not None:
+            errors.append(
+                {
+                    "index": index,
+                    "name": prepared_item["name"],
+                    "error": f"preset slug duplicates item {duplicate_index}",
+                }
+            )
+            continue
+        seen_slugs[str(prepared_item["slug"])] = index
+        prepared.append(prepared_item)
+
+    if errors:
+        return HTTPStatus.BAD_REQUEST, {
+            "status": "settings_import_failed",
+            "error_code": "preset_import_invalid",
+            "imported_count": 0,
+            "items": [],
+            "errors": errors,
+        }
+
+    try:
+        with _preset_lock:
+            root = _validate_preset_storage(paths, create=False)
+            for item in prepared:
+                _validate_preset_target(root, item, paths=paths)
+            root = _validate_preset_storage(paths, create=True)
+            _write_preset_bundle_with_rollback(root, prepared)
+    except _PresetSlugConflict as exc:
+        return HTTPStatus.CONFLICT, {
+            "status": "settings_import_failed",
+            "error_code": "preset_slug_conflict",
+            "imported_count": 0,
+            "items": [],
+            "errors": [{"error": str(exc)}],
+        }
+    except _PresetStorageUnsafe as exc:
+        return HTTPStatus.FORBIDDEN, {
+            "status": "settings_import_failed",
+            "error_code": "preset_storage_unsafe",
+            "imported_count": 0,
+            "items": [],
+            "errors": [{"error": str(exc)}],
+        }
+    except OSError as exc:
+        return HTTPStatus.INTERNAL_SERVER_ERROR, {
+            "status": "settings_import_failed",
+            "error_code": "preset_write_failed",
+            "imported_count": 0,
+            "items": [],
+            "errors": [{"error": str(exc)}],
+        }
 
     response_payload = {
-        "status": "settings_imported" if imported else "settings_import_failed",
-        "imported_count": len(imported),
-        "items": imported,
-        "errors": errors,
+        "status": "settings_imported",
+        "imported_count": len(prepared),
+        "items": prepared,
+        "errors": [],
     }
-    return (HTTPStatus.OK if imported else HTTPStatus.BAD_REQUEST), response_payload
+    return HTTPStatus.OK, response_payload
 
 
 def handle_loras(*, paths: AppPaths) -> dict[str, Any]:
@@ -2391,7 +3160,26 @@ def handle_loras(*, paths: AppPaths) -> dict[str, Any]:
 def handle_checkpoints(*, paths: AppPaths) -> dict[str, Any]:
     items = list_local_checkpoints(paths)
     available = {str(item["relative_path"]) for item in items}
-    default = PREFERRED_T2I_CHECKPOINT if PREFERRED_T2I_CHECKPOINT in available else DEFAULT_T2I_CHECKPOINT
+    valid_items = [
+        str(item["relative_path"])
+        for item in items
+        if asset_file_is_ready(paths.model_root / "diffusion_models" / Path(str(item["relative_path"])))
+    ]
+    valid_available = set(valid_items)
+    if PREFERRED_T2I_CHECKPOINT in valid_available:
+        default = PREFERRED_T2I_CHECKPOINT
+    elif DEFAULT_T2I_CHECKPOINT in valid_available:
+        default = DEFAULT_T2I_CHECKPOINT
+    elif valid_items:
+        default = valid_items[0]
+    elif PREFERRED_T2I_CHECKPOINT in available:
+        default = PREFERRED_T2I_CHECKPOINT
+    elif DEFAULT_T2I_CHECKPOINT in available:
+        default = DEFAULT_T2I_CHECKPOINT
+    elif items:
+        default = str(items[0]["relative_path"])
+    else:
+        default = DEFAULT_T2I_CHECKPOINT
     return {"count": len(items), "default": default, "items": items}
 
 
@@ -2409,8 +3197,8 @@ def handle_wildcard_preview(payload: dict[str, Any], *, paths: AppPaths) -> tupl
     prompt_text = str(payload.get("prompt", ""))
     negative_text = str(payload.get("negative_prompt", ""))
     mode = str(payload.get("wildcard_mode", payload.get("wildcards", "random")))
-    seed = _optional_int(payload.get("seed"))
     try:
+        seed = _optional_seed(payload.get("seed"))
         prompt = expand_text_wildcards(prompt_text, paths=paths, mode=mode, seed=seed)
         negative = expand_text_wildcards(negative_text, paths=paths, mode=mode, seed=seed, salt="negative")
     except (OSError, ValueError, TypeError) as exc:
@@ -2459,6 +3247,84 @@ def handle_lora_import(payload: dict[str, Any], *, paths: AppPaths) -> tuple[int
         return HTTPStatus.BAD_REQUEST, {"error": str(exc)}
 
 
+def _normalize_loopback_host(value: str) -> str | None:
+    host = str(value or "").strip().rstrip(".").lower()
+    if host == "localhost":
+        return host
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return None
+    return address.compressed if address.is_loopback else None
+
+
+def _parse_loopback_authority(value: str, *, default_port: int) -> tuple[str, int] | None:
+    authority = str(value or "")
+    if not authority or authority != authority.strip() or any(char in authority for char in "/?#@"):
+        return None
+    try:
+        parsed = urlparse(f"//{authority}")
+        host = _normalize_loopback_host(parsed.hostname or "")
+        port = parsed.port if parsed.port is not None else default_port
+    except ValueError:
+        return None
+    if host is None or parsed.path or parsed.query or parsed.fragment:
+        return None
+    return host, port
+
+
+def _parse_loopback_origin(value: str) -> tuple[str, str, int] | None:
+    try:
+        parsed = urlparse(str(value or ""))
+        if parsed.scheme != "http" or parsed.username is not None or parsed.password is not None:
+            return None
+        host = _normalize_loopback_host(parsed.hostname or "")
+        port = parsed.port if parsed.port is not None else 80
+    except ValueError:
+        return None
+    if host is None or parsed.path or parsed.params or parsed.query or parsed.fragment:
+        return None
+    return parsed.scheme, host, port
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON number is not allowed: {value}")
+
+
+def _parse_json_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        raise ValueError(f"non-finite JSON number is not allowed: {value}")
+    return number
+
+
+def _validate_json_structure(value: Any) -> None:
+    pending: list[tuple[Any, int]] = [(value, 0)]
+    while pending:
+        item, depth = pending.pop()
+        if isinstance(item, dict):
+            if depth > MAX_JSON_NESTING_DEPTH:
+                raise ValueError(f"JSON nesting cannot exceed {MAX_JSON_NESTING_DEPTH} levels")
+            for key, child in item.items():
+                _validate_utf8_json_text(key)
+                pending.append((child, depth + 1))
+        elif isinstance(item, list):
+            if depth > MAX_JSON_NESTING_DEPTH:
+                raise ValueError(f"JSON nesting cannot exceed {MAX_JSON_NESTING_DEPTH} levels")
+            pending.extend((child, depth + 1) for child in item)
+        elif isinstance(item, str):
+            _validate_utf8_json_text(item)
+        elif isinstance(item, float) and not math.isfinite(item):
+            raise ValueError("non-finite JSON numbers are not allowed")
+
+
+def _validate_utf8_json_text(value: str) -> None:
+    try:
+        value.encode("utf-8", errors="strict")
+    except UnicodeEncodeError:
+        raise ValueError("JSON strings must contain valid Unicode text") from None
+
+
 def create_http_server(
     host: str,
     port: int,
@@ -2468,10 +3334,22 @@ def create_http_server(
     default_dry_run: bool = False,
     llm_client: object | None = None,
 ) -> ThreadingHTTPServer:
+    normalized_host = _normalize_loopback_host(host)
+    if normalized_host is None or (
+        normalized_host != "localhost" and ipaddress.ip_address(normalized_host).version != 4
+    ):
+        raise ValueError("Anima APP HTTP server must bind to localhost or an IPv4 loopback address")
     warm_autocomplete_index(paths)
     progress_store = ProgressStore()
     generation_lock = threading.Lock()
+    thumbnail_semaphore = threading.BoundedSemaphore(MAX_CONCURRENT_HISTORY_THUMBNAILS)
     llm_client = default_llm_client() if llm_client is None else llm_client
+    openapi_document = build_openapi_document(
+        app_version=__version__,
+        max_queue_jobs=MAX_QUEUE_JOBS,
+        max_queue_delay_seconds=MAX_QUEUE_DELAY_SECONDS,
+        default_dry_run=default_dry_run,
+    )
     job_queue = JobQueue(
         paths=paths,
         renderer=renderer,
@@ -2484,6 +3362,8 @@ def create_http_server(
         server_version = f"AnimaAPP/{__version__}"
 
         def do_GET(self) -> None:
+            if not self._require_trusted_request():
+                return
             parsed = urlparse(self.path)
             if parsed.path == "/":
                 self._send_bytes(HTTPStatus.OK, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
@@ -2493,6 +3373,9 @@ def create_http_server(
                 return
             if parsed.path == "/favicon.ico":
                 self._send_bytes(HTTPStatus.NO_CONTENT, b"", "image/x-icon")
+                return
+            if parsed.path == "/api/openapi.json":
+                self._send_json(HTTPStatus.OK, openapi_document)
                 return
             if parsed.path == "/api/health":
                 self._send_json(HTTPStatus.OK, build_health_payload(paths))
@@ -2504,7 +3387,12 @@ def create_http_server(
                 self._send_json(HTTPStatus.OK, handle_update_check())
                 return
             if parsed.path == "/api/readiness":
-                self._send_json(HTTPStatus.OK, handle_readiness(paths=paths))
+                query = parse_qs(parsed.query)
+                checkpoint = query.get("checkpoint", [handle_checkpoints(paths=paths)["default"]])[0]
+                self._send_json(
+                    HTTPStatus.OK,
+                    handle_readiness(paths=paths, checkpoint=checkpoint, dry_run=default_dry_run),
+                )
                 return
             if parsed.path == "/api/llm/status":
                 self._send_json(HTTPStatus.OK, llm_status_payload(llm_client))
@@ -2535,7 +3423,40 @@ def create_http_server(
             if parsed.path == "/api/history":
                 query = parse_qs(parsed.query)
                 limit = _bounded_limit(query.get("limit", ["20"])[0])
-                self._send_json(HTTPStatus.OK, handle_history(paths=paths, limit=limit))
+                try:
+                    history_query = _validated_history_query(query.get("q", [""])[0])
+                except ValueError as exc:
+                    self._send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error_code": "history_query_invalid", "error": str(exc)},
+                    )
+                    return
+                try:
+                    history_type = _validated_history_type(query.get("type", ["all"])[0])
+                except ValueError as exc:
+                    self._send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error_code": "history_type_invalid", "error": str(exc)},
+                    )
+                    return
+                try:
+                    payload = handle_history(
+                        paths=paths,
+                        limit=limit,
+                        cursor=query.get("cursor", [""])[0],
+                        query=history_query,
+                        history_type=history_type,
+                    )
+                except ValueError as exc:
+                    self._send_json(
+                        HTTPStatus.BAD_REQUEST,
+                        {"error_code": "history_cursor_invalid", "error": str(exc)},
+                    )
+                    return
+                self._send_json(HTTPStatus.OK, payload)
+                return
+            if parsed.path.startswith("/api/thumbnails/"):
+                self._send_thumbnail(parsed.path.removeprefix("/api/thumbnails/"))
                 return
             if parsed.path == "/api/jobs":
                 self._send_json(HTTPStatus.OK, handle_jobs(job_queue=job_queue))
@@ -2558,11 +3479,15 @@ def create_http_server(
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
         def do_POST(self) -> None:
+            if not self._require_trusted_request(mutation=True):
+                return
             parsed = urlparse(self.path)
             if parsed.path not in {
                 "/api/generate",
                 "/api/jobs",
+                "/api/inputs/reference",
                 "/api/loras/import",
+                "/api/loras/upload",
                 "/api/presets",
                 "/api/presets/import",
                 "/api/wildcards/preview",
@@ -2575,12 +3500,11 @@ def create_http_server(
             } and not parsed.path.startswith("/api/jobs/"):
                 self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
                 return
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length).decode("utf-8")
-                payload = json.loads(raw) if raw else {}
-            except json.JSONDecodeError as exc:
-                self._send_json(HTTPStatus.BAD_REQUEST, {"error": f"invalid json: {exc}"})
+            if parsed.path in {"/api/inputs/reference", "/api/loras/upload"}:
+                self._handle_file_upload(parsed)
+                return
+            payload = self._read_json_object()
+            if payload is None:
                 return
             if parsed.path == "/api/loras/import":
                 status, response = handle_lora_import(payload, paths=paths)
@@ -2589,24 +3513,56 @@ def create_http_server(
             elif parsed.path == "/api/presets":
                 status, response = handle_preset_save(payload, paths=paths)
             elif parsed.path == "/api/models/prepare":
-                status, response = handle_model_prepare(payload, paths=paths)
+                if not generation_lock.acquire(blocking=False):
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error_code": "model_prepare_busy",
+                            "error": "model preparation or generation already running; wait for it to finish",
+                        },
+                    )
+                    return
+                try:
+                    status, response = handle_model_prepare(payload, paths=paths)
+                finally:
+                    generation_lock.release()
             elif parsed.path == "/api/llm/generate":
                 status, response = llm_generate_payload(llm_client, payload)
-            elif parsed.path == "/api/sam3/segment":
-                status, response = handle_sam3_segment(payload, paths=paths)
-            elif parsed.path == "/api/sam3/compare":
-                status, response = handle_sam3_compare(payload, paths=paths)
+            elif parsed.path in {"/api/sam3/segment", "/api/sam3/compare"}:
+                if not generation_lock.acquire(blocking=False):
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error_code": "generation_busy",
+                            "error": "generation already running or model preparation is active; wait for it to finish",
+                        },
+                    )
+                    return
+                try:
+                    if parsed.path == "/api/sam3/segment":
+                        status, response = handle_sam3_segment(payload, paths=paths)
+                    else:
+                        status, response = handle_sam3_compare(payload, paths=paths)
+                finally:
+                    generation_lock.release()
             elif parsed.path == "/api/masks/adjust":
                 status, response = handle_mask_adjust(payload, paths=paths)
             elif parsed.path == "/api/inpaint/masked":
                 if not generation_lock.acquire(blocking=False):
                     self._send_json(
                         HTTPStatus.CONFLICT,
-                        {"error": "generation already running; wait for the current job to finish"},
+                        {
+                            "error_code": "generation_busy",
+                            "error": "generation already running or model preparation is active; wait for it to finish",
+                        },
                     )
                     return
                 try:
-                    status, response = handle_masked_inpaint(payload, paths=paths)
+                    status, response = handle_masked_inpaint(
+                        payload,
+                        paths=paths,
+                        enforce_managed_loras=True,
+                    )
                 finally:
                     generation_lock.release()
             elif parsed.path == "/api/wildcards/preview":
@@ -2624,7 +3580,10 @@ def create_http_server(
                 if not generation_lock.acquire(blocking=False):
                     self._send_json(
                         HTTPStatus.CONFLICT,
-                        {"error": "generation already running; wait for the current job to finish"},
+                        {
+                            "error_code": "generation_busy",
+                            "error": "generation already running or model preparation is active; wait for it to finish",
+                        },
                     )
                     return
                 try:
@@ -2634,37 +3593,376 @@ def create_http_server(
                         renderer=renderer,
                         default_dry_run=default_dry_run,
                         progress_store=progress_store,
+                        enforce_managed_inputs=True,
                     )
                 finally:
                     generation_lock.release()
             self._send_json(status, response)
 
         def do_DELETE(self) -> None:
+            if not self._require_trusted_request(mutation=True):
+                return
             parsed = urlparse(self.path)
             if parsed.path.startswith("/api/manifests/"):
-                status, response = handle_manifest_delete(parsed.path.removeprefix("/api/manifests/"), paths=paths)
+                if not generation_lock.acquire(blocking=False):
+                    self._send_json(
+                        HTTPStatus.CONFLICT,
+                        {
+                            "error_code": "manifest_delete_busy",
+                            "error": "generation or another manifest deletion is active; retry after it finishes",
+                        },
+                    )
+                    return
+                try:
+                    status, response = handle_manifest_delete(
+                        parsed.path.removeprefix("/api/manifests/"),
+                        paths=paths,
+                    )
+                finally:
+                    generation_lock.release()
                 self._send_json(status, response)
                 return
             self._send_json(HTTPStatus.NOT_FOUND, {"error": "not found"})
+
+        def _require_trusted_request(self, *, mutation: bool = False) -> bool:
+            server_port = int(self.server.server_address[1])
+            authority = _parse_loopback_authority(self.headers.get("Host", ""), default_port=80)
+            if authority is None or authority[1] != server_port:
+                self._send_json(
+                    HTTPStatus.FORBIDDEN,
+                    {
+                        "error_code": "request_host_untrusted",
+                        "error": "request Host must target this loopback server",
+                    },
+                )
+                return False
+            if not mutation:
+                return True
+            origin_value = self.headers.get("Origin")
+            if not origin_value:
+                return True
+            origin = _parse_loopback_origin(origin_value)
+            if origin is None or origin[1:] != authority:
+                self._send_json(
+                    HTTPStatus.FORBIDDEN,
+                    {
+                        "error_code": "request_origin_untrusted",
+                        "error": "mutation Origin must match this loopback server",
+                    },
+                )
+                return False
+            return True
+
+        def _handle_file_upload(self, parsed: Any) -> None:
+            filenames = parse_qs(parsed.query, keep_blank_values=True).get("filename", [])
+            if len(filenames) != 1 or not filenames[0]:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "upload_filename_invalid", "error": "exactly one filename query value is required"},
+                )
+                return
+
+            filename = filenames[0]
+            is_reference = parsed.path == "/api/inputs/reference"
+            media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            try:
+                if is_reference:
+                    expected_content_type = reference_upload_content_type(filename)
+                    if media_type in REFERENCE_IMAGE_CONTENT_TYPES and media_type != expected_content_type:
+                        raise ValueError(f"reference Content-Type must be {expected_content_type}")
+                else:
+                    validate_lora_upload_filename(filename)
+            except ValueError as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "upload_filename_invalid", "error": str(exc)},
+                )
+                return
+            root = paths.input_root / "references" if is_reference else paths.model_root / "loras"
+            maximum_bytes = MAX_REFERENCE_UPLOAD_BYTES if is_reference else MAX_LORA_UPLOAD_BYTES
+            allowed_content_types = (
+                REFERENCE_IMAGE_CONTENT_TYPES | {"application/octet-stream"}
+                if is_reference
+                else {"application/octet-stream"}
+            )
+            temporary = self._read_upload_body(
+                root=root,
+                maximum_bytes=maximum_bytes,
+                allowed_content_types=allowed_content_types,
+            )
+            if temporary is None:
+                return
+
+            if is_reference and media_type == "application/octet-stream":
+                media_type = expected_content_type
+            try:
+                stored = (
+                    store_reference_upload(temporary, filename, media_type, paths)
+                    if is_reference
+                    else store_lora_upload(temporary, filename, media_type, paths)
+                )
+            except (FileNotFoundError, ValueError) as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "upload_invalid", "error": str(exc)},
+                )
+                return
+            except (OSError, RuntimeError) as exc:
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error_code": "upload_failed", "error": f"file upload failed: {exc}"},
+                )
+                return
+            finally:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+            response = {key: value for key, value in stored.items() if key != "path"}
+            if is_reference:
+                response["status"] = "reference_uploaded"
+            else:
+                response["status"] = "lora_uploaded"
+                response["managed_path"] = response["relative_path"]
+                response["relative_path"] = Path(stored["path"]).relative_to(
+                    (paths.model_root / "loras").resolve()
+                ).as_posix()
+            self._send_json(HTTPStatus.CREATED, response)
+
+        def _read_upload_body(
+            self,
+            *,
+            root: Path,
+            maximum_bytes: int,
+            allowed_content_types: set[str] | frozenset[str],
+        ) -> Path | None:
+            if self.headers.get("Transfer-Encoding"):
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "upload_body_invalid", "error": "Transfer-Encoding is not supported"},
+                )
+                return None
+            media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            if media_type not in allowed_content_types:
+                self._send_json(
+                    HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                    {"error_code": "upload_content_type_unsupported", "error": "unsupported upload Content-Type"},
+                )
+                return None
+            length_values = self.headers.get_all("Content-Length", [])
+            if len(length_values) != 1:
+                self._send_json(
+                    HTTPStatus.LENGTH_REQUIRED if not length_values else HTTPStatus.BAD_REQUEST,
+                    {"error_code": "upload_body_invalid", "error": "exactly one Content-Length header is required"},
+                )
+                return None
+            try:
+                length = int(length_values[0])
+            except (TypeError, ValueError):
+                length = -1
+            if length <= 0:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "upload_body_invalid", "error": "Content-Length must be a positive integer"},
+                )
+                return None
+            if length > maximum_bytes:
+                self._send_json(
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    {
+                        "error_code": "upload_body_too_large",
+                        "error": f"upload body cannot exceed {maximum_bytes} bytes",
+                    },
+                )
+                return None
+
+            temporary: Path | None = None
+            try:
+                root.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    dir=root,
+                    prefix=".anima-upload-",
+                    suffix=".upload",
+                    delete=False,
+                ) as destination:
+                    temporary = Path(destination.name)
+                    remaining = length
+                    while remaining:
+                        chunk = self.rfile.read(min(UPLOAD_STREAM_CHUNK_BYTES, remaining))
+                        if not chunk:
+                            raise EOFError("request body ended before Content-Length")
+                        destination.write(chunk)
+                        remaining -= len(chunk)
+                    destination.flush()
+                    os.fsync(destination.fileno())
+                return temporary
+            except EOFError as exc:
+                if temporary is not None:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "upload_body_invalid", "error": str(exc)},
+                )
+                return None
+            except OSError as exc:
+                if temporary is not None:
+                    try:
+                        temporary.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                self._send_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error_code": "upload_failed", "error": f"could not receive upload: {exc}"},
+                )
+                return None
+
+        def _read_json_object(self) -> dict[str, Any] | None:
+            if self.headers.get("Transfer-Encoding"):
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "request_body_invalid", "error": "Transfer-Encoding is not supported"},
+                )
+                return None
+            media_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
+            if media_type != "application/json":
+                self._send_json(
+                    HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
+                    {"error_code": "request_content_type_unsupported", "error": "Content-Type must be application/json"},
+                )
+                return None
+            length_values = self.headers.get_all("Content-Length", [])
+            if len(length_values) != 1:
+                self._send_json(
+                    HTTPStatus.LENGTH_REQUIRED if not length_values else HTTPStatus.BAD_REQUEST,
+                    {"error_code": "request_body_invalid", "error": "exactly one Content-Length header is required"},
+                )
+                return None
+            try:
+                length = int(length_values[0])
+            except (TypeError, ValueError):
+                length = -1
+            if length < 0:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "request_body_invalid", "error": "Content-Length must be a non-negative integer"},
+                )
+                return None
+            if length > MAX_JSON_BODY_BYTES:
+                self._send_json(
+                    HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    {
+                        "error_code": "request_body_too_large",
+                        "error": f"JSON request body cannot exceed {MAX_JSON_BODY_BYTES} bytes",
+                    },
+                )
+                return None
+            raw = self.rfile.read(length)
+            if len(raw) != length:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "request_body_invalid", "error": "request body ended before Content-Length"},
+                )
+                return None
+            try:
+                text = raw.decode("utf-8")
+                payload = (
+                    json.loads(
+                        text,
+                        parse_constant=_reject_json_constant,
+                        parse_float=_parse_json_float,
+                    )
+                    if text
+                    else {}
+                )
+                _validate_json_structure(payload)
+            except (RecursionError, UnicodeError, ValueError) as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "request_json_invalid", "error": f"invalid JSON: {exc}"},
+                )
+                return None
+            if not isinstance(payload, dict):
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "request_json_invalid", "error": "JSON request body must be an object"},
+                )
+                return None
+            return payload
 
         def log_message(self, format: str, *args: object) -> None:
             return
 
         def _send_json(self, status: int, payload: dict[str, Any]) -> None:
-            self._send_bytes(status, json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"), "application/json; charset=utf-8")
+            self._send_bytes(status, json.dumps(payload, ensure_ascii=True, indent=2).encode("utf-8"), "application/json; charset=utf-8")
 
         def _send_image(self, request_path: str) -> None:
-            filename = Path(unquote(request_path)).name
-            image_path = (paths.image_root / filename).resolve()
             try:
-                image_path.relative_to(paths.image_root.resolve())
-            except ValueError:
-                self._send_json(HTTPStatus.FORBIDDEN, {"error": "forbidden"})
+                filename = _route_filename(
+                    request_path.removeprefix("/outputs/images/"),
+                    label="image",
+                )
+            except ValueError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
                 return
-            if not image_path.is_file():
-                self._send_json(HTTPStatus.NOT_FOUND, {"error": "image not found"})
+            image_path, reason = _managed_regular_image_path(paths.image_root / filename, paths)
+            if image_path is None:
+                status = HTTPStatus.NOT_FOUND if reason == "missing" else HTTPStatus.FORBIDDEN
+                self._send_json(status, {"error": "image not found" if status == 404 else "forbidden"})
                 return
             self._send_bytes(HTTPStatus.OK, image_path.read_bytes(), "image/png")
+
+        def _send_thumbnail(self, name: str) -> None:
+            try:
+                filename = _route_filename(name, label="thumbnail")
+            except ValueError as exc:
+                self._send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
+                return
+            image_path, reason = _managed_regular_image_path(paths.image_root / filename, paths)
+            if image_path is None:
+                status = HTTPStatus.NOT_FOUND if reason == "missing" else HTTPStatus.BAD_REQUEST
+                self._send_json(status, {"error_code": "thumbnail_unavailable", "error": reason})
+                return
+            try:
+                with thumbnail_semaphore, image_path.open("rb") as source:
+                    if os.fstat(source.fileno()).st_size > MAX_HISTORY_THUMBNAIL_SOURCE_BYTES:
+                        raise ValueError(
+                            f"thumbnail source cannot exceed {MAX_HISTORY_THUMBNAIL_SOURCE_BYTES} bytes"
+                        )
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("error", Image.DecompressionBombWarning)
+                        with Image.open(source) as opened:
+                            if opened.width * opened.height > MAX_OUTPUT_IMAGE_PIXELS:
+                                raise ValueError(
+                                    f"thumbnail source cannot exceed {MAX_OUTPUT_IMAGE_PIXELS} pixels"
+                                )
+                            image = ImageOps.exif_transpose(opened).convert("RGB")
+                            image.thumbnail(
+                                (HISTORY_THUMBNAIL_MAX_DIMENSION, HISTORY_THUMBNAIL_MAX_DIMENSION),
+                                Image.Resampling.LANCZOS,
+                            )
+                            body = io.BytesIO()
+                            image.save(
+                                body,
+                                format="JPEG",
+                                quality=HISTORY_THUMBNAIL_JPEG_QUALITY,
+                                optimize=True,
+                            )
+                self._send_bytes(HTTPStatus.OK, body.getvalue(), "image/jpeg")
+            except (
+                Image.DecompressionBombError,
+                Image.DecompressionBombWarning,
+                OSError,
+                UnidentifiedImageError,
+                ValueError,
+            ) as exc:
+                self._send_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error_code": "thumbnail_invalid", "error": str(exc)},
+                )
 
         def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:
             try:
@@ -2684,19 +3982,53 @@ def create_http_server(
     return AnimaThreadingHTTPServer((host, port), AnimaRequestHandler)
 
 
-def _optional_int(value: Any) -> int | None:
+def _integer_value(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{label} must be an integer")
+    return value
+
+
+def _optional_integer_value(value: Any, label: str) -> int | None:
     if value is None or value == "":
         return None
-    return int(value)
+    return _integer_value(value, label)
+
+
+def _number_value(value: Any, label: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{label} must be a finite number")
+    try:
+        number = float(value)
+    except OverflowError:
+        raise ValueError(f"{label} must be a finite number") from None
+    if not math.isfinite(number):
+        raise ValueError(f"{label} must be a finite number")
+    return number
+
+
+def _optional_seed(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0 or value > MAX_SEED:
+        raise ValueError(f"seed must be an integer between 0 and {MAX_SEED}")
+    return value
+
+
+def _boolean_value(value: Any, label: str) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"{label} must be a boolean")
+    return value
 
 
 def _lora_from_payload(value: Any) -> T2ILoraConfig:
     if isinstance(value, str):
         return parse_lora_spec(value)
+    if not isinstance(value, dict):
+        raise ValueError("each LoRA must be a path string or object")
     return T2ILoraConfig(
         path=str(value.get("path", "")),
-        model_strength=float(value.get("model_strength", 1.0)),
-        clip_strength=float(value.get("clip_strength", 1.0)),
+        model_strength=_number_value(value.get("model_strength", 1.0), "LoRA model strength"),
+        clip_strength=_number_value(value.get("clip_strength", 1.0), "LoRA clip strength"),
     )
 
 
@@ -2705,9 +4037,9 @@ def _i2i_from_payload(value: Any, payload: dict[str, Any]) -> I2ISettings:
         value = {}
     image_path = str(value.get("image_path", payload.get("image", "")))
     return I2ISettings(
-        enabled=bool(value.get("enabled", bool(image_path))),
+        enabled=_boolean_value(value.get("enabled", bool(image_path)), "i2i enabled"),
         image_path=image_path,
-        denoise=float(value.get("denoise", payload.get("denoise", 0.35))),
+        denoise=_number_value(value.get("denoise", payload.get("denoise", 0.35)), "i2i denoise"),
     )
 
 
@@ -2715,14 +4047,14 @@ def _upscale_from_payload(value: Any) -> UpscaleSettings:
     if not isinstance(value, dict):
         value = {}
     return UpscaleSettings(
-        enabled=bool(value.get("enabled", False)),
-        scale=float(value.get("scale", 1.5)),
-        steps=int(value.get("steps", DEFAULT_UPSCALE_STEPS)),
-        denoise=float(value.get("denoise", 0.35)),
+        enabled=_boolean_value(value.get("enabled", False), "upscale enabled"),
+        scale=_number_value(value.get("scale", 1.5), "upscale scale"),
+        steps=_integer_value(value.get("steps", DEFAULT_UPSCALE_STEPS), "upscale steps"),
+        denoise=_number_value(value.get("denoise", 0.35), "upscale denoise"),
         method=str(value.get("method", "bicubic")),
-        tiled=bool(value.get("tiled", False)),
-        tile_size=int(value.get("tile_size", DEFAULT_TILE_SIZE)),
-        overlap=int(value.get("overlap", 8)),
+        tiled=_boolean_value(value.get("tiled", False), "upscale tiled"),
+        tile_size=_integer_value(value.get("tile_size", DEFAULT_TILE_SIZE), "upscale tile size"),
+        overlap=_integer_value(value.get("overlap", 8), "upscale overlap"),
     )
 
 
@@ -2731,8 +4063,8 @@ def _vae_decode_from_payload(value: Any) -> VaeDecodeSettings:
         value = {}
     return VaeDecodeSettings(
         mode=str(value.get("mode", "auto")),
-        tile_size=int(value.get("tile_size", DEFAULT_TILE_SIZE)),
-        overlap=int(value.get("overlap", 8)),
+        tile_size=_integer_value(value.get("tile_size", DEFAULT_TILE_SIZE), "VAE tile size"),
+        overlap=_integer_value(value.get("overlap", 8), "VAE overlap"),
     )
 
 
@@ -2740,20 +4072,71 @@ def _face_detailer_from_payload(value: Any) -> FaceDetailerSettings:
     if not isinstance(value, dict):
         value = {}
     return FaceDetailerSettings(
-        enabled=bool(value.get("enabled", False)),
+        enabled=_boolean_value(value.get("enabled", False), "face detailer enabled"),
         detector=str(value.get("detector", "default")),
         mask_backend=str(value.get("mask_backend", "sam_b")),
-        threshold=float(value.get("threshold", 0.5)),
-        crop_scale=float(value.get("crop_scale", 1.5)),
-        padding=int(value.get("padding", 32)),
-        feather=int(value.get("feather", 24)),
-        exclude_forehead_ratio=float(value.get("exclude_forehead_ratio", 0)),
-        steps=int(value.get("steps", DEFAULT_FACE_DETAILER_STEPS)),
-        denoise=float(value.get("denoise", 0.28)),
-        sam3_face_eyes=bool(value.get("sam3_face_eyes", True)),
-        sam3_hands=bool(value.get("sam3_hands", False)),
-        hand_denoise=float(value.get("hand_denoise", 0.35)),
+        threshold=_number_value(value.get("threshold", 0.5), "face detailer threshold"),
+        crop_scale=_number_value(value.get("crop_scale", 1.5), "face detailer crop scale"),
+        padding=_integer_value(value.get("padding", 32), "face detailer padding"),
+        feather=_integer_value(value.get("feather", 24), "face detailer feather"),
+        exclude_forehead_ratio=_number_value(
+            value.get("exclude_forehead_ratio", 0),
+            "face detailer forehead exclusion",
+        ),
+        steps=_integer_value(value.get("steps", DEFAULT_FACE_DETAILER_STEPS), "face detailer steps"),
+        denoise=_number_value(value.get("denoise", 0.28), "face detailer denoise"),
+        sam3_face_eyes=_boolean_value(value.get("sam3_face_eyes", True), "SAM3 face and eyes"),
+        sam3_hands=_boolean_value(value.get("sam3_hands", False), "SAM3 hands"),
+        hand_denoise=_number_value(value.get("hand_denoise", 0.35), "hand detailer denoise"),
     )
+
+
+def _validated_history_query(value: str) -> str:
+    query = str(value).strip()
+    if len(query) > MAX_HISTORY_QUERY_CHARACTERS:
+        raise ValueError(f"history query cannot exceed {MAX_HISTORY_QUERY_CHARACTERS} characters")
+    return query
+
+
+def _validated_history_type(value: str) -> str:
+    history_type = str(value).strip().lower() or "all"
+    if history_type not in HISTORY_TYPES:
+        raise ValueError("history type must be one of: all, images, dry-run")
+    return history_type
+
+
+def _managed_regular_image_path(value: str | Path, paths: AppPaths) -> tuple[Path | None, str]:
+    candidate = Path(value)
+    if not candidate.is_absolute():
+        candidate = paths.project_root / candidate
+    image_root = paths.image_root.absolute()
+    try:
+        relative = candidate.absolute().relative_to(image_root)
+    except ValueError:
+        relative = None
+    if _path_is_link(paths.output_root) or _path_is_link(paths.image_root):
+        return None, "symbolic_link"
+    if relative is not None:
+        current = image_root
+        for part in relative.parts:
+            current /= part
+            if _path_is_link(current):
+                return None, "symbolic_link"
+    elif _path_is_link(candidate):
+        return None, "symbolic_link"
+    try:
+        resolved = candidate.resolve(strict=True)
+    except FileNotFoundError:
+        return None, "missing"
+    except OSError:
+        return None, "unavailable"
+    try:
+        resolved.relative_to(paths.image_root.resolve(strict=False))
+    except ValueError:
+        return None, "outside_managed_root"
+    if not resolved.is_file():
+        return None, "not_regular_file"
+    return resolved, ""
 
 
 def _output_url(output_path: Path | None, paths: AppPaths) -> str | None:
@@ -2776,10 +4159,8 @@ def _variants_with_urls(payload: dict[str, Any], paths: AppPaths) -> dict[str, d
         if not output_path:
             continue
         item = dict(value)
-        try:
-            item["output_url"] = _output_url(Path(str(output_path)), paths)
-        except ValueError:
-            item["output_url"] = None
+        managed_output, _ = _managed_regular_image_path(str(output_path), paths)
+        item["output_url"] = _output_url(managed_output, paths) if managed_output is not None else None
         hydrated[str(key)] = item
     return hydrated
 
@@ -2787,13 +4168,33 @@ def _variants_with_urls(payload: dict[str, Any], paths: AppPaths) -> dict[str, d
 def _history_item(payload: dict[str, Any], paths: AppPaths) -> dict[str, Any]:
     output_path = payload.get("output_path")
     resolved_output = Path(str(output_path)) if output_path else None
+    output_url = None
+    thumbnail_url = None
+    output_size_bytes = None
+    managed_output = None
+    if resolved_output is not None:
+        managed_output, _ = _managed_regular_image_path(resolved_output, paths)
+    if managed_output is not None:
+        output_url = _output_url(managed_output, paths)
+        thumbnail_url = f"/api/thumbnails/{quote(managed_output.name)}"
+        try:
+            output_size_bytes = managed_output.stat().st_size
+        except OSError:
+            output_url = None
+            thumbnail_url = None
+            output_size_bytes = None
+    manifest_name = str(payload.get("_history_filename", ""))
     return {
         "prompt": payload.get("prompt", ""),
         "status": payload.get("status", ""),
         "created_at": payload.get("created_at", 0),
         "manifest_path": payload.get("manifest_path", ""),
+        "manifest_name": manifest_name,
         "output_path": str(resolved_output) if resolved_output else None,
-        "output_url": _output_url(resolved_output, paths) if resolved_output else None,
+        "output_url": output_url,
+        "thumbnail_url": thumbnail_url,
+        "output_size_bytes": output_size_bytes,
+        "kind": "images" if managed_output is not None else "dry-run",
         "width": payload.get("width"),
         "height": payload.get("height"),
         "seed": payload.get("seed"),
@@ -2801,26 +4202,77 @@ def _history_item(payload: dict[str, Any], paths: AppPaths) -> dict[str, Any]:
     }
 
 
+def _encode_history_cursor(key: tuple[float, str]) -> str:
+    raw = json.dumps([key[0], key[1]], separators=(",", ":")).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_history_cursor(value: str) -> tuple[float, str]:
+    try:
+        padding = "=" * (-len(value) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(value + padding).decode("utf-8"))
+        if not isinstance(payload, list) or len(payload) != 2:
+            raise ValueError
+        if isinstance(payload[0], bool) or not isinstance(payload[0], (int, float)):
+            raise ValueError
+        if not isinstance(payload[1], str) or len(payload[1]) > MAX_HISTORY_CURSOR_FILENAME_CHARACTERS:
+            raise ValueError
+        created_at = float(payload[0])
+        if not math.isfinite(created_at):
+            raise ValueError
+        return created_at, str(payload[1])
+    except (binascii.Error, json.JSONDecodeError, UnicodeError, TypeError, ValueError) as exc:
+        raise ValueError("invalid history cursor") from exc
+
+
 def _readiness_profile(profile: Any, paths: AppPaths) -> dict[str, Any]:
     files = []
     for relative_path in profile.files:
         destination = paths.model_root / relative_path
         exists = destination.is_file()
+        valid = asset_file_is_ready(destination, relative_path)
         files.append(
             {
                 "relative_path": relative_path.as_posix(),
                 "path": str(destination),
                 "exists": exists,
+                "valid": valid,
+                "status": "ready" if valid else ("invalid" if exists else "missing"),
                 "size_bytes": destination.stat().st_size if exists else 0,
             }
         )
-    missing = [item for item in files if not item["exists"]]
+    missing = [item for item in files if item["status"] == "missing"]
+    invalid = [item for item in files if item["status"] == "invalid"]
+    prepare_plan = asset_profile_prepare_plan(profile, paths)
     return {
         "name": profile.name,
         "label": _profile_label(profile.name),
-        "ready": not missing,
+        "requirement": profile.requirement,
+        "ready": not missing and not invalid,
         "missing_count": len(missing),
+        "invalid_count": len(invalid),
+        "prepare_source": prepare_plan["source"],
+        "prepare_size_bytes": prepare_plan["size_bytes"],
         "files": files,
+    }
+
+
+def _generation_readiness(paths: AppPaths, *, checkpoint: str, dry_run: bool) -> dict[str, Any]:
+    model_root = paths.model_root.resolve()
+    required_files = required_t2i_model_files(paths, checkpoint)
+    missing_files = []
+    invalid_files = []
+    for path in required_files:
+        if asset_file_is_ready(path):
+            continue
+        relative_path = path.resolve().relative_to(model_root).as_posix()
+        (invalid_files if path.is_file() else missing_files).append(relative_path)
+    return {
+        "ready": dry_run or not missing_files and not invalid_files,
+        "checkpoint": str(checkpoint).replace("\\", "/"),
+        "dry_run": dry_run,
+        "missing_files": missing_files,
+        "invalid_files": invalid_files,
     }
 
 
@@ -2848,6 +4300,158 @@ def _preset_root(paths: AppPaths) -> Path:
     return paths.output_root / "presets"
 
 
+class _PresetNameError(ValueError):
+    pass
+
+
+class _PresetSlugConflict(ValueError):
+    pass
+
+
+class _PresetStorageUnsafe(ValueError):
+    pass
+
+
+def _validate_preset_storage(paths: AppPaths, *, create: bool) -> Path:
+    root = _preset_root(paths)
+    if _path_is_link(paths.output_root) or _path_is_link(root):
+        raise _PresetStorageUnsafe("preset storage must not be a link or junction")
+    if paths.output_root.exists() and not paths.output_root.is_dir():
+        raise _PresetStorageUnsafe("output storage must be a directory")
+    if root.exists() and not root.is_dir():
+        raise _PresetStorageUnsafe("preset storage must be a directory")
+    if create:
+        paths.output_root.mkdir(parents=True, exist_ok=True)
+        if _path_is_link(paths.output_root):
+            raise _PresetStorageUnsafe("output storage must not be a link or junction")
+        root.mkdir(parents=True, exist_ok=True)
+        if _path_is_link(root) or not root.is_dir():
+            raise _PresetStorageUnsafe("preset storage must be a regular directory")
+    return root
+
+
+def _validated_preset_name(value: Any) -> tuple[str, str]:
+    if not isinstance(value, str):
+        raise _PresetNameError("preset name must be a string")
+    name = value.strip()
+    if not name:
+        raise _PresetNameError("preset name is required")
+    if len(name) > MAX_PRESET_NAME_CHARACTERS:
+        raise _PresetNameError(f"preset name must not exceed {MAX_PRESET_NAME_CHARACTERS} characters")
+    slug = _preset_slug(name)
+    if not slug:
+        raise _PresetNameError("preset name must contain letters or numbers")
+    if slug.casefold() in WINDOWS_RESERVED_PRESET_SLUGS:
+        raise _PresetNameError("preset name is reserved by Windows")
+    return name, slug
+
+
+def _normalized_preset_request(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("preset request must be an object")
+    request = request_from_payload(value)
+    normalized = asdict(request)
+    normalized["loras"] = list(normalized["loras"])
+    raw_mode: Any = value.get("wildcard_mode")
+    if raw_mode is None:
+        wildcard_value = value.get("wildcards", DEFAULT_WILDCARD_MODE)
+        raw_mode = wildcard_value.get("mode", DEFAULT_WILDCARD_MODE) if isinstance(wildcard_value, dict) else wildcard_value
+    mode = str(raw_mode or DEFAULT_WILDCARD_MODE).strip().lower()
+    if mode == "off":
+        mode = DEFAULT_WILDCARD_MODE
+    if mode not in WILDCARD_MODES:
+        raise ValueError(f"wildcard mode must be one of: {', '.join(sorted(WILDCARD_MODES))}")
+    normalized["wildcard_mode"] = mode
+    return normalized
+
+
+def _prepare_preset_item(payload: dict[str, Any], *, updated_at: float | None = None) -> dict[str, Any]:
+    name, slug = _validated_preset_name(payload.get("name", ""))
+    return {
+        "name": name,
+        "slug": slug,
+        "updated_at": time.time() if updated_at is None else updated_at,
+        "request": _normalized_preset_request(payload.get("request", {})),
+    }
+
+
+def _validate_preset_target(root: Path, item: dict[str, Any], *, paths: AppPaths) -> None:
+    target = root / f"{item['slug']}.json"
+    if _path_is_link(target):
+        raise _PresetStorageUnsafe("preset file must not be a link or junction")
+    if not target.exists():
+        return
+    if not target.is_file():
+        raise _PresetStorageUnsafe("preset target must be a regular file")
+    try:
+        existing = _read_preset(target, paths=paths)
+    except _PresetStorageUnsafe:
+        raise
+    except (OSError, TypeError, ValueError) as exc:
+        raise _PresetSlugConflict("existing preset file is invalid; rename or repair it before saving") from exc
+    if str(existing["name"]).casefold() != str(item["name"]).casefold():
+        raise _PresetSlugConflict(
+            f"preset name conflicts with existing preset: {existing['name']}"
+        )
+
+
+def _restore_preset_file(path: Path, original: bytes | None) -> None:
+    if original is None:
+        path.unlink(missing_ok=True)
+        return
+    temporary_path: Path | None = None
+    recovery_ready = False
+    try:
+        with tempfile.NamedTemporaryFile(
+            "wb",
+            dir=path.parent,
+            prefix=f"{path.name}.",
+            suffix=".restore.tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(original)
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        recovery_ready = True
+        try:
+            temporary_path.replace(path)
+        except OSError as exc:
+            raise OSError(f"{exc}; recovery file retained: {temporary_path}") from exc
+    finally:
+        if temporary_path is not None and temporary_path.exists() and not recovery_ready:
+            temporary_path.unlink()
+
+
+def _write_preset_bundle_with_rollback(root: Path, items: list[dict[str, Any]]) -> None:
+    originals = {
+        root / f"{item['slug']}.json": (
+            (root / f"{item['slug']}.json").read_bytes()
+            if (root / f"{item['slug']}.json").exists()
+            else None
+        )
+        for item in items
+    }
+    published: list[Path] = []
+    try:
+        for item in items:
+            target = root / f"{item['slug']}.json"
+            _write_json_atomically(target, item)
+            published.append(target)
+    except OSError as write_error:
+        rollback_errors: list[str] = []
+        for target in reversed(published):
+            try:
+                _restore_preset_file(target, originals[target])
+            except OSError as rollback_error:
+                rollback_errors.append(f"{target.name}: {rollback_error}")
+        if rollback_errors:
+            raise OSError(
+                f"{write_error}; preset rollback failed: {'; '.join(rollback_errors)}"
+            ) from write_error
+        raise
+
+
 def _preset_slug(name: str) -> str:
     chars: list[str] = []
     last_was_dash = False
@@ -2861,5 +4465,34 @@ def _preset_slug(name: str) -> str:
     return "".join(chars).strip("-")
 
 
-def _read_preset(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+def _read_preset(path: Path, *, paths: AppPaths) -> dict[str, Any]:
+    root = _preset_root(paths)
+    if path.parent != root or _path_is_link(path) or not path.is_file():
+        raise _PresetStorageUnsafe("preset file must be a managed regular file")
+    stat_result = path.stat()
+    if stat_result.st_size > MAX_PRESET_FILE_BYTES:
+        raise ValueError(f"preset file must not exceed {MAX_PRESET_FILE_BYTES} bytes")
+    try:
+        payload = json.loads(
+            path.read_text(encoding="utf-8"),
+            parse_constant=_reject_json_constant,
+            parse_float=_parse_json_float,
+        )
+    except RecursionError:
+        raise ValueError("preset JSON nesting is too deep") from None
+    _validate_json_structure(payload)
+    if not isinstance(payload, dict):
+        raise ValueError("preset file must contain an object")
+    name, slug = _validated_preset_name(payload.get("name", ""))
+    if payload.get("slug") != slug or path.stem != slug:
+        raise ValueError("preset slug does not match its name and filename")
+    try:
+        updated_at = float(payload.get("updated_at", stat_result.st_mtime))
+    except (TypeError, ValueError):
+        updated_at = stat_result.st_mtime
+    if not math.isfinite(updated_at) or updated_at < 0:
+        updated_at = stat_result.st_mtime
+    return _prepare_preset_item(
+        {"name": name, "request": payload.get("request", {})},
+        updated_at=updated_at,
+    )

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 import time
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,6 +10,7 @@ import numpy as np
 from PIL import Image, ImageFilter
 
 from anima_app.config import AppPaths
+from anima_app.requests import MAX_OUTPUT_IMAGE_PIXELS, MAX_PROMPT_CHARACTERS
 
 
 SAM3_DETECTOR = "sam3.pt"
@@ -88,8 +91,7 @@ def segment_image_concepts(
         raise FileNotFoundError(f"missing SAM3 detector asset: {model_path}")
 
     source_path = resolve_segment_source(image_path, paths)
-    with Image.open(source_path) as opened:
-        image = opened.convert("RGB")
+    image = _load_bounded_image(source_path, mode="RGB", label="source image")
     image_np = np.array(image)
 
     from ultralytics.models.sam import SAM3SemanticPredictor
@@ -128,10 +130,8 @@ def adjust_segment_mask(
     _validate_mask_adjustment(dilation=dilation, feather=feather, threshold=threshold, crop_padding=crop_padding)
     source_path = resolve_segment_source(image_path, paths)
     resolved_mask = resolve_mask_path(mask_path, paths)
-    with Image.open(source_path) as opened:
-        image = opened.convert("RGB")
-    with Image.open(resolved_mask) as opened:
-        mask = opened.convert("L")
+    image = _load_bounded_image(source_path, mode="RGB", label="source image")
+    mask = _load_bounded_image(resolved_mask, mode="L", label="mask image")
     if mask.size != image.size:
         mask = mask.resize(image.size, Image.NEAREST)
     adjusted = mask.point(lambda value: 255 if value > threshold else 0)
@@ -261,7 +261,10 @@ def _normalize_prompts(prompts: tuple[str, ...] | list[str]) -> tuple[str, ...]:
     normalized: list[str] = []
     seen: set[str] = set()
     for prompt in prompts:
-        value = str(prompt or "").strip()
+        raw_value = str(prompt or "")
+        if len(raw_value) > MAX_PROMPT_CHARACTERS:
+            raise ValueError(f"SAM3 prompt must not exceed {MAX_PROMPT_CHARACTERS} characters")
+        value = raw_value.strip()
         key = value.lower()
         if value and key not in seen:
             normalized.append(value)
@@ -274,8 +277,21 @@ def _normalize_prompts(prompts: tuple[str, ...] | list[str]) -> tuple[str, ...]:
 
 
 def _validate_threshold(threshold: float) -> None:
-    if threshold < 0 or threshold > 1:
-        raise ValueError("threshold must be between 0 and 1")
+    if not math.isfinite(threshold) or threshold < 0 or threshold > 1:
+        raise ValueError("threshold must be finite and between 0 and 1")
+
+
+def _load_bounded_image(path: Path, *, mode: str, label: str) -> Image.Image:
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(path) as opened:
+                width, height = opened.size
+                if width * height > MAX_OUTPUT_IMAGE_PIXELS:
+                    raise ValueError(f"{label} must not exceed {MAX_OUTPUT_IMAGE_PIXELS} pixels")
+                return opened.convert(mode)
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ValueError(f"{label} exceeds safe decompression limits") from exc
 
 
 def _make_overlay(image: Image.Image, mask: Image.Image) -> Image.Image:

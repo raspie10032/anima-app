@@ -1,4 +1,4 @@
-"""Pinned host-buffer fallback for the GemmAnima no-aimdo shim."""
+"""Pinned host-buffer fallback for the Anima APP no-aimdo shim."""
 
 from __future__ import annotations
 

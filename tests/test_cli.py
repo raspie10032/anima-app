@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
+from safetensors.numpy import save_file
 
 from anima_app.cli import main
 from anima_app.config import AppPaths
@@ -16,6 +18,11 @@ def _paths(tmp_path: Path) -> AppPaths:
     )
 
 
+def _write_safetensors(path: Path, *, value: float = 1.0) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    save_file({"weight": np.asarray([value], dtype=np.float32)}, str(path))
+
+
 def _write_profile_sources(paths: AppPaths) -> None:
     for relative_path in (
         Path("diffusion_models") / "anima-base-v1.0.safetensors",
@@ -23,8 +30,7 @@ def _write_profile_sources(paths: AppPaths) -> None:
         Path("vae") / "qwen_image_vae.safetensors",
     ):
         source = paths.development_model_source / relative_path
-        source.parent.mkdir(parents=True, exist_ok=True)
-        source.write_bytes(relative_path.name.encode("utf-8"))
+        _write_safetensors(source)
 
 
 def _write_face_detector_sources(paths: AppPaths) -> None:
@@ -57,7 +63,9 @@ def test_models_copy_profile_copies_anima_t2i_assets(tmp_path, capsys):
     assert exit_code == 0
     assert payload["profile"] == "anima-t2i"
     assert len(payload["copied"]) == 3
-    assert (paths.model_root / "diffusion_models" / "anima-base-v1.0.safetensors").read_bytes() == b"anima-base-v1.0.safetensors"
+    assert (paths.model_root / "diffusion_models" / "anima-base-v1.0.safetensors").read_bytes() == (
+        paths.development_model_source / "diffusion_models" / "anima-base-v1.0.safetensors"
+    ).read_bytes()
     assert (paths.model_root / "text_encoders" / "qwen_3_06b_base.safetensors").is_file()
     assert (paths.model_root / "vae" / "qwen_image_vae.safetensors").is_file()
 
@@ -183,7 +191,7 @@ def test_models_copy_profile_uses_valid_face_detailer_detector_fallback(tmp_path
 def test_models_import_lora_and_list_loras(tmp_path, capsys):
     paths = _paths(tmp_path)
     source = tmp_path / "style.safetensors"
-    source.write_bytes(b"lora")
+    _write_safetensors(source)
 
     import_code = main(["models", "import-lora", str(source)], paths=paths)
     import_payload = json.loads(capsys.readouterr().out)
@@ -193,7 +201,7 @@ def test_models_import_lora_and_list_loras(tmp_path, capsys):
     assert import_code == 0
     assert import_payload["imported"] == str(paths.model_root / "loras" / "style.safetensors")
     assert list_code == 0
-    assert list_payload["items"] == [{"relative_path": "style.safetensors", "size_bytes": 4}]
+    assert list_payload["items"] == [{"relative_path": "style.safetensors", "size_bytes": source.stat().st_size}]
 
 
 def test_models_checkpoints_lists_local_diffusion_models(tmp_path, capsys):
@@ -286,6 +294,7 @@ def test_t2i_dry_run_outputs_manifest_payload(tmp_path, capsys):
     assert payload["status"] == "dry_run"
     assert payload["output_path"] is None
     assert Path(payload["manifest_path"]).is_file()
+    assert payload["manifest_name"] == Path(payload["manifest_path"]).name
     assert payload["stages"]["face_detailer"]["status"] == "skipped"
     assert payload["stages"]["face_detailer"]["reason"] == "dry_run_not_executed"
     manifest = json.loads(Path(payload["manifest_path"]).read_text(encoding="utf-8"))

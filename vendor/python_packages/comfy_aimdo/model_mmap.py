@@ -1,4 +1,4 @@
-"""File mmap fallback for the GemmAnima no-aimdo shim."""
+"""File mmap fallback for the Anima APP no-aimdo shim."""
 
 from __future__ import annotations
 

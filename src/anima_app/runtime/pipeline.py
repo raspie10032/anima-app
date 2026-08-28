@@ -32,6 +32,12 @@ class T2IRenderOutput:
     variants: dict[str, Path] | None = None
 
 
+class ModelsNotReadyError(FileNotFoundError):
+    def __init__(self, missing: tuple[Path, ...]) -> None:
+        self.missing = missing
+        super().__init__("missing copied Anima T2I assets: " + ", ".join(str(path) for path in missing))
+
+
 T2IRenderer = Callable[[T2IRequest, AppPaths], T2IRenderOutput]
 
 

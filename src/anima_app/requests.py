@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
 
 from anima_app.defaults import (
     DEFAULT_T2I_CHECKPOINT,
@@ -21,6 +22,22 @@ DEFAULT_TILE_SIZE = 128
 LOW_VRAM_HIGHRES_UPSCALE_STEPS = DEFAULT_UPSCALE_STEPS
 CFG_PP_SAMPLERS = {"euler_ancestral_cfg_pp"}
 FACE_DETAILER_MASK_BACKENDS = {"sam_b", "sam3"}
+
+MAX_PROMPT_CHARACTERS = 32768
+MAX_GENERATION_DIMENSION = 2048
+MAX_BASE_IMAGE_PIXELS = 1024 * 1536
+MAX_OUTPUT_IMAGE_PIXELS = 2048 * 2048
+MAX_SAMPLING_STEPS = 100
+MAX_SEED = 2**64 - 1
+MAX_CFG = 20.0
+MAX_UPSCALE_SCALE = 4.0
+MIN_TILE_SIZE = 64
+MAX_TILE_SIZE = 2048
+MAX_FACE_CROP_SCALE = 4.0
+MAX_FACE_PADDING = 512
+MAX_FACE_FEATHER = 64
+MAX_LORA_COUNT = 8
+MAX_LORA_STRENGTH = 10.0
 
 
 @dataclass(frozen=True)
@@ -117,45 +134,76 @@ class T2IRequest:
             object.__setattr__(self, "vae_decode", low_vram_highres_vae_decode_settings(self.vae_decode))
         if not self.prompt.strip():
             raise ValueError("prompt is required")
+        if len(self.prompt) > MAX_PROMPT_CHARACTERS:
+            raise ValueError(f"prompt must not exceed {MAX_PROMPT_CHARACTERS} characters")
+        if len(self.negative_prompt) > MAX_PROMPT_CHARACTERS:
+            raise ValueError(f"negative prompt must not exceed {MAX_PROMPT_CHARACTERS} characters")
+        if self.seed is not None and (
+            isinstance(self.seed, bool)
+            or not isinstance(self.seed, int)
+            or self.seed < 0
+            or self.seed > MAX_SEED
+        ):
+            raise ValueError(f"seed must be an integer between 0 and {MAX_SEED}")
         if self.width <= 0 or self.height <= 0:
             raise ValueError("width and height must be positive")
+        if self.width > MAX_GENERATION_DIMENSION or self.height > MAX_GENERATION_DIMENSION:
+            raise ValueError(f"width and height must be <= {MAX_GENERATION_DIMENSION}")
         if self.width % 8 or self.height % 8:
             raise ValueError("width and height must be divisible by 8")
-        if self.steps <= 0:
-            raise ValueError("steps must be positive")
-        if self.cfg < 0:
-            raise ValueError("cfg must be >= 0")
+        if self.width * self.height > MAX_BASE_IMAGE_PIXELS:
+            raise ValueError(f"base image must not exceed {MAX_BASE_IMAGE_PIXELS} pixels")
+        _validate_steps(self.steps, "steps")
+        _validate_finite_range(self.cfg, "cfg", minimum=0.0, maximum=MAX_CFG)
         if self.sampler not in CFG_PP_SAMPLERS:
             raise ValueError("sampler must be a CFG++ sampler")
+        if len(self.loras) > MAX_LORA_COUNT:
+            raise ValueError(f"no more than {MAX_LORA_COUNT} LoRAs are allowed")
         for lora in self.loras:
             if not lora.path.strip():
                 raise ValueError("lora path cannot be empty")
-            if lora.model_strength < 0:
-                raise ValueError("lora model strength must be >= 0")
-            if lora.clip_strength < 0:
-                raise ValueError("lora clip strength must be >= 0")
+            _validate_finite_range(
+                lora.model_strength,
+                "lora model strength",
+                minimum=0.0,
+                maximum=MAX_LORA_STRENGTH,
+            )
+            _validate_finite_range(
+                lora.clip_strength,
+                "lora clip strength",
+                minimum=0.0,
+                maximum=MAX_LORA_STRENGTH,
+            )
         if self.i2i.enabled and not self.i2i.image_path.strip():
             raise ValueError("i2i image path is required when i2i is enabled")
         _validate_denoise(self.i2i.denoise, "i2i denoise")
-        if self.upscale.scale <= 0:
-            raise ValueError("upscale scale must be positive")
-        if self.upscale.steps <= 0:
-            raise ValueError("upscale steps must be positive")
+        _validate_positive_finite_limit(self.upscale.scale, "upscale scale", MAX_UPSCALE_SCALE)
+        if self.upscale.enabled:
+            output_width = round((self.width // 8) * self.upscale.scale) * 8
+            output_height = round((self.height // 8) * self.upscale.scale) * 8
+            if output_width * output_height > MAX_OUTPUT_IMAGE_PIXELS:
+                raise ValueError(f"upscaled image must not exceed {MAX_OUTPUT_IMAGE_PIXELS} pixels")
+        _validate_steps(self.upscale.steps, "upscale steps")
         _validate_denoise(self.upscale.denoise, "upscale denoise")
         if self.upscale.tiled:
             _validate_tile_settings(self.upscale.tile_size, self.upscale.overlap, "upscale")
-        if self.face_detailer.threshold < 0 or self.face_detailer.threshold > 1:
-            raise ValueError("face detailer threshold must be between 0 and 1")
+        _validate_finite_range(self.face_detailer.threshold, "face detailer threshold", minimum=0.0, maximum=1.0)
         if self.face_detailer.mask_backend not in FACE_DETAILER_MASK_BACKENDS:
             raise ValueError("face detailer mask backend must be one of: sam_b, sam3")
-        if self.face_detailer.crop_scale <= 0:
-            raise ValueError("face detailer crop scale must be positive")
-        if self.face_detailer.padding < 0 or self.face_detailer.feather < 0:
-            raise ValueError("face detailer padding and feather must be non-negative")
-        if self.face_detailer.exclude_forehead_ratio < 0 or self.face_detailer.exclude_forehead_ratio > 0.75:
-            raise ValueError("face detailer forehead exclusion must be between 0 and 0.75")
-        if self.face_detailer.steps <= 0:
-            raise ValueError("face detailer steps must be positive")
+        _validate_positive_finite_limit(
+            self.face_detailer.crop_scale,
+            "face detailer crop scale",
+            MAX_FACE_CROP_SCALE,
+        )
+        _validate_int_range(self.face_detailer.padding, "face detailer padding", maximum=MAX_FACE_PADDING)
+        _validate_int_range(self.face_detailer.feather, "face detailer feather", maximum=MAX_FACE_FEATHER)
+        _validate_finite_range(
+            self.face_detailer.exclude_forehead_ratio,
+            "face detailer forehead exclusion",
+            minimum=0.0,
+            maximum=0.75,
+        )
+        _validate_steps(self.face_detailer.steps, "face detailer steps")
         _validate_denoise(self.face_detailer.denoise, "face detailer denoise")
         _validate_denoise(self.face_detailer.hand_denoise, "hand detailer denoise")
         if self.vae_decode.mode not in {"auto", "tiled", "standard"}:
@@ -168,7 +216,8 @@ def normalize_checkpoint_path(value: str) -> str:
     if not checkpoint:
         raise ValueError("checkpoint is required")
     path = PurePosixPath(checkpoint)
-    if path.is_absolute() or ".." in path.parts:
+    windows_path = PureWindowsPath(checkpoint)
+    if path.is_absolute() or windows_path.drive or windows_path.root or ":" in checkpoint or ".." in path.parts:
         raise ValueError("checkpoint must be a relative path under diffusion_models")
     if path.suffix.lower() != ".safetensors":
         raise ValueError("checkpoint must be a .safetensors file")
@@ -197,12 +246,32 @@ def low_vram_highres_vae_decode_settings(settings: VaeDecodeSettings) -> VaeDeco
 
 
 def _validate_denoise(value: float, label: str) -> None:
-    if value < 0 or value > 1:
-        raise ValueError(f"{label} must be between 0 and 1")
+    _validate_finite_range(value, label, minimum=0.0, maximum=1.0)
+
+
+def _validate_finite_range(value: float, label: str, *, minimum: float, maximum: float) -> None:
+    if not math.isfinite(value) or value < minimum or value > maximum:
+        raise ValueError(f"{label} must be finite and between {minimum:g} and {maximum:g}")
+
+
+def _validate_positive_finite_limit(value: float, label: str, maximum: float) -> None:
+    if not math.isfinite(value) or value <= 0 or value > maximum:
+        raise ValueError(f"{label} must be finite and between 0 (exclusive) and {maximum:g}")
+
+
+def _validate_steps(value: int, label: str) -> None:
+    if value <= 0 or value > MAX_SAMPLING_STEPS:
+        raise ValueError(f"{label} must be between 1 and {MAX_SAMPLING_STEPS}")
+
+
+def _validate_int_range(value: int, label: str, *, maximum: int) -> None:
+    if value < 0 or value > maximum:
+        raise ValueError(f"{label} must be between 0 and {maximum}")
 
 
 def _validate_tile_settings(tile_size: int, overlap: int, label: str) -> None:
-    if tile_size <= 0:
-        raise ValueError(f"{label} tile size must be positive")
-    if overlap < 0 or overlap >= tile_size:
-        raise ValueError(f"{label} overlap must be >= 0 and smaller than tile size")
+    if tile_size < MIN_TILE_SIZE or tile_size > MAX_TILE_SIZE:
+        raise ValueError(f"{label} tile size must be between {MIN_TILE_SIZE} and {MAX_TILE_SIZE}")
+    max_overlap = tile_size // 4
+    if overlap < 0 or overlap > max_overlap:
+        raise ValueError(f"{label} overlap must be between 0 and {max_overlap}")

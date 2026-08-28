@@ -1,4 +1,4 @@
-"""Torch helpers for the GemmAnima no-aimdo shim."""
+"""Torch helpers for the Anima APP no-aimdo shim."""
 
 from __future__ import annotations
 
@@ -10,13 +10,13 @@ def aimdo_to_tensor(alloc, device):
         return alloc.to(device=device, non_blocking=False)
     if isinstance(alloc, tuple) and alloc and isinstance(alloc[0], torch.Tensor):
         return alloc[0].to(device=device, non_blocking=False)
-    raise RuntimeError("aimdo native allocation is unavailable in GemmAnima embedded runtime")
+    raise RuntimeError("aimdo native allocation is unavailable in Anima APP embedded runtime")
 
 
 def hostbuf_to_tensor(hostbuf):
     if hasattr(hostbuf, "tensor"):
         return hostbuf.tensor
-    raise RuntimeError("aimdo host buffer is unavailable in GemmAnima embedded runtime")
+    raise RuntimeError("aimdo host buffer is unavailable in Anima APP embedded runtime")
 
 
 def get_torch_allocator():

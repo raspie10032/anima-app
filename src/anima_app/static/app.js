@@ -2,6 +2,10 @@
     const form = document.getElementById("generate-form");
     const sam3DetailerControls = document.getElementById("sam3-detailer-controls");
     const loraImportForm = document.getElementById("lora-import-form");
+    const loraUploadButton = loraImportForm.querySelector('button[type="submit"]');
+    const loraFileInput = document.getElementById("lora-file");
+    const loraDropZone = document.getElementById("lora-drop-zone");
+    const loraUploadStatus = document.getElementById("lora-upload-status");
     const generateButton = document.getElementById("generate-button");
     const autoQueuePanel = document.getElementById("auto-queue-panel");
     const queueCountInput = document.getElementById("queue-count");
@@ -21,6 +25,7 @@
     const preview = document.getElementById("preview");
     const outputLink = document.getElementById("output-link");
     const statusPanel = document.getElementById("status-panel");
+    const sideStatusPanel = document.getElementById("side-status-panel");
     const readinessPanel = document.getElementById("readiness-panel");
     const updateStatus = document.getElementById("update-status");
     const checkUpdateButton = document.getElementById("check-update");
@@ -30,6 +35,10 @@
     const generationStageSummary = document.getElementById("generation-stage-summary");
     const history = document.getElementById("history");
     const historyCount = document.getElementById("history-count");
+    const historyStorage = document.getElementById("history-storage");
+    const historySearchForm = document.getElementById("history-search-form");
+    const historySearchInput = document.getElementById("history-search");
+    const historyLoadMore = document.getElementById("history-load-more");
     const historyFilters = [...document.querySelectorAll("[data-history-filter]")];
     const checkpointSelect = document.getElementById("checkpoint-select");
     const loraList = document.getElementById("lora-list");
@@ -41,7 +50,9 @@
     const exportPresetsButton = document.getElementById("export-presets");
     const importPresetsButton = document.getElementById("import-presets");
     const presetImportFile = document.getElementById("preset-import-file");
+    const presetStatus = document.getElementById("preset-status");
     const applyManifestButton = document.getElementById("apply-manifest");
+    const sam3Tools = document.getElementById("sam3-tools");
     const sam3Prompt = document.getElementById("sam3-prompt");
     const sam3SegmentButton = document.getElementById("sam3-segment");
     const sam3CompareButton = document.getElementById("sam3-compare");
@@ -60,6 +71,7 @@
     const inpaintSeedInput = document.getElementById("inpaint-seed");
     const maskedInpaintButton = document.getElementById("masked-inpaint");
     const autocompleteMenu = document.getElementById("autocomplete-menu");
+    const autocompleteStatus = document.getElementById("autocomplete-status");
     const wildcardSelect = document.getElementById("wildcard-select");
     const insertWildcardButton = document.getElementById("insert-wildcard");
     const presetWildcardSelect = document.getElementById("preset-wildcard-select");
@@ -73,6 +85,11 @@
     const orientationButtons = Array.from(document.querySelectorAll("[data-orientation]"));
     const lowVramHighresPresetButton = document.getElementById("low-vram-highres-preset");
     const referenceImageSection = document.getElementById("reference-image-section");
+    const referenceFileInput = document.getElementById("reference-file");
+    const referenceDropZone = document.getElementById("reference-drop-zone");
+    const referenceUploadStatus = document.getElementById("reference-upload-status");
+    const referencePreview = document.getElementById("reference-preview");
+    const removeReferenceButton = document.getElementById("remove-reference");
     const faceDetailerSection = document.getElementById("face-detailer-section");
     let presets = [];
     let currentManifest = null;
@@ -109,7 +126,18 @@
     let compareVisible = false;
     let historyItems = [];
     let historyFilter = "all";
+    let historyNextCursor = "";
+    let historyHasMore = false;
+    let historyTotalCount = 0;
+    let historyRequestRevision = 0;
+    let historySearchTimer = null;
+    let historyLoading = false;
     let loraCatalog = [];
+    let referencePreviewUrl = "";
+    let activeUploadCount = 0;
+    let referenceUploadRevision = 0;
+    let referenceUploadController = null;
+    let loraUploadInFlight = false;
     let stageTimer = null;
     let stageHideTimer = null;
     let progressPollTimer = null;
@@ -119,8 +147,11 @@
     let queueRunning = false;
     let serverQueuePollTimer = null;
     let activeQueueBatchId = "";
-    let lastQueueResultManifest = "";
+    let lastQueueResultJobId = "";
+    let generationReadiness = null;
+    let readinessRequestRevision = 0;
     let autocompleteTimer = null;
+    let autocompleteRequestRevision = 0;
     let autocompleteActiveInput = null;
     let autocompleteItems = [];
     let autocompleteIndex = -1;
@@ -130,14 +161,16 @@
       active: "진행 중",
       completed: "완료",
       skipped: "건너뜀",
-      failed: "실패"
+      failed: "실패",
+      cancelled: "취소됨"
     };
     const stageVisibleStateLabels = {
       pending: "",
       active: "진행 중",
       completed: "",
       skipped: "",
-      failed: "실패"
+      failed: "실패",
+      cancelled: "취소"
     };
     const startingSizePresets = {
       square: {width: 1024, height: 1024},
@@ -202,44 +235,137 @@
       if (profile.ready) {
         return "준비됨";
       }
-      return "복사 / 다운로드";
+      return profile.prepare_source === "local" ? "로컬에서 복사" : "다운로드";
+    }
+    function formatByteSize(value) {
+      if (value === null || value === undefined || value === "") {
+        return "용량 미확인";
+      }
+      const bytes = Number(value);
+      if (!Number.isFinite(bytes) || bytes < 0) {
+        return "용량 미확인";
+      }
+      if (bytes >= 1024 ** 3) {
+        return `${(bytes / (1024 ** 3)).toFixed(2)} GB`;
+      }
+      if (bytes >= 1024 ** 2) {
+        return `${(bytes / (1024 ** 2)).toFixed(1)} MB`;
+      }
+      return `${Math.max(0, Math.round(bytes / 1024))} KB`;
+    }
+    function renderHistoryStorage(outputs = {}) {
+      if (!historyStorage) {
+        return;
+      }
+      const imageCount = Number(outputs.image_count) || 0;
+      const manifestCount = Number(outputs.manifest_count) || 0;
+      const managedBytes = outputs.managed_bytes ?? ((Number(outputs.image_bytes) || 0) + (Number(outputs.manifest_bytes) || 0));
+      historyStorage.textContent = `이미지 ${imageCount.toLocaleString("ko-KR")}개 · ${formatByteSize(outputs.image_bytes)} / 기록 ${manifestCount.toLocaleString("ko-KR")}개 · ${formatByteSize(outputs.manifest_bytes)} / 관리 합계 ${formatByteSize(managedBytes)} / 디스크 여유 ${formatByteSize(outputs.disk_free_bytes)}`;
+    }
+    function readinessSourceLabel(profile) {
+      const size = formatByteSize(profile.prepare_size_bytes);
+      if (profile.prepare_source === "local") {
+        return `로컬 복사 · ${size}`;
+      }
+      if (profile.prepare_source === "huggingface") {
+        return `Hugging Face 다운로드 · ${size}`;
+      }
+      return `원격 다운로드 · ${size}`;
+    }
+    function readinessRequirementLabel(requirement) {
+      return {required: "필수", recommended: "권장", optional: "선택"}[requirement] || "선택";
+    }
+    function generationReadinessCard(generation = {}) {
+      const card = document.createElement("article");
+      card.className = "readiness-card generation-readiness-card";
+      card.dataset.ready = String(Boolean(generation.ready));
+      const title = document.createElement("strong");
+      title.textContent = "현재 생성 요청";
+      const summary = document.createElement("span");
+      const problemCount = (generation.missing_files || []).length + (generation.invalid_files || []).length;
+      summary.textContent = generation.dry_run
+        ? `드라이런 · 모델 검사 생략 · ${generation.checkpoint || "체크포인트 미선택"}`
+        : generation.ready
+          ? `실행 가능 · ${generation.checkpoint}`
+          : `실행 불가 · ${problemCount}개 파일 미준비 · ${generation.checkpoint || "체크포인트 미선택"}`;
+      const files = document.createElement("ul");
+      files.className = "readiness-files";
+      for (const path of generation.missing_files || []) {
+        const file = document.createElement("li");
+        file.textContent = `누락 ${path}`;
+        files.append(file);
+      }
+      for (const path of generation.invalid_files || []) {
+        const file = document.createElement("li");
+        file.textContent = `손상 ${path}`;
+        files.append(file);
+      }
+      card.append(title, summary, files);
+      return card;
+    }
+    function syncGenerationControls() {
+      const blocked = Boolean(generationReadiness && !generationReadiness.ready);
+      const uploadBlocked = activeUploadCount > 0;
+      generateButton.disabled = queueRunning || blocked || uploadBlocked;
+      startQueueButton.disabled = queueRunning || blocked || uploadBlocked;
+      const explanation = uploadBlocked
+        ? "파일 업로드가 끝날 때까지 기다려 주세요."
+        : (blocked ? "선택한 체크포인트의 필수 모델 파일을 먼저 준비하세요." : "");
+      generateButton.title = explanation;
+      startQueueButton.title = explanation;
     }
     function renderReadiness(payload) {
       const profiles = payload.profiles || [];
-      readinessPanel.replaceChildren(...profiles.map((profile) => {
+      generationReadiness = payload.generation || null;
+      const cards = profiles.map((profile) => {
         const card = document.createElement("article");
         card.className = "readiness-card";
         card.dataset.ready = String(Boolean(profile.ready));
         const title = document.createElement("strong");
-        title.textContent = profile.label || profile.name;
+        title.textContent = `${profile.label || profile.name} · ${readinessRequirementLabel(profile.requirement)}`;
         const summary = document.createElement("span");
-        summary.textContent = profile.ready ? "준비됨" : `${profile.missing_count}개 누락`;
+        const problems = [];
+        if (profile.missing_count) problems.push(`${profile.missing_count}개 누락`);
+        if (profile.invalid_count) problems.push(`${profile.invalid_count}개 손상`);
+        summary.textContent = profile.ready ? "준비됨" : `${problems.join(" · ")} · ${readinessSourceLabel(profile)}`;
         const files = document.createElement("ul");
         files.className = "readiness-files";
         for (const item of profile.files || []) {
           const file = document.createElement("li");
-          file.textContent = `${item.exists ? "확인됨" : "누락"} ${item.relative_path}`;
+          const fileStatus = item.valid ? "확인됨" : (item.exists ? "손상" : "누락");
+          file.textContent = `${fileStatus} ${item.relative_path}`;
           files.append(file);
         }
         const action = document.createElement("button");
         action.type = "button";
         action.className = "secondary-button readiness-action";
         action.dataset.profile = profile.name;
+        action.dataset.source = profile.prepare_source || "auto";
+        action.dataset.sizeBytes = profile.prepare_size_bytes ?? "";
         action.textContent = readinessActionLabel(profile);
         action.disabled = Boolean(profile.ready);
         card.append(title, summary, files, action);
         return card;
-      }));
+      });
+      readinessPanel.replaceChildren(generationReadinessCard(payload.generation), ...cards);
+      syncGenerationControls();
     }
     async function prepareModelProfile(profile, button) {
       const previousText = button.textContent;
+      const source = button.dataset.source || "auto";
+      const sourceDescription = source === "local"
+        ? `로컬 원본에서 ${formatByteSize(button.dataset.sizeBytes)}를 복사합니다.`
+        : `${source === "huggingface" ? "Hugging Face" : "원격 저장소"}에서 다운로드합니다. 다운로드 용량은 아직 확인되지 않았습니다.`;
+      if (!window.confirm(`${sourceDescription}\n계속할까요?`)) {
+        return;
+      }
       button.disabled = true;
       button.textContent = "준비 중...";
       try {
         const response = await fetch("/api/models/prepare", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({profile, source: "auto"})
+          body: JSON.stringify({profile, source})
         });
         const payload = await response.json();
         setResultPayload({status: response.ok ? "profile_prepared" : "profile_prepare_failed", ...payload});
@@ -297,20 +423,22 @@
         return;
       }
       if (payload.error) {
-        resultTitle.textContent = "요청 실패";
-        resultStatus.textContent = "실패";
+        const modelsNotReady = payload.error_code === "models_not_ready";
+        resultTitle.textContent = modelsNotReady ? "모델 준비 필요" : "요청 실패";
+        resultStatus.textContent = modelsNotReady ? "준비 필요" : "실패";
         resultSummary.replaceChildren(summaryItem("오류", payload.error));
         return;
       }
       const size = payload.width && payload.height ? `${payload.width}x${payload.height}` : "알 수 없음";
       const seed = payload.seed ?? "랜덤";
+      const warnings = Array.isArray(payload.warnings) ? payload.warnings.filter(Boolean) : [];
       const upscale = payload.upscale?.enabled ? `${payload.upscale.scale || 1}x${payload.upscale.tiled ? " 타일" : ""}` : "꺼짐";
       const faceTargets = payload.face_detailer?.mask_backend === "sam3"
         ? [payload.face_detailer?.sam3_face_eyes !== false ? "얼굴+눈" : "", payload.face_detailer?.sam3_hands ? "손" : ""].filter(Boolean).join(" / ")
         : "얼굴";
       const face = payload.face_detailer?.enabled ? `${faceTargets || "선택 없음"} · ${payload.face_detailer.steps || "자동"} 스텝` : "꺼짐";
       resultTitle.textContent = payload.prompt || "현재 결과";
-      resultStatus.textContent = resultMode(payload);
+      resultStatus.textContent = warnings.length ? `${resultMode(payload)} · 경고 ${warnings.length}` : resultMode(payload);
       const items = [
         summaryItem("상태", resultMode(payload)),
         summaryItem("크기", size),
@@ -323,6 +451,9 @@
       }
       if (payload.face_detailer?.enabled) {
         items.push(summaryItem("페이스 디테일러", face));
+      }
+      if (warnings.length) {
+        items.push(summaryItem("경고", warnings.join(" · ")));
       }
       resultSummary.replaceChildren(...items);
     }
@@ -392,6 +523,11 @@
       result.textContent = JSON.stringify(payload, null, 2);
       renderResultSummary(payload);
       syncCompareControls(payload);
+      if (payload?.error_code === "models_not_ready") {
+        sideStatusPanel.open = true;
+        sideStatusPanel.querySelector("summary")?.focus();
+        loadStatus().catch(() => {});
+      }
     }
     function setResultMessage(message) {
       result.textContent = message;
@@ -430,6 +566,9 @@
       if (finalState === "failed") {
         return item.optional ? "skipped" : "failed";
       }
+      if (finalState === "cancelled") {
+        return item.optional ? "skipped" : "cancelled";
+      }
       if (["request", "wildcards", "text_encode", "metadata"].includes(item.key)) {
         return "completed";
       }
@@ -451,7 +590,11 @@
       }
       generationStages.hidden = false;
       generationStages.setAttribute("aria-busy", finalState === "running" ? "true" : "false");
-      generationStageSummary.textContent = finalState === "running" ? "작업 중" : (finalState === "failed" ? (message ? `실패: ${message}` : "실패") : "");
+      generationStageSummary.textContent = finalState === "running"
+        ? "작업 중"
+        : (finalState === "failed"
+          ? (message ? `실패: ${message}` : "실패")
+          : (finalState === "cancelled" ? (message || "취소됨") : ""));
       generationStageList.replaceChildren(...items.map((item, index) => {
         let state = "pending";
         if (manifestStages) {
@@ -502,12 +645,6 @@
         stageHideTimer = null;
       }, 1200);
     }
-    function createProgressId() {
-      if (window.crypto && window.crypto.randomUUID) {
-        return window.crypto.randomUUID();
-      }
-      return `progress-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    }
     function stopProgressPolling() {
       if (progressPollTimer) {
         window.clearInterval(progressPollTimer);
@@ -524,7 +661,9 @@
       if (!response.ok) {
         return;
       }
-      const finalState = payload.status === "failed" ? "failed" : (payload.status === "completed" ? "completed" : "running");
+      const finalState = payload.status === "failed"
+        ? "failed"
+        : (payload.status === "cancelled" ? "cancelled" : (payload.status === "completed" ? "completed" : "running"));
       renderGenerationStages(activeStageItems, activeStageItems.length, payload.stages || {}, finalState, payload.summary || payload.error || "");
       if (finalState !== "running") {
         stopProgressPolling();
@@ -544,7 +683,8 @@
       activeStageItems = items;
       activeStageIndex = 0;
       renderGenerationStages(activeStageItems, activeStageIndex);
-      generationStages.scrollIntoView({block: "nearest", behavior: "smooth"});
+      const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      generationStages.scrollIntoView({block: "nearest", behavior: reducedMotion ? "auto" : "smooth"});
     }
     function finishGenerationStages(manifestStages, finalState = "completed", message = "") {
       stopProgressPolling();
@@ -559,24 +699,29 @@
       currentOutputUrl = "";
       currentMaskUrl = "";
       preview.removeAttribute("src");
+      preview.alt = "생성 결과 이미지";
       preview.hidden = true;
       outputLink.removeAttribute("href");
       outputLink.hidden = true;
+      sam3Tools.hidden = true;
       sam3Status.textContent = "결과 이미지를 선택하면 마스크를 만들 수 있습니다.";
     }
     function showOutputPreview(url) {
       currentOutputUrl = url;
       currentMaskUrl = "";
       preview.src = url + "?t=" + Date.now();
+      preview.alt = "생성 결과 이미지";
       preview.hidden = false;
       outputLink.href = url;
       outputLink.hidden = false;
+      sam3Tools.hidden = false;
       sam3Status.textContent = "SAM3 마스크를 만들 수 있습니다.";
     }
     function setCurrentMaskFromPayload(payload) {
       currentMaskUrl = payload.mask_url || currentMaskUrl;
       if (payload.overlay_url) {
         preview.src = payload.overlay_url + "?t=" + Date.now();
+        preview.alt = "선택 영역이 표시된 생성 결과 이미지";
         preview.hidden = false;
       }
     }
@@ -606,6 +751,7 @@
         }
         setCurrentMaskFromPayload(payload);
         sam3Status.textContent = `마스크 생성 완료: ${payload.boxes?.length || 0}개 영역`;
+        loadHistoryStorage().catch(() => {});
       } catch (error) {
         sam3Status.textContent = String(error);
         setResultPayload({error: String(error)});
@@ -669,6 +815,7 @@
         }
         const bestCount = payload.best?.boxes?.length || 0;
         sam3Status.textContent = `후보 비교 완료: ${payload.count || 0}개, 최고 ${bestCount}개 영역`;
+        loadHistoryStorage().catch(() => {});
       } catch (error) {
         sam3Status.textContent = String(error);
         setResultPayload({error: String(error)});
@@ -703,6 +850,7 @@
         }
         setCurrentMaskFromPayload(payload);
         sam3Status.textContent = `마스크 조정 완료: 확장 ${payload.dilation}px, 페더 ${payload.feather}px`;
+        loadHistoryStorage().catch(() => {});
       } catch (error) {
         sam3Status.textContent = String(error);
         setResultPayload({error: String(error)});
@@ -720,12 +868,15 @@
         sam3Status.textContent = "바꿀 내용을 입력하세요.";
         return;
       }
+      const inpaintSeed = seedNumberFromElement(inpaintSeedInput);
+      if (!inpaintSeedInput.reportValidity()) {
+        return;
+      }
       maskedInpaintButton.disabled = true;
       sam3SegmentButton.disabled = true;
       sam3CompareButton.disabled = true;
       maskAdjustButton.disabled = true;
       sam3Status.textContent = "인페인트 생성 중...";
-      const seedValue = inpaintSeedInput.value.trim();
       try {
         const response = await fetch("/api/inpaint/masked", {
           method: "POST",
@@ -741,7 +892,7 @@
             denoise: Number(inpaintDenoiseInput.value || 0.65),
             steps: Number(inpaintStepsInput.value || 20),
             cfg: Number(inpaintCfgInput.value || 3.5),
-            seed: seedValue ? Number(seedValue) : null
+            seed: inpaintSeed
           })
         });
         const payload = await response.json();
@@ -754,7 +905,8 @@
           showOutputPreview(payload.output_url);
         }
         sam3Status.textContent = `인페인트 완료: ${payload.method}, seed ${payload.seed}`;
-        refreshHistory().catch(() => {});
+        loadHistory().catch(() => {});
+        loadHistoryStorage().catch(() => {});
       } catch (error) {
         sam3Status.textContent = String(error);
         setResultPayload({error: String(error)});
@@ -795,14 +947,15 @@
     }
     function syncLoraRemoveButtons() {
       const rows = [...loraList.querySelectorAll(".lora-row")];
+      addLoraButton.disabled = loraUploadInFlight || rows.length >= animaDefaults.limits.max_loras;
       rows.forEach((row) => {
         const button = row.querySelector("[data-remove-lora]");
         if (button) {
-          button.disabled = rows.length <= 1;
+          button.disabled = rows.length <= 1 || row.dataset.uploadReserved === "true";
         }
       });
     }
-    function addLoraRow(config = {}) {
+    function addLoraRow(config = {}, {focus = false} = {}) {
       const row = document.createElement("div");
       row.className = "lora-row";
       const selectWrap = document.createElement("div");
@@ -821,9 +974,11 @@
       strength.className = "lora-strength";
       strength.type = "number";
       strength.min = "0";
+      strength.max = String(animaDefaults.limits.max_lora_strength);
       strength.step = "0.05";
       strength.value = config.model_strength ?? config.strength ?? 1;
       strength.setAttribute("aria-label", "LoRA 강도");
+      strength.setAttribute("form", form.id);
       strengthWrap.append(strengthLabel, strength);
 
       const remove = document.createElement("button");
@@ -832,16 +987,25 @@
       remove.dataset.removeLora = "1";
       remove.textContent = "삭제";
       remove.addEventListener("click", () => {
+        const rows = [...loraList.querySelectorAll(".lora-row")];
+        const rowIndex = rows.indexOf(row);
+        const focusTarget = rows[rowIndex + 1]?.querySelector(".lora-path")
+          || rows[rowIndex - 1]?.querySelector(".lora-path")
+          || addLoraButton;
         row.remove();
         if (!loraList.querySelector(".lora-row")) {
           addLoraRow();
         }
         syncLoraRemoveButtons();
+        focusTarget.focus();
       });
 
       row.append(selectWrap, strengthWrap, remove);
       loraList.append(row);
       syncLoraRemoveButtons();
+      if (focus) {
+        select.focus();
+      }
       return row;
     }
     function loraRowConfigs() {
@@ -862,32 +1026,274 @@
       rows.forEach((item) => addLoraRow(item));
       syncLoraRemoveButtons();
     }
+    function setUploadActive(active) {
+      activeUploadCount = Math.max(0, activeUploadCount + (active ? 1 : -1));
+      syncGenerationControls();
+    }
+    function uploadsAreIdle({report = false} = {}) {
+      if (activeUploadCount === 0) {
+        return true;
+      }
+      if (report) {
+        setResultMessage("파일 업로드가 끝난 뒤 다시 시도해 주세요.");
+      }
+      return false;
+    }
+    function validateUploadFile(file, kind) {
+      if (!(file instanceof File)) {
+        throw new Error("파일 한 개를 선택해 주세요.");
+      }
+      const name = file.name.toLowerCase();
+      if (kind === "reference") {
+        if (!/[.](png|jpe?g|webp)$/.test(name)) {
+          throw new Error("참조 이미지는 PNG, JPEG 또는 WebP만 사용할 수 있습니다.");
+        }
+        if (file.size > animaDefaults.limits.max_reference_upload_bytes) {
+          throw new Error(`참조 이미지는 ${formatByteSize(animaDefaults.limits.max_reference_upload_bytes)} 이하여야 합니다.`);
+        }
+      } else {
+        if (!name.endsWith(".safetensors")) {
+          throw new Error("LoRA는 .safetensors 파일만 사용할 수 있습니다.");
+        }
+        if (file.size > animaDefaults.limits.max_lora_upload_bytes) {
+          throw new Error(`LoRA는 ${formatByteSize(animaDefaults.limits.max_lora_upload_bytes)} 이하여야 합니다.`);
+        }
+      }
+      if (file.size <= 0) {
+        throw new Error("빈 파일은 업로드할 수 없습니다.");
+      }
+    }
+    function uploadContentType(file, kind) {
+      if (kind === "lora") {
+        return "application/octet-stream";
+      }
+      const extension = file.name.toLowerCase().split(".").pop();
+      return {
+        png: "image/png",
+        jpg: "image/jpeg",
+        jpeg: "image/jpeg",
+        webp: "image/webp"
+      }[extension] || "application/octet-stream";
+    }
+    async function uploadFile(endpoint, file, kind, {signal} = {}) {
+      const response = await fetch(`${endpoint}?filename=${encodeURIComponent(file.name)}`, {
+        method: "POST",
+        headers: {"Content-Type": uploadContentType(file, kind)},
+        body: file,
+        signal
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || "파일 업로드 실패");
+      }
+      return payload;
+    }
+    function revokeReferencePreviewUrl() {
+      if (referencePreviewUrl) {
+        URL.revokeObjectURL(referencePreviewUrl);
+        referencePreviewUrl = "";
+      }
+    }
+    function setManagedReferencePath(path, file = null) {
+      referenceFileInput.value = "";
+      form.elements.i2i_image.value = path || "";
+      revokeReferencePreviewUrl();
+      if (file) {
+        referencePreviewUrl = URL.createObjectURL(file);
+        referencePreview.src = referencePreviewUrl;
+        referencePreview.hidden = false;
+      } else {
+        referencePreview.removeAttribute("src");
+        referencePreview.hidden = true;
+      }
+      referenceUploadStatus.textContent = path ? `관리 파일: ${path}` : "선택된 이미지 없음";
+      removeReferenceButton.hidden = !path;
+    }
+    function cancelPendingReferenceUpload() {
+      referenceUploadRevision += 1;
+      referenceUploadController?.abort();
+      referenceUploadController = null;
+      referenceDropZone.removeAttribute("aria-busy");
+    }
+    async function uploadReferenceFile(file) {
+      cancelPendingReferenceUpload();
+      setManagedReferencePath("");
+      validateUploadFile(file, "reference");
+      const revision = ++referenceUploadRevision;
+      const controller = new AbortController();
+      referenceUploadController = controller;
+      referenceUploadStatus.textContent = `${file.name} 업로드 중...`;
+      referenceDropZone.setAttribute("aria-busy", "true");
+      setUploadActive(true);
+      try {
+        const payload = await uploadFile("/api/inputs/reference", file, "reference", {signal: controller.signal});
+        if (revision !== referenceUploadRevision) {
+          return null;
+        }
+        setManagedReferencePath(payload.relative_path, file);
+        referenceImageSection.open = true;
+        setResultPayload(payload);
+        return payload;
+      } catch (error) {
+        if (revision !== referenceUploadRevision || error?.name === "AbortError") {
+          return null;
+        }
+        setManagedReferencePath("");
+        throw error;
+      } finally {
+        if (revision === referenceUploadRevision) {
+          referenceUploadController = null;
+          referenceDropZone.removeAttribute("aria-busy");
+        }
+        setUploadActive(false);
+      }
+    }
+    function reserveLoraUploadRow() {
+      const rows = [...loraList.querySelectorAll(".lora-row")];
+      const emptyRow = rows.find((row) => !row.querySelector(".lora-path")?.value);
+      if (emptyRow) {
+        return emptyRow;
+      }
+      if (rows.length >= animaDefaults.limits.max_loras) {
+        throw new Error(`LoRA 스택은 ${animaDefaults.limits.max_loras}개까지 사용할 수 있습니다.`);
+      }
+      return addLoraRow();
+    }
+    async function uploadLoraFile(file) {
+      validateUploadFile(file, "lora");
+      if (loraUploadInFlight) {
+        throw new Error("다른 LoRA 업로드가 끝날 때까지 기다려 주세요.");
+      }
+      const targetRow = reserveLoraUploadRow();
+      const targetSelect = targetRow.querySelector(".lora-path");
+      const targetRemove = targetRow.querySelector("[data-remove-lora]");
+      loraUploadInFlight = true;
+      targetRow.dataset.uploadReserved = "true";
+      targetSelect.disabled = true;
+      targetRemove.disabled = true;
+      addLoraButton.disabled = true;
+      loraFileInput.value = "";
+      loraFileInput.disabled = true;
+      loraUploadButton.disabled = true;
+      loraDropZone.setAttribute("aria-busy", "true");
+      loraUploadStatus.textContent = `${file.name} 업로드 중...`;
+      setUploadActive(true);
+      try {
+        const payload = await uploadFile("/api/loras/upload", file, "lora");
+        setSelectValue(targetSelect, payload.relative_path);
+        loraUploadStatus.textContent = `업로드 완료: ${payload.relative_path}`;
+        setResultPayload(payload);
+        try {
+          const response = await fetch("/api/loras", {cache: "no-store"});
+          const inventory = await response.json();
+          if (!response.ok || inventory.error) {
+            throw new Error(inventory.error || "LoRA 목록 새로고침 실패");
+          }
+          loraCatalog = inventory.items || [];
+          [...loraList.querySelectorAll(".lora-path")].forEach((select) => {
+            renderLoraSelectOptions(select, select.value);
+          });
+        } catch {
+          loraUploadStatus.textContent = `업로드 완료: ${payload.relative_path} · 목록 새로고침 실패`;
+        }
+        return payload;
+      } finally {
+        loraUploadInFlight = false;
+        loraFileInput.disabled = false;
+        loraUploadButton.disabled = false;
+        loraDropZone.removeAttribute("aria-busy");
+        delete targetRow.dataset.uploadReserved;
+        targetSelect.disabled = false;
+        syncLoraRemoveButtons();
+        setUploadActive(false);
+      }
+    }
+    function setupSingleFileDropZone(zone, input, onFile, onError, uploadOnChange = true) {
+      const run = (files) => {
+        if (!files || files.length !== 1) {
+          onError(new Error("파일은 한 번에 한 개만 선택해 주세요."));
+          return;
+        }
+        Promise.resolve(onFile(files[0])).catch(onError);
+      };
+      if (uploadOnChange) {
+        input.addEventListener("change", () => run(input.files));
+      }
+      zone.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        zone.dataset.dragging = "true";
+      });
+      zone.addEventListener("dragleave", () => delete zone.dataset.dragging);
+      zone.addEventListener("drop", (event) => {
+        event.preventDefault();
+        delete zone.dataset.dragging;
+        run(event.dataTransfer?.files);
+      });
+    }
+    async function loadReadiness() {
+      const checkpoint = checkpointSelect.value || animaDefaults.checkpoint;
+      const requestRevision = ++readinessRequestRevision;
+      let response;
+      try {
+        response = await fetch(`/api/readiness?checkpoint=${encodeURIComponent(checkpoint)}`, {cache: "no-store"});
+      } catch (error) {
+        if (requestRevision !== readinessRequestRevision || checkpoint !== checkpointSelect.value) {
+          return null;
+        }
+        throw error;
+      }
+      if (requestRevision !== readinessRequestRevision || checkpoint !== checkpointSelect.value) {
+        return null;
+      }
+      const payload = await response.json();
+      if (requestRevision !== readinessRequestRevision || checkpoint !== checkpointSelect.value) {
+        return null;
+      }
+      if (!response.ok) {
+        throw new Error(payload.error || "모델 준비 상태 확인 실패");
+      }
+      renderReadiness(payload);
+      return payload;
+    }
+    async function loadHistoryStorage() {
+      const response = await fetch("/api/health", {cache: "no-store"});
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error || "저장공간 확인 실패");
+      }
+      renderHistoryStorage(payload.outputs);
+      return payload.outputs;
+    }
     async function loadStatus() {
-      const [healthResponse, loraResponse, checkpointResponse, readinessResponse, versionResponse] = await Promise.all([
+      const [healthResponse, loraResponse, checkpointResponse, versionResponse] = await Promise.all([
         fetch("/api/health"),
         fetch("/api/loras"),
         fetch("/api/checkpoints"),
-        fetch("/api/readiness"),
         fetch("/api/version")
       ]);
       const health = await healthResponse.json();
+      renderHistoryStorage(health.outputs);
       const loras = await loraResponse.json();
       const checkpoints = await checkpointResponse.json();
-      const readiness = await readinessResponse.json();
       const version = await versionResponse.json();
       const selectedCheckpoint = checkpointSelect.value;
-      const currentLoraRows = loraRowConfigs();
       renderCheckpointOptions(checkpoints, selectedCheckpoint);
       loraCatalog = loras.items || [];
-      setLoraRows(currentLoraRows.length ? currentLoraRows : [{}]);
+      if (!loraList.querySelector(".lora-row")) {
+        addLoraRow();
+      }
+      [...loraList.querySelectorAll(".lora-path")].forEach((select) => {
+        renderLoraSelectOptions(select, select.value);
+      });
+      const readiness = await loadReadiness();
+      const readinessGeneration = readiness?.generation || generationReadiness;
       statusPanel.replaceChildren(
-        statusCard("모델", health.models.ready ? "준비됨" : `${health.models.missing.length}개 누락`),
+        statusCard("현재 모델", readinessGeneration?.ready ? "실행 가능" : "준비 필요"),
         statusCard("체크포인트", `${checkpoints.count}개 로컬`),
         statusCard("LoRA", `${loras.count}개 사용 가능`),
         statusCard("출력", health.outputs.image_root)
       );
       renderUpdateStatus(version);
-      renderReadiness(readiness);
     }
     function historyType(item) {
       return item.output_url ? "images" : "dry-run";
@@ -895,28 +1301,29 @@
     function historyTypeLabel(item) {
       return item.output_url ? "이미지" : "드라이런";
     }
-    function filteredHistoryItems() {
-      if (historyFilter === "all") {
-        return historyItems;
-      }
-      return historyItems.filter((item) => historyType(item) === historyFilter);
+    function historyThumbnailPlaceholder(label = "생성 정보") {
+      const placeholder = document.createElement("div");
+      placeholder.className = "history-thumb history-thumb-empty";
+      placeholder.textContent = label;
+      return placeholder;
     }
     function historyCard(item) {
       const card = document.createElement("article");
       card.className = `history-item history-item-${historyType(item)}`;
-      const manifestName = item.manifest_path.split(/[\/]/).pop();
-      card.tabIndex = 0;
-      if (item.output_url) {
+      const manifestName = item.manifest_name;
+      if (item.thumbnail_url) {
         const image = document.createElement("img");
         image.className = "history-thumb";
-        image.src = item.output_url;
         image.alt = "";
+        image.loading = "lazy";
+        image.decoding = "async";
+        image.addEventListener("error", () => {
+          image.replaceWith(historyThumbnailPlaceholder("미리보기 없음"));
+        }, {once: true});
+        image.src = item.thumbnail_url;
         card.append(image);
       } else {
-        const placeholder = document.createElement("div");
-        placeholder.className = "history-thumb history-thumb-empty";
-        placeholder.textContent = "생성 정보";
-        card.append(placeholder);
+        card.append(historyThumbnailPlaceholder());
       }
       const body = document.createElement("div");
       body.className = "history-card-body";
@@ -926,7 +1333,8 @@
       type.className = "history-type";
       type.textContent = historyTypeLabel(item);
       const meta = document.createElement("span");
-      meta.textContent = `${statusLabel(item.status || "unknown")} / ${item.output_url || "이미지 없음"}`;
+      const outputSummary = item.output_url ? formatByteSize(item.output_size_bytes) : "이미지 없음";
+      meta.textContent = `${statusLabel(item.status || "unknown")} / ${outputSummary}`;
       body.append(title, type, meta);
       card.append(body);
       const actions = document.createElement("div");
@@ -965,34 +1373,92 @@
       actions.append(deleteButton);
       card.append(actions);
       card.addEventListener("click", () => openManifest(manifestName, {showCompare: false}));
-      card.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          openManifest(manifestName, {showCompare: false});
-        }
-      });
       return card;
     }
     function renderHistory() {
-      const visibleItems = filteredHistoryItems();
       historyFilters.forEach((button) => {
-        button.classList.toggle("active", button.dataset.historyFilter === historyFilter);
+        const active = button.dataset.historyFilter === historyFilter;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-pressed", String(active));
       });
-      historyCount.textContent = `${visibleItems.length} / ${historyItems.length} 표시`;
-      if (!visibleItems.length) {
+      historyCount.textContent = historyLoading
+        ? (historyItems.length ? `${historyItems.length.toLocaleString("ko-KR")} / ${historyTotalCount.toLocaleString("ko-KR")} 표시 · 불러오는 중` : "히스토리 불러오는 중")
+        : `${historyItems.length.toLocaleString("ko-KR")} / ${historyTotalCount.toLocaleString("ko-KR")} 표시${historyHasMore ? " · 더 있음" : ""}`;
+      if (!historyItems.length) {
         const empty = document.createElement("div");
         empty.className = "history-empty";
-        empty.textContent = "아직 표시할 히스토리가 없습니다.";
+        empty.textContent = historyLoading
+          ? "히스토리를 불러오는 중입니다."
+          : (historySearchInput?.value.trim() ? "검색 조건에 맞는 히스토리가 없습니다." : "아직 표시할 히스토리가 없습니다.");
         history.replaceChildren(empty);
         return;
       }
-      history.replaceChildren(...visibleItems.map(historyCard));
+      history.replaceChildren(...historyItems.map(historyCard));
     }
-    async function loadHistory() {
-      const response = await fetch("/api/history?limit=8");
-      const payload = await response.json();
-      historyItems = payload.items || [];
+    async function loadHistory({append = false} = {}) {
+      if (append && !historyNextCursor) {
+        return;
+      }
+      const requestRevision = ++historyRequestRevision;
+      if (!append) {
+        historyItems = [];
+        historyNextCursor = "";
+        historyHasMore = false;
+        historyTotalCount = 0;
+        historyLoadMore.hidden = true;
+      }
+      historyLoading = true;
       renderHistory();
+      const query = new URLSearchParams({limit: "8"});
+      const rawQuery = (historySearchInput?.value || "").trim();
+      query.set("q", historySearchInput ? rawQuery.slice(0, historySearchInput.maxLength) : rawQuery);
+      query.set("type", historyFilter);
+      if (append) {
+        query.set("cursor", historyNextCursor);
+      }
+      historyLoadMore.disabled = true;
+      try {
+        const response = await fetch(`/api/history?${query.toString()}`, {cache: "no-store"});
+        const payload = await response.json();
+        if (requestRevision !== historyRequestRevision) {
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(payload.error || "히스토리 불러오기 실패");
+        }
+        const items = payload.items || [];
+        historyItems = append ? [...historyItems, ...items] : items;
+        const totalCount = Number(payload.total_count);
+        historyTotalCount = Number.isFinite(totalCount) ? Math.max(0, totalCount) : historyItems.length;
+        historyNextCursor = payload.next_cursor || "";
+        historyHasMore = Boolean(payload.has_more && historyNextCursor);
+        historyLoadMore.hidden = !historyHasMore;
+      } catch (error) {
+        if (requestRevision === historyRequestRevision) {
+          throw error;
+        }
+      } finally {
+        if (requestRevision === historyRequestRevision) {
+          historyLoading = false;
+          historyLoadMore.disabled = false;
+          renderHistory();
+        }
+      }
+    }
+    function scheduleHistorySearch() {
+      window.clearTimeout(historySearchTimer);
+      historyRequestRevision += 1;
+      historyItems = [];
+      historyNextCursor = "";
+      historyHasMore = false;
+      historyTotalCount = 0;
+      historyLoading = true;
+      historyLoadMore.hidden = true;
+      historyLoadMore.disabled = true;
+      renderHistory();
+      historySearchTimer = window.setTimeout(() => {
+        loadHistory().catch((error) => setResultPayload({error: String(error)}));
+      }, 250);
     }
     async function openManifest(name, options = {}) {
       const response = await fetch("/api/manifests/" + encodeURIComponent(name));
@@ -1030,7 +1496,7 @@
       }
       const response = await fetch("/api/manifests/" + encodeURIComponent(name), {method: "DELETE"});
       const payload = await response.json();
-      const currentName = currentManifest?.manifest_path?.split(/[\/]/).pop();
+      const currentName = currentManifest?.manifest_name;
       if (response.ok && currentName === name) {
         currentManifest = null;
         clearOutputPreview();
@@ -1041,13 +1507,34 @@
         await loadStatus();
       }
     }
+    function setPresetStatus(message) {
+      if (presetStatus.textContent !== message) {
+        presetStatus.textContent = message;
+      }
+    }
+    function syncPresetSelectionControls() {
+      applyPresetButton.disabled = !presetSelect.value;
+    }
     async function loadPresets() {
+      const selectedSlug = presetSelect.value;
       const response = await fetch("/api/presets");
       const payload = await response.json();
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || "저장된 설정 불러오기 실패");
+      }
       presets = payload.items || [];
       presetSelect.replaceChildren(
         new Option(presets.length ? "프리셋 선택" : "저장된 프리셋 없음", ""),
         ...presets.map((item) => new Option(item.name, item.slug))
+      );
+      if (presets.some((item) => item.slug === selectedSlug)) {
+        presetSelect.value = selectedSlug;
+      }
+      syncPresetSelectionControls();
+      setPresetStatus(
+        payload.invalid_count
+          ? `설정 ${presets.length}개 불러옴 · 손상 파일 ${payload.invalid_count}개 제외`
+          : `설정 ${presets.length}개 불러옴`
       );
     }
     async function exportPresets() {
@@ -1055,6 +1542,7 @@
       const payload = await response.json();
       if (!response.ok || payload.error) {
         setResultPayload(payload);
+        setPresetStatus(`내보내기 실패: ${payload.error || "알 수 없는 오류"}`);
         return;
       }
       const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
@@ -1067,6 +1555,7 @@
       link.remove();
       URL.revokeObjectURL(url);
       setResultPayload({status: "settings_exported", count: payload.count});
+      setPresetStatus(`설정 ${payload.count}개 내보냄`);
     }
     async function importPresetsFromFile(file) {
       if (!file) {
@@ -1081,9 +1570,15 @@
         });
         const payload = await response.json();
         setResultPayload(payload);
+        if (!response.ok || payload.error) {
+          setPresetStatus(`가져오기 실패: ${payload.error || payload.errors?.[0]?.error || "알 수 없는 오류"}`);
+          return;
+        }
         await loadPresets();
+        setPresetStatus(`설정 ${payload.imported_count}개 가져옴`);
       } catch (error) {
         setResultPayload({error: String(error)});
+        setPresetStatus(`가져오기 실패: ${String(error)}`);
       } finally {
         presetImportFile.value = "";
       }
@@ -1147,14 +1642,30 @@
       if (query.length < 2) {
         return null;
       }
-      return {start, end: cursor, query};
+      const afterCursor = input.value.slice(cursor);
+      const delimiterOffset = afterCursor.search(/[,\n]/);
+      const end = delimiterOffset < 0 ? input.value.length : cursor + delimiterOffset;
+      return {start, end, query};
+    }
+    function setAutocompleteExpanded(input, expanded) {
+      if (input?.tagName === "INPUT") {
+        input.setAttribute("aria-expanded", String(expanded));
+      }
     }
     function hideAutocomplete() {
+      autocompleteRequestRevision += 1;
+      window.clearTimeout(autocompleteTimer);
+      if (autocompleteActiveInput) {
+        setAutocompleteExpanded(autocompleteActiveInput, false);
+        autocompleteActiveInput.removeAttribute("aria-activedescendant");
+      }
       autocompleteMenu.hidden = true;
       autocompleteMenu.replaceChildren();
+      autocompleteStatus.textContent = "";
       autocompleteItems = [];
       autocompleteIndex = -1;
       autocompleteFragment = null;
+      autocompleteActiveInput = null;
     }
     function positionAutocomplete(input) {
       const rect = input.getBoundingClientRect();
@@ -1163,9 +1674,21 @@
     }
     function setAutocompleteIndex(index) {
       autocompleteIndex = index;
+      let activeId = "";
+      let activeButton = null;
       [...autocompleteMenu.querySelectorAll(".autocomplete-item")].forEach((button, buttonIndex) => {
-        button.classList.toggle("active", buttonIndex === autocompleteIndex);
+        const active = buttonIndex === autocompleteIndex;
+        button.classList.toggle("active", active);
+        button.setAttribute("aria-selected", String(active));
+        if (active) {
+          activeId = button.id;
+          activeButton = button;
+        }
       });
+      if (autocompleteActiveInput && activeId) {
+        autocompleteActiveInput.setAttribute("aria-activedescendant", activeId);
+      }
+      activeButton?.scrollIntoView({block: "nearest"});
     }
     function renderAutocomplete(input, items) {
       autocompleteItems = items || [];
@@ -1178,27 +1701,31 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "autocomplete-item";
+        button.id = `autocomplete-option-${index}`;
         button.setAttribute("role", "option");
+        button.tabIndex = -1;
         const label = document.createElement("span");
         label.textContent = item.value;
         const count = document.createElement("span");
         count.className = "autocomplete-item-count";
         count.textContent = item.count ? item.count.toLocaleString() : "";
         button.append(label, count);
-        button.addEventListener("mousedown", (event) => {
-          event.preventDefault();
-          applyAutocompleteItem(index);
-        });
+        button.addEventListener("mousedown", (event) => event.preventDefault());
+        button.addEventListener("click", () => applyAutocompleteItem(index));
         autocompleteMenu.append(button);
       });
       autocompleteActiveInput = input;
+      setAutocompleteExpanded(input, true);
       autocompleteMenu.hidden = false;
+      autocompleteStatus.textContent = `자동완성 제안 ${autocompleteItems.length}개. 위아래 화살표로 선택하세요.`;
       positionAutocomplete(input);
       setAutocompleteIndex(0);
     }
-    async function requestAutocomplete(input) {
+    async function requestAutocomplete(input, requestRevision) {
+      if (requestRevision !== autocompleteRequestRevision) {
+        return;
+      }
       const fragment = currentAutocompleteFragment(input);
-      autocompleteFragment = fragment;
       if (!fragment) {
         hideAutocomplete();
         return;
@@ -1206,38 +1733,64 @@
       try {
         const response = await fetch(`/api/autocomplete?q=${encodeURIComponent(fragment.query)}&limit=24`);
         const payload = await response.json();
-        if (autocompleteActiveInput && autocompleteActiveInput !== input) {
+        if (requestRevision !== autocompleteRequestRevision || autocompleteActiveInput !== input) {
           return;
         }
+        autocompleteFragment = fragment;
         renderAutocomplete(input, payload.items || []);
       } catch (error) {
-        hideAutocomplete();
+        if (requestRevision === autocompleteRequestRevision && autocompleteActiveInput === input) {
+          hideAutocomplete();
+        }
       }
     }
     function scheduleAutocomplete(input) {
+      hideAutocomplete();
       autocompleteActiveInput = input;
-      window.clearTimeout(autocompleteTimer);
-      autocompleteTimer = window.setTimeout(() => requestAutocomplete(input), 90);
+      const requestRevision = ++autocompleteRequestRevision;
+      autocompleteTimer = window.setTimeout(() => requestAutocomplete(input, requestRevision), 90);
+    }
+    function autocompleteReplacement(value, itemValue, fragment) {
+      const before = value.slice(0, fragment.start);
+      const after = value.slice(fragment.end);
+      const delimiter = after.match(/^(?:,[ \t]*|\n[ \t]*)/);
+      const separator = delimiter
+        ? (delimiter[0].startsWith(",") ? ", " : delimiter[0])
+        : ", ";
+      const remainder = delimiter ? after.slice(delimiter[0].length) : after;
+      return {
+        value: before + itemValue + separator + remainder,
+        cursor: before.length + itemValue.length + separator.length
+      };
+    }
+    function autocompleteFragmentMatches(current, requested) {
+      return Boolean(
+        current
+        && requested
+        && current.start === requested.start
+        && current.end === requested.end
+        && current.query === requested.query
+      );
     }
     function applyAutocompleteItem(index = autocompleteIndex) {
       const input = autocompleteActiveInput;
       const item = autocompleteItems[index];
-      const fragment = input ? (autocompleteFragment || currentAutocompleteFragment(input)) : null;
-      if (!input || !item || !fragment) {
+      const fragment = input ? currentAutocompleteFragment(input) : null;
+      if (!input || !item || !autocompleteFragmentMatches(fragment, autocompleteFragment)) {
         hideAutocomplete();
         return;
       }
-      const before = input.value.slice(0, fragment.start);
-      const after = input.value.slice(fragment.end);
-      const suffix = after.trim().length && !after.trimStart().startsWith(",") ? ", " : "";
-      input.value = before + item.value + suffix + after;
-      const cursor = before.length + item.value.length + suffix.length;
+      const replacement = autocompleteReplacement(input.value, item.value, fragment);
+      input.value = replacement.value;
       input.focus();
-      input.setSelectionRange(cursor, cursor);
+      input.setSelectionRange(replacement.cursor, replacement.cursor);
       hideAutocomplete();
       input.dispatchEvent(new Event("input", {bubbles: true}));
     }
     function handleAutocompleteKeydown(event) {
+      if (event.isComposing || event.keyCode === 229) {
+        return;
+      }
       if (autocompleteMenu.hidden) {
         return;
       }
@@ -1247,9 +1800,11 @@
       } else if (event.key === "ArrowUp") {
         event.preventDefault();
         setAutocompleteIndex((autocompleteIndex - 1 + autocompleteItems.length) % autocompleteItems.length);
-      } else if (event.key === "Enter" || event.key === "Tab") {
+      } else if (event.key === "Enter") {
         event.preventDefault();
         applyAutocompleteItem();
+      } else if (event.key === "Tab") {
+        hideAutocomplete();
       } else if (event.key === "Escape") {
         event.preventDefault();
         hideAutocomplete();
@@ -1257,6 +1812,12 @@
     }
     function setupAutocomplete() {
       autocompleteTargets().forEach((input) => {
+        if (input.tagName === "INPUT") {
+          input.setAttribute("role", "combobox");
+        }
+        input.setAttribute("aria-controls", autocompleteMenu.id);
+        input.setAttribute("aria-autocomplete", "list");
+        setAutocompleteExpanded(input, false);
         input.addEventListener("input", () => scheduleAutocomplete(input));
         input.addEventListener("keydown", handleAutocompleteKeydown);
         input.addEventListener("blur", () => window.setTimeout(hideAutocomplete, 120));
@@ -1456,7 +2017,70 @@
     function containsNonEnglishText(text) {
       return /[぀-ヿ㐀-鿿가-힯Ѐ-ӿ؀-ۿ฀-๿]/.test(text);
     }
+    function seedNumberFromElement(input) {
+      const value = input.value.trim();
+      input.setCustomValidity("");
+      if (!value) {
+        return null;
+      }
+      if (!/^\d+$/.test(value)) {
+        input.setCustomValidity("시드는 0 이상의 10진 정수여야 합니다.");
+        return null;
+      }
+      const normalized = value.replace(/^0+(?=\d)/, "");
+      const maximum = String(animaDefaults.limits.max_seed_safe);
+      if (normalized.length > maximum.length || (normalized.length === maximum.length && normalized > maximum)) {
+        input.setCustomValidity(`웹 시드는 ${maximum} 이하여야 합니다.`);
+        return null;
+      }
+      return Number(normalized);
+    }
+    function seedNumberFromInput() {
+      return seedNumberFromElement(form.elements.seed);
+    }
+    function syncGenerationResourceValidity() {
+      const widthInput = form.elements.width;
+      const heightInput = form.elements.height;
+      const upscaleScaleInput = form.elements.upscale_scale;
+      const width = Number(widthInput.value);
+      const height = Number(heightInput.value);
+      const scale = Number(upscaleScaleInput.value);
+      heightInput.setCustomValidity("");
+      upscaleScaleInput.setCustomValidity("");
+      seedNumberFromInput();
+
+      if (width > 0 && height > 0 && width * height > animaDefaults.limits.max_base_image_pixels) {
+        heightInput.setCustomValidity(`기본 이미지는 ${animaDefaults.limits.max_base_image_pixels.toLocaleString()}픽셀 이하여야 합니다.`);
+      }
+      if (form.elements.upscale_enabled.checked && width > 0 && height > 0 && scale > 0) {
+        const outputWidth = 8 * Math.round((width / 8) * scale);
+        const outputHeight = 8 * Math.round((height / 8) * scale);
+        const outputPixels = outputWidth * outputHeight;
+        if (outputPixels > animaDefaults.limits.max_output_image_pixels) {
+          upscaleScaleInput.setCustomValidity(`업스케일 결과는 ${animaDefaults.limits.max_output_image_pixels.toLocaleString()}픽셀 이하여야 합니다.`);
+        }
+      }
+
+      [
+        [form.elements.upscale_tile_size, form.elements.upscale_overlap],
+        [form.elements.vae_tile_size, form.elements.vae_overlap]
+      ].forEach(([tileInput, overlapInput]) => {
+        const tileSize = Number(tileInput.value);
+        if (Number.isFinite(tileSize) && tileSize > 0) {
+          overlapInput.max = String(Math.floor(tileSize / 4));
+        } else {
+          overlapInput.removeAttribute("max");
+        }
+      });
+    }
+    function generationFormIsValid({report = false} = {}) {
+      syncGenerationResourceValidity();
+      return report ? form.reportValidity() : form.checkValidity();
+    }
     function buildRequestData() {
+      if (!generationFormIsValid()) {
+        throw new Error("생성 설정 값을 확인해 주세요.");
+      }
       const data = Object.fromEntries(new FormData(form).entries());
       data.width = Number(data.width);
       data.height = Number(data.height);
@@ -1539,7 +2163,7 @@
       if (data.seed === "") {
         delete data.seed;
       } else {
-        data.seed = Number(data.seed);
+        data.seed = seedNumberFromInput();
       }
       return data;
     }
@@ -1547,6 +2171,10 @@
       sam3DetailerControls.hidden = form.elements.face_mask_backend.value !== "sam3";
     }
     function applyPreset(item) {
+      if (loraUploadInFlight) {
+        setResultMessage("LoRA 업로드가 끝난 뒤 설정을 불러와 주세요.");
+        return false;
+      }
       const request = item.request || {};
       const wildcardInfo = request.wildcards || {};
       form.elements.prompt.value = wildcardInfo.original_prompt || request.prompt || "";
@@ -1562,7 +2190,8 @@
       setSelectValue(checkpointSelect, request.checkpoint || animaDefaults.checkpoint);
       const wildcardMode = request.wildcard_mode || wildcardInfo.mode || "random";
       form.elements.wildcard_mode.value = wildcardMode === "off" ? "random" : wildcardMode;
-      form.elements.i2i_image.value = request.i2i?.image_path || "";
+      cancelPendingReferenceUpload();
+      setManagedReferencePath(request.i2i?.image_path || "");
       form.elements.i2i_denoise.value = request.i2i?.denoise ?? 0.35;
       form.elements.upscale_enabled.checked = Boolean(request.upscale?.enabled);
       form.elements.upscale_scale.value = request.upscale?.scale ?? 1.5;
@@ -1593,6 +2222,23 @@
       faceDetailerSection.open = Boolean(request.face_detailer?.enabled);
       setLoraRows(request.loras || []);
       presetName.value = item.name || "";
+      syncStartingPointSelectionFromInputs();
+      syncGenerationResourceValidity();
+      loadReadiness().catch((error) => setResultPayload({error: String(error)}));
+      return true;
+    }
+    function syncStartingPointSelectionFromInputs() {
+      const width = Number(form.elements.width.value || 0);
+      const height = Number(form.elements.height.value || 0);
+      if (width > 0 && height > 0 && width !== height) {
+        startingOrientation = width > height ? "landscape" : "portrait";
+      }
+      const matchingSize = Object.entries(startingSizePresets).find(([, preset]) => (
+        (width === preset.width && height === preset.height)
+        || (width === preset.height && height === preset.width)
+      ));
+      selectedStartingSize = matchingSize?.[0] || "";
+      syncStartingPointButtons();
     }
     function applyStartingSizePreset(key) {
       const preset = startingSizePresets[key];
@@ -1604,6 +2250,7 @@
       form.elements.width.value = landscape ? preset.height : preset.width;
       form.elements.height.value = landscape ? preset.width : preset.height;
       syncStartingPointButtons();
+      syncGenerationResourceValidity();
     }
     function applyStartingOrientation(orientation) {
       startingOrientation = orientation === "landscape" ? "landscape" : "portrait";
@@ -1614,6 +2261,7 @@
         form.elements.height.value = startingOrientation === "landscape" ? Math.min(currentWidth, currentHeight) : Math.max(currentWidth, currentHeight);
       }
       syncStartingPointButtons();
+      syncGenerationResourceValidity();
     }
     function applyLowVramHighresPreset() {
       form.elements.memory_profile.value = "low_vram_highres";
@@ -1628,13 +2276,18 @@
       form.elements.vae_tile_size.value = form.elements.vae_tile_size.value || 128;
       form.elements.vae_overlap.value = form.elements.vae_overlap.value || 8;
       referenceImageSection.open = true;
+      syncGenerationResourceValidity();
     }
     function syncStartingPointButtons() {
       startingSizeButtons.forEach((button) => {
-        button.classList.toggle("is-selected", button.dataset.sizePreset === selectedStartingSize);
+        const selected = button.dataset.sizePreset === selectedStartingSize;
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-pressed", String(selected));
       });
       orientationButtons.forEach((button) => {
-        button.classList.toggle("is-selected", button.dataset.orientation === startingOrientation);
+        const selected = button.dataset.orientation === startingOrientation;
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-pressed", String(selected));
       });
     }
     function applyManifest() {
@@ -1657,7 +2310,9 @@
       return Math.max(0, Math.min(60, Number.isFinite(value) ? value : 0));
     }
     function setQueueStatus(message) {
-      queueStatus.textContent = message;
+      if (queueStatus.textContent !== message) {
+        queueStatus.textContent = message;
+      }
     }
     function setQueueControlsRunning(running) {
       queueRunning = running;
@@ -1665,48 +2320,8 @@
       queueInfiniteInput.disabled = running;
       queueSeedMode.disabled = running;
       queueDelayInput.disabled = running;
-      startQueueButton.disabled = running;
       stopQueueButton.disabled = !running;
-      generateButton.disabled = running;
-    }
-    async function submitGenerateRequest(data, message = "생성 중...") {
-      const progressId = createProgressId();
-      data.progress_id = progressId;
-      currentManifest = null;
-      clearOutputPreview();
-      setResultMessage(message);
-      startStageProgress(buildGenerationStages(data));
-      startProgressPolling(progressId);
-      try {
-        const response = await fetch("/api/generate", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(data)
-        });
-        const payload = await response.json();
-        const succeeded = response.ok && !payload.error;
-        finishGenerationStages(payload.stages || {}, succeeded ? "completed" : "failed", payload.error || "");
-        setResultPayload(payload);
-        if (!succeeded) {
-          return {ok: false, payload};
-        }
-        if (payload.manifest_path) {
-          const manifestName = payload.manifest_path.split(/[\/]/).pop();
-          if (manifestName) {
-            await openManifest(manifestName);
-          }
-        } else if (payload.output_url) {
-          showOutputPreview(payload.output_url);
-        }
-        await loadStatus();
-        await loadHistory();
-        return {ok: true, payload};
-      } catch (error) {
-        finishGenerationStages({}, "failed", String(error));
-        const payload = {error: String(error)};
-        setResultPayload(payload);
-        return {ok: false, payload};
-      }
+      syncGenerationControls();
     }
     function stopServerQueuePolling() {
       if (serverQueuePollTimer) {
@@ -1731,7 +2346,7 @@
       return summary;
     }
     function queueIsSettled(items) {
-      return items.length > 0 && !items.some((item) => ["queued", "waiting", "running"].includes(item.status));
+      return !items.some((item) => ["queued", "waiting", "running"].includes(item.status));
     }
     function renderServerQueueStatus(payload) {
       const items = jobsForActiveBatch(payload);
@@ -1746,15 +2361,14 @@
       return {items, summary, total};
     }
     async function showLatestQueueResult(items) {
-      const latest = [...items].reverse().find((item) => item.result && ["completed", "failed"].includes(item.status));
+      const latest = [...items].reverse().find((item) => item.result && ["completed", "failed", "cancelled"].includes(item.status));
       if (!latest?.result) {
         return;
       }
-      const manifestPath = latest.result.manifest_path || "";
-      if (manifestPath && manifestPath === lastQueueResultManifest) {
+      if (latest.id === lastQueueResultJobId) {
         return;
       }
-      lastQueueResultManifest = manifestPath;
+      lastQueueResultJobId = latest.id;
       setResultPayload(latest.result);
       if (latest.result.manifest_path) {
         const manifestName = latest.result.manifest_path.split(/[\/]/).pop();
@@ -1771,21 +2385,22 @@
       const response = await fetch("/api/jobs", {cache: "no-store"});
       const payload = await response.json();
       if (!response.ok) {
-        setQueueStatus(payload.error || "큐 상태 확인 실패");
-        return;
+        throw new Error(payload.error || "큐 상태 확인 실패");
       }
       const rendered = renderServerQueueStatus(payload);
       await showLatestQueueResult(rendered.items);
       if (queueRunning && queueIsSettled(rendered.items)) {
         setQueueControlsRunning(false);
-        queueRunning = false;
         stopServerQueuePolling();
         const failed = rendered.summary.failed;
         const cancelled = rendered.summary.cancelled;
         setQueueStatus(`큐 완료. 완료 ${rendered.summary.completed}, 실패 ${failed}, 취소 ${cancelled}.`);
         if (!activeProgressId) {
-          finishGenerationStages({}, failed ? "failed" : "completed", failed ? "하나 이상의 작업 실패" : "");
+          const finalState = failed ? "failed" : (cancelled ? "cancelled" : "completed");
+          const message = failed ? "하나 이상의 작업 실패" : (cancelled ? "작업이 취소되었습니다." : "");
+          finishGenerationStages({}, finalState, message);
         }
+        activeQueueBatchId = "";
       }
     }
     function startServerQueuePolling() {
@@ -1795,7 +2410,35 @@
         pollServerQueue().catch((error) => setQueueStatus(String(error)));
       }, 900);
     }
-    async function enqueueServerJobs(baseData, total, infinite) {
+    async function restoreServerQueue() {
+      const response = await fetch("/api/jobs", {cache: "no-store"});
+      const payload = await response.json();
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || "큐 상태 복구 실패");
+      }
+      const activeItems = (payload.items || []).filter((item) => ["running", "waiting", "queued"].includes(item.status));
+      const activeJob = activeItems.find((item) => item.status === "running")
+        || activeItems.find((item) => item.status === "waiting")
+        || activeItems[activeItems.length - 1];
+      if (!activeJob) {
+        return false;
+      }
+      activeQueueBatchId = activeJob.batch_id || "";
+      lastQueueResultJobId = "";
+      setQueueControlsRunning(true);
+      setResultMessage("진행 중인 서버 작업에 다시 연결했습니다.");
+      startStageProgress(buildGenerationStages(activeJob.request || {}));
+      renderServerQueueStatus(payload);
+      startServerQueuePolling();
+      return true;
+    }
+    async function enqueueServerJobs(
+      baseData,
+      total,
+      infinite,
+      seedMode = queueSeedMode.value,
+      delaySeconds = queueDelaySeconds()
+    ) {
       const response = await fetch("/api/jobs", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
@@ -1803,8 +2446,8 @@
           request: baseData,
           count: total || 1,
           infinite,
-          seed_mode: queueSeedMode.value,
-          delay_seconds: queueDelaySeconds()
+          seed_mode: seedMode,
+          delay_seconds: delaySeconds
         })
       });
       const payload = await response.json();
@@ -1812,7 +2455,7 @@
         throw new Error(payload.error || "큐 등록 실패");
       }
       activeQueueBatchId = payload.batch_id || "";
-      lastQueueResultManifest = "";
+      lastQueueResultJobId = "";
       return payload;
     }
     async function cancelServerJob(jobId) {
@@ -1821,10 +2464,38 @@
         headers: {"Content-Type": "application/json"},
         body: "{}"
       });
-      return response.json();
+      const payload = await response.json();
+      if (!response.ok || payload.error) {
+        throw new Error(payload.error || "작업 취소 실패");
+      }
+      return payload;
+    }
+    async function startSingleGeneration() {
+      if (queueRunning || !uploadsAreIdle({report: true})) {
+        return;
+      }
+      const baseData = buildRequestData();
+      setQueueControlsRunning(true);
+      currentManifest = null;
+      clearOutputPreview();
+      setResultMessage("생성 작업 등록 중...");
+      startStageProgress(buildGenerationStages(baseData));
+      try {
+        await enqueueServerJobs(baseData, 1, false, "fixed", 0);
+        setQueueStatus("단일 생성 실행 중");
+        startServerQueuePolling();
+      } catch (error) {
+        setQueueControlsRunning(false);
+        finishGenerationStages({}, "failed", String(error));
+        setResultPayload({error: String(error)});
+        setQueueStatus(String(error));
+      }
     }
     async function startAutoQueue() {
-      if (queueRunning) {
+      if (queueRunning || !uploadsAreIdle({report: true})) {
+        return;
+      }
+      if (!generationFormIsValid({report: true})) {
         return;
       }
       const infinite = queueIsInfinite();
@@ -1854,11 +2525,17 @@
       try {
         const response = await fetch("/api/jobs", {cache: "no-store"});
         const payload = await response.json();
+        if (!response.ok || payload.error) {
+          throw new Error(payload.error || "큐 상태 확인 실패");
+        }
         const jobs = jobsForActiveBatch(payload).filter((item) => ["queued", "waiting", "running"].includes(item.status));
         await Promise.all(jobs.map((item) => cancelServerJob(item.id)));
         await pollServerQueue();
       } catch (error) {
         setQueueStatus(String(error));
+        if (queueRunning) {
+          stopQueueButton.disabled = false;
+        }
       }
     }
     form.addEventListener("submit", async (event) => {
@@ -1866,12 +2543,15 @@
       if (queueRunning) {
         return;
       }
-      const button = generateButton;
-      button.disabled = true;
-      await submitGenerateRequest(buildRequestData(), "생성 중...");
-      button.disabled = false;
+      if (!generationFormIsValid({report: true})) {
+        return;
+      }
+      await startSingleGeneration();
     });
     savePresetButton.addEventListener("click", async () => {
+      if (!uploadsAreIdle({report: true}) || !generationFormIsValid({report: true})) {
+        return;
+      }
       const name = presetName.value || form.elements.prompt.value.slice(0, 48) || "preset";
       const response = await fetch("/api/presets", {
         method: "POST",
@@ -1879,19 +2559,30 @@
         body: JSON.stringify({name, request: buildRequestData()})
       });
       const payload = await response.json();
+      if (!response.ok || payload.error) {
+        setResultPayload(payload);
+        setPresetStatus(`저장 실패: ${payload.error || "알 수 없는 오류"}`);
+        return;
+      }
       setResultPayload({status: "settings_saved", ...payload});
       await loadPresets();
       presetSelect.value = payload.slug || "";
+      syncPresetSelectionControls();
+      setPresetStatus(`${payload.name} 저장됨`);
     });
     applyPresetButton.addEventListener("click", () => {
       const item = presets.find((preset) => preset.slug === presetSelect.value);
-      if (item) {
-        applyPreset(item);
+      if (item && applyPreset(item)) {
+        setPresetStatus(`${item.name} 불러옴`);
       }
+    });
+    checkpointSelect.addEventListener("change", () => {
+      loadReadiness().catch((error) => setResultPayload({error: String(error)}));
     });
     exportPresetsButton.addEventListener("click", exportPresets);
     importPresetsButton.addEventListener("click", () => presetImportFile.click());
     presetImportFile.addEventListener("change", () => importPresetsFromFile(presetImportFile.files[0]));
+    presetSelect.addEventListener("change", syncPresetSelectionControls);
     startingSizeButtons.forEach((button) => {
       button.addEventListener("click", () => applyStartingSizePreset(button.dataset.sizePreset || ""));
     });
@@ -1914,7 +2605,18 @@
     previewWildcardsButton.addEventListener("click", previewWildcards);
     llmRefinePromptButton.addEventListener("click", refinePromptWithLlm);
     checkUpdateButton.addEventListener("click", checkForUpdates);
-    addLoraButton.addEventListener("click", () => addLoraRow());
+    addLoraButton.addEventListener("click", () => addLoraRow({}, {focus: true}));
+    ["width", "height"].forEach((name) => {
+      form.elements[name].addEventListener("input", () => {
+        syncStartingPointSelectionFromInputs();
+        syncGenerationResourceValidity();
+      });
+    });
+    ["seed", "upscale_scale", "upscale_tile_size", "vae_tile_size"].forEach((name) => {
+      form.elements[name].addEventListener("input", syncGenerationResourceValidity);
+    });
+    form.elements.upscale_enabled.addEventListener("change", syncGenerationResourceValidity);
+    syncGenerationResourceValidity();
     setupAutocomplete();
     startQueueButton.addEventListener("click", () => {
       startAutoQueue().catch((error) => {
@@ -1926,9 +2628,23 @@
     stopQueueButton.addEventListener("click", stopAutoQueue);
     historyFilters.forEach((button) => {
       button.addEventListener("click", () => {
-        historyFilter = button.dataset.historyFilter || "all";
-        renderHistory();
+        const nextFilter = button.dataset.historyFilter || "all";
+        if (nextFilter === historyFilter) {
+          return;
+        }
+        window.clearTimeout(historySearchTimer);
+        historyFilter = nextFilter;
+        loadHistory().catch((error) => setResultPayload({error: String(error)}));
       });
+    });
+    historySearchForm?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      window.clearTimeout(historySearchTimer);
+      loadHistory().catch((error) => setResultPayload({error: String(error)}));
+    });
+    historySearchInput?.addEventListener("input", scheduleHistorySearch);
+    historyLoadMore.addEventListener("click", () => {
+      loadHistory({append: true}).catch((error) => setResultPayload({error: String(error)}));
     });
     readinessPanel.addEventListener("click", (event) => {
       const button = event.target.closest("[data-profile]");
@@ -1939,24 +2655,61 @@
     });
     loraImportForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const button = loraImportForm.querySelector('button[type="submit"]');
-      button.disabled = true;
-      const data = Object.fromEntries(new FormData(loraImportForm).entries());
+      const file = loraFileInput.files?.[0];
+      if (!file) {
+        loraUploadStatus.textContent = "LoRA 파일을 선택해 주세요.";
+        loraFileInput.focus();
+        return;
+      }
       try {
-        const response = await fetch("/api/loras/import", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(data)
-        });
-        const payload = await response.json();
-        setResultPayload({status: payload.error ? "lora_import_failed" : "lora_imported", ...payload});
-        await loadStatus();
+        await uploadLoraFile(file);
       } catch (error) {
+        loraUploadStatus.textContent = String(error);
         setResultPayload({error: String(error)});
-      } finally {
-        button.disabled = false;
       }
     });
+    setupSingleFileDropZone(
+      referenceDropZone,
+      referenceFileInput,
+      uploadReferenceFile,
+      (error) => {
+        referenceUploadStatus.textContent = String(error);
+        setResultPayload({error: String(error)});
+      }
+    );
+    setupSingleFileDropZone(
+      loraDropZone,
+      loraFileInput,
+      async (file) => {
+        try {
+          await uploadLoraFile(file);
+        } finally {
+          loraFileInput.value = "";
+        }
+      },
+      (error) => {
+        loraUploadStatus.textContent = String(error);
+        setResultPayload({error: String(error)});
+      },
+      false
+    );
+    loraFileInput.addEventListener("change", () => {
+      try {
+        if (loraFileInput.files?.length !== 1) {
+          throw new Error("파일은 한 번에 한 개만 선택해 주세요.");
+        }
+        validateUploadFile(loraFileInput.files[0], "lora");
+        loraUploadStatus.textContent = `선택됨: ${loraFileInput.files[0].name}`;
+      } catch (error) {
+        loraFileInput.value = "";
+        loraUploadStatus.textContent = String(error);
+      }
+    });
+    removeReferenceButton.addEventListener("click", () => {
+      cancelPendingReferenceUpload();
+      setManagedReferencePath("");
+    });
+    window.addEventListener("beforeunload", revokeReferencePreviewUrl);
     addLoraRow();
     form.elements.face_mask_backend.addEventListener("change", syncSam3DetailerControls);
     syncSam3DetailerControls();
@@ -1968,4 +2721,5 @@
     loadHistory().catch((error) => reportStartupError("기록", error));
     loadPresets().catch((error) => reportStartupError("설정", error));
     loadWildcards().catch((error) => reportStartupError("와일드카드", error));
+    restoreServerQueue().catch((error) => setQueueStatus(`큐 상태 복구 실패: ${String(error)}`));
     renderResultSummary();

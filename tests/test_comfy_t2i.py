@@ -2,23 +2,35 @@ import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
 import torch
 from PIL import Image
 
 from anima_app.config import AppPaths
 from anima_app.comfy_runtime import bootstrap_comfy_runtime
 from anima_app.requests import FaceDetailerSettings, I2ISettings, T2ILoraConfig, T2IRequest, UpscaleSettings, VaeDecodeSettings
+from anima_app.runtime import comfy_t2i as comfy_t2i_module
 from anima_app.runtime.comfy_t2i import (
     _build_renderer_stages,
     _decode_samples,
     _detailer_pass_specs,
+    _face_detailer_render_size,
     _load_image_tensor,
     _make_initial_latent,
     _resolve_i2i_image_path,
+    _resolve_lora_path,
     _upscale_latent_samples,
     default_model_paths,
     model_paths_for_request,
+    resolve_managed_lora_path,
+    resolve_managed_reference_path,
 )
+from anima_app.runtime.pipeline import ModelsNotReadyError
+
+
+def test_face_detailer_render_size_targets_1536_long_edge_without_downscaling():
+    assert _face_detailer_render_size((344, 312)) == (1536, 1392)
+    assert _face_detailer_render_size((2048, 1024)) == (2048, 1024)
 
 
 def test_default_model_paths_use_project_local_copied_assets(tmp_path):
@@ -43,6 +55,52 @@ def test_model_paths_for_request_uses_selected_diffusion_checkpoint(tmp_path):
     assert model_paths.vae == paths.model_root / "vae" / "qwen_image_vae.safetensors"
 
 
+def test_render_checks_required_models_before_comfy_bootstrap(monkeypatch, tmp_path):
+    paths = AppPaths(project_root=tmp_path)
+    bootstrap_called = False
+
+    def unexpected_bootstrap(active_paths):
+        nonlocal bootstrap_called
+        bootstrap_called = True
+
+    monkeypatch.setattr(comfy_t2i_module, "bootstrap_comfy_runtime", unexpected_bootstrap)
+
+    with pytest.raises(ModelsNotReadyError) as error:
+        comfy_t2i_module.render_t2i(T2IRequest(prompt="missing models"), paths)
+
+    assert bootstrap_called is False
+    assert error.value.missing == (
+        paths.model_root / "diffusion_models" / "anima-base-v1.0.safetensors",
+        paths.model_root / "text_encoders" / "qwen_3_06b_base.safetensors",
+        paths.model_root / "vae" / "qwen_image_vae.safetensors",
+    )
+
+
+def test_render_rejects_corrupt_models_before_comfy_bootstrap(monkeypatch, tmp_path):
+    paths = AppPaths(project_root=tmp_path)
+    model_paths = default_model_paths(paths)
+    bootstrap_called = False
+    for path in (model_paths.diffusion_model, model_paths.text_encoder, model_paths.vae):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"corrupt")
+
+    def unexpected_bootstrap(active_paths):
+        nonlocal bootstrap_called
+        bootstrap_called = True
+
+    monkeypatch.setattr(comfy_t2i_module, "bootstrap_comfy_runtime", unexpected_bootstrap)
+
+    with pytest.raises(ModelsNotReadyError) as error:
+        comfy_t2i_module.render_t2i(T2IRequest(prompt="corrupt models"), paths)
+
+    assert bootstrap_called is False
+    assert error.value.missing == (
+        model_paths.diffusion_model,
+        model_paths.text_encoder,
+        model_paths.vae,
+    )
+
+
 def test_qwen_image_tokenizer_uses_comfy_prompt_weights():
     bootstrap_comfy_runtime(AppPaths())
 
@@ -62,6 +120,181 @@ def test_i2i_image_path_resolves_project_relative_only(tmp_path):
     image_path.write_bytes(b"png")
 
     assert _resolve_i2i_image_path("inputs/source.png", paths) == image_path
+
+
+def test_cli_i2i_image_path_preserves_absolute_path_support(tmp_path):
+    paths = AppPaths(project_root=tmp_path / "project")
+    image_path = tmp_path / "external.png"
+    image_path.write_bytes(b"png")
+
+    assert _resolve_i2i_image_path(str(image_path), paths) == image_path
+
+
+def test_cli_lora_path_preserves_absolute_path_support(tmp_path):
+    lora_path = tmp_path / "external.safetensors"
+    lora_path.write_bytes(b"lora")
+
+    resolved = _resolve_lora_path(
+        T2ILoraConfig(path=str(lora_path)),
+        [tmp_path / "managed-loras"],
+    )
+
+    assert resolved == lora_path
+
+
+@pytest.mark.parametrize("relative_path", ["inputs/references/source.png", "outputs/images/source.png"])
+def test_managed_reference_path_accepts_only_managed_roots(tmp_path, relative_path):
+    paths = AppPaths(project_root=tmp_path)
+    image_path = tmp_path / Path(relative_path)
+    image_path.parent.mkdir(parents=True)
+    Image.new("RGB", (16, 16), "white").save(image_path)
+
+    assert resolve_managed_reference_path(relative_path, paths) == image_path.resolve()
+
+
+@pytest.mark.parametrize(
+    "reference_path",
+    [
+        "inputs/source.png",
+        "inputs/references/../source.png",
+        "outputs/images/../../source.png",
+        "/outputs/images/source.png",
+        r"C:\outside\source.png",
+    ],
+)
+def test_managed_reference_path_rejects_unmanaged_or_escaping_paths(tmp_path, reference_path):
+    with pytest.raises(ValueError, match="managed reference"):
+        resolve_managed_reference_path(reference_path, AppPaths(project_root=tmp_path))
+
+
+def test_managed_reference_path_rejects_missing_file(tmp_path):
+    with pytest.raises(FileNotFoundError, match="managed reference"):
+        resolve_managed_reference_path(
+            "inputs/references/missing.png",
+            AppPaths(project_root=tmp_path),
+        )
+
+
+def test_managed_reference_path_rejects_symlink_escape(tmp_path, monkeypatch):
+    paths = AppPaths(project_root=tmp_path / "project")
+    outside = tmp_path / "outside.png"
+    Image.new("RGB", (8, 8), "white").save(outside)
+    link = paths.input_root / "references" / "link.png"
+    link.parent.mkdir(parents=True)
+    link.write_bytes(b"placeholder")
+    escaped = outside.resolve()
+    real_resolve = Path.resolve
+
+    def resolve_symlink(path, *args, **kwargs):
+        return escaped if path == link else real_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve_symlink)
+
+    with pytest.raises(ValueError, match="managed reference"):
+        resolve_managed_reference_path("inputs/references/link.png", paths)
+
+
+def test_managed_reference_path_rejects_unsupported_image(tmp_path):
+    paths = AppPaths(project_root=tmp_path)
+    image_path = paths.input_root / "references" / "animated.gif"
+    image_path.parent.mkdir(parents=True)
+    Image.new("RGB", (8, 8), "white").save(image_path, format="GIF")
+
+    with pytest.raises(ValueError, match="unsupported managed reference image format"):
+        resolve_managed_reference_path("inputs/references/animated.gif", paths)
+
+
+def test_managed_reference_path_rejects_oversized_header_before_decode(tmp_path, monkeypatch):
+    paths = AppPaths(project_root=tmp_path)
+    image_path = paths.input_root / "references" / "oversized.png"
+    image_path.parent.mkdir(parents=True)
+    image_path.write_bytes(b"placeholder")
+
+    class OversizedImage:
+        format = "PNG"
+        size = (10**9, 10**9)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def load(self):
+            raise AssertionError("oversized image must not be decoded")
+
+        def convert(self, _mode):
+            raise AssertionError("oversized image must not be decoded")
+
+    monkeypatch.setattr("anima_app.runtime.comfy_t2i.Image.open", lambda _path: OversizedImage())
+
+    with pytest.raises(ValueError, match="managed reference image"):
+        resolve_managed_reference_path("inputs/references/oversized.png", paths)
+
+
+@pytest.mark.parametrize(
+    ("limit_name", "limit_value", "message"),
+    [
+        ("MAX_REFERENCE_UPLOAD_BYTES", 1, "size"),
+        ("MAX_REFERENCE_IMAGE_DIMENSION", 8, "dimension"),
+        ("MAX_REFERENCE_IMAGE_PIXELS", 19, "pixel count"),
+    ],
+)
+def test_managed_reference_path_reuses_upload_limits(tmp_path, monkeypatch, limit_name, limit_value, message):
+    paths = AppPaths(project_root=tmp_path)
+    image_path = paths.input_root / "references" / "bounded.png"
+    image_path.parent.mkdir(parents=True)
+    Image.new("RGB", (10, 2), "white").save(image_path)
+    monkeypatch.setattr(comfy_t2i_module, limit_name, limit_value)
+
+    with pytest.raises(ValueError, match=message):
+        resolve_managed_reference_path("inputs/references/bounded.png", paths)
+
+
+def test_managed_lora_path_accepts_nested_relative_file(tmp_path):
+    paths = AppPaths(project_root=tmp_path)
+    lora_path = paths.model_root / "loras" / "styles" / "soft.safetensors"
+    lora_path.parent.mkdir(parents=True)
+    lora_path.write_bytes(b"lora")
+
+    assert resolve_managed_lora_path("styles/soft.safetensors", paths) == lora_path.resolve()
+
+
+@pytest.mark.parametrize(
+    "lora_path",
+    [
+        "../outside.safetensors",
+        "styles/../../outside.safetensors",
+        "/models/loras/style.safetensors",
+        r"C:\outside\style.safetensors",
+        "style.ckpt",
+    ],
+)
+def test_managed_lora_path_rejects_unsafe_or_unsupported_paths(tmp_path, lora_path):
+    with pytest.raises(ValueError, match="managed LoRA"):
+        resolve_managed_lora_path(lora_path, AppPaths(project_root=tmp_path))
+
+
+def test_managed_lora_path_rejects_missing_file_and_symlink_escape(tmp_path, monkeypatch):
+    paths = AppPaths(project_root=tmp_path / "project")
+    with pytest.raises(FileNotFoundError, match="managed LoRA"):
+        resolve_managed_lora_path("missing.safetensors", paths)
+
+    outside = tmp_path / "outside.safetensors"
+    outside.write_bytes(b"lora")
+    link = paths.model_root / "loras" / "link.safetensors"
+    link.parent.mkdir(parents=True)
+    link.write_bytes(b"placeholder")
+    escaped = outside.resolve()
+    real_resolve = Path.resolve
+
+    def resolve_symlink(path, *args, **kwargs):
+        return escaped if path == link else real_resolve(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve_symlink)
+
+    with pytest.raises(ValueError, match="managed LoRA"):
+        resolve_managed_lora_path("link.safetensors", paths)
 
 
 def test_load_image_tensor_uses_comfy_image_layout(tmp_path):

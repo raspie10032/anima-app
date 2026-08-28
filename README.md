@@ -6,6 +6,7 @@ Anima APP packages a focused Anima text-to-image workflow around a local, projec
 
 ## Reference Map
 
+- [docs/USER_GUIDE_KO.md](docs/USER_GUIDE_KO.md): 설치, GUI, CLI, AI 에이전트 API, 오류 해결을 포함한 한국어 상세 사용 가이드.
 - [docs/REFERENCES.md](docs/REFERENCES.md): public source references, model asset layout, wildcard attribution, and release boundaries.
 - [NOTICE.md](NOTICE.md): third-party runtime, optional detector runtime, LoRA redistribution, and wildcard notices.
 - [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md): accepted feature checklist.
@@ -44,15 +45,18 @@ By default, the app downloads the base profile from Hugging Face when a configur
 $env:ANIMA_APP_MODEL_SOURCE='path\to\comfyui\models'
 ```
 
+The GUI shows whether each preparation action will use a local copy or a remote/Hugging Face download. It asks for confirmation and submits that displayed source explicitly, so a missing local file cannot silently switch the same click to a large download. Local copies, remote downloads, and LoRA imports are validated in a temporary file and atomically replace the destination only after validation succeeds.
+
 Required base files are copied into the project-local `models` tree:
 
 - `models\diffusion_models\anima-base-v1.0.safetensors`
 - `models\text_encoders\qwen_3_06b_base.safetensors`
 - `models\vae\qwen_image_vae.safetensors`
 
-When `models\diffusion_models\anima-aesthetic-v1.1.safetensors` is installed, the GUI selects it by default. If it is missing, the app falls back to `anima-base-v1.0.safetensors`.
+When `models\diffusion_models\anima-aesthetic-v1.1.safetensors` is valid, the GUI selects it by default. Otherwise it uses a valid `anima-base-v1.0.safetensors`, then the first valid custom checkpoint. Invalid checkpoint files remain visible for diagnosis but are not preferred over a usable model.
 
 Additional Anima-family diffusion checkpoints can be placed under `models\diffusion_models` and selected by relative `.safetensors` path.
+Runtime Status labels model profiles as required, recommended, or optional. Actual generation readiness is calculated separately for the selected checkpoint plus the shared text encoder and VAE, so a valid custom-only checkpoint setup can run even when the default base checkpoint is absent.
 
 Optional face-detailer detector files are downloaded automatically when a configured local detector folder is not available:
 
@@ -86,7 +90,15 @@ python -m anima_app.cli models import-lora "path\to\style.safetensors"
 python -m anima_app.cli models loras
 ```
 
+The browser GUI also accepts one local file at a time by picker or drag-and-drop. Reference images are streamed to `inputs\references`, validated as a single-frame PNG, JPEG, or WebP, and stored under a SHA-256 content name. They are limited to 64 MiB, 8192 pixels on either side, and 16,777,216 pixels total. Identical content reuses the existing file.
+
+Browser-uploaded LoRAs are streamed to `models\loras`, limited to 1 GiB, and must be non-empty valid `.safetensors` files. Uploading the same name and same content reuses the file. A different file with the same name is preserved under `<stem>-<sha256-prefix>.safetensors`; an existing LoRA is never overwritten by this upload path. The GUI validates the extension and byte limit before upload, disables generation while a transfer is active, and automatically selects a successful LoRA upload.
+
+For browser and HTTP generation, reference images must use an app-managed relative path under `inputs/references` or `outputs/images`, and LoRAs must use a relative path below `models/loras`. Absolute paths, traversal, missing files, and symlink escapes are rejected before generation or queue registration. Direct CLI workflows retain their existing explicit absolute-path support.
+
 ## Run The GUI
+
+For the complete Korean GUI workflow, see [docs/USER_GUIDE_KO.md](docs/USER_GUIDE_KO.md#3-gui-사용법).
 
 On Windows, double-click:
 
@@ -104,6 +116,7 @@ python -m anima_app.cli serve --host 127.0.0.1 --port 0 --open
 
 The server chooses a free local port and opens the browser UI.
 The Windows launcher sets `CUDA_VISIBLE_DEVICES` from `ANIMA_APP_CUDA_VISIBLE_DEVICES`, defaulting to CUDA device `0`, before Python starts.
+If Python exits with an error, the launcher keeps the window open, preserves the exit code, and points to the setup instructions. A normal shutdown does not pause.
 
 ## Optional LLM Runtime Bridge
 
@@ -178,13 +191,53 @@ Prompt autocomplete reads a ComfyUI Custom Scripts-style `autocomplete.txt` file
 $env:ANIMA_APP_AUTOCOMPLETE_SOURCE='path\to\autocomplete.txt'
 ```
 
-The server loads the file into memory when the GUI starts and refreshes the cache if the file changes. Autocomplete is available in the main prompt, negative prompt, and masked-inpaint prompt fields.
+The server loads the file into memory when the GUI starts and refreshes the cache if the file changes. Autocomplete is available in the main prompt, negative prompt, and masked-inpaint prompt fields. A selection replaces the complete comma- or newline-delimited tag at the cursor, appends the separator for the next tag, and ignores an older response that arrives after a newer query. Arrow keys move through the visible list, Enter applies a suggestion, Escape closes it, and Tab keeps normal focus navigation.
 
-## Auto Queue
+## Saved Settings
 
-The GUI can run a fixed auto queue count or Infinity mode through the server-side job queue. Once queued, jobs continue while the Python server process is alive even if the browser-side loop is interrupted.
+Generation settings are stored under `outputs\presets` as validated JSON. Saving publishes a complete temporary file with flush/fsync and atomic replacement, refuses linked or junction-backed storage, normalizes accepted request aliases into the canonical API shape, records an update timestamp, and rejects a different name that would collide with an existing filename slug. A malformed preset is reported and skipped instead of breaking the complete list or export.
 
-Stop cancels queued or waiting jobs immediately and sends a runtime interrupt request for the running job when the Comfy runtime is loaded. Some GPU work may finish its current internal step before the running job stops.
+Exported bundles use `anima-app/presets.v1`. Import validates the bundle schema, every request, and duplicate filename slugs before writing any item; each accepted file is then atomically published. Preset names are limited to 120 characters and Windows-reserved filenames are rejected.
+
+The saved-settings controls and long-running SAM3/inpaint status expose polite live updates. Starting size and orientation report their pressed state, generated images have meaningful alternative text, dynamic LoRA strength inputs participate in browser validation, and `prefers-reduced-motion` disables the progress pulse and smooth scrolling.
+
+## AI Agent API
+
+`GET /api/openapi.json` publishes an OpenAPI 3.1 document for local AI agents without adding a second server or runtime dependency. It describes the canonical generation request, current defaults and limits, model/readiness discovery, synchronous generation, queued generation, polling, cancellation, progress, and manifest retrieval. Agents should prefer `POST /api/jobs`, poll `GET /api/jobs/<job-id>`, and pass the completed result's `manifest_name` directly to `GET /api/manifests/<manifest-name>`.
+
+The document marks canonical request objects with `additionalProperties: false`; clients should validate against it before submitting GPU work because the compatibility parser may ignore unknown fields. POST retries are not idempotent yet and can create another generation, so an agent must inspect the returned queue state instead of automatically retrying an uncertain submission. The API remains loopback-only and must not be exposed directly to a LAN or the internet.
+
+For a complete Korean walkthrough with PowerShell examples, asset upload, queue polling, cancellation, and error handling, see [docs/USER_GUIDE_KO.md](docs/USER_GUIDE_KO.md#7-ai-에이전트-api-사용법).
+
+## Generation API Errors
+
+`POST /api/generate` reports expected generation failures as JSON with a stable `error_code` and a human-readable `error`. Missing or invalid required model files return HTTP `409` with `error_code: "models_not_ready"` and separate `missing_files` / `invalid_files` paths relative to the local `models` root; missing request files return HTTP `400` with `error_code: "generation_input_missing"`; runtime generation failures return HTTP `500` with `error_code: "generation_failed"`. Server-side queue jobs expose the same generation payload under `result` and preserve its status in `http_status`.
+
+When the GUI receives `models_not_ready`, it opens Runtime Status so the missing files can be reviewed. It does not start a model download automatically.
+
+## Local HTTP And Resource Safety
+
+The browser server is local-only: it accepts `localhost` or IPv4 loopback bind addresses and rejects IPv6, wildcard, or LAN-facing binds. Every request must explicitly target the active loopback port in `Host`. State-changing requests also reject a present cross-origin `Origin`; local API clients may omit `Origin`. JSON mutations require `Content-Type: application/json`, one top-level object, valid Unicode text, finite numbers, at most 64 nesting levels, and a body no larger than 1 MiB.
+
+`POST /api/inputs/reference?filename=...` and `POST /api/loras/upload?filename=...` are the two raw-body upload endpoints used by the GUI. They require exactly one positive `Content-Length`, reject transfer encoding and unsupported media types, stream through a bounded temporary file, and remove that temporary file after validation or failure. Reference uploads accept canonical PNG/JPEG/WebP media types or generic octet-stream; LoRA uploads use octet-stream. The 64 MiB reference and 1 GiB LoRA limits are enforced before reading an oversized body and again while publishing the validated asset.
+
+Generation requests are rejected before rendering or queue registration when they exceed the conservative low-VRAM safety envelope: prompt and negative prompt are each at most 32,768 characters; each base dimension is at most 2048; the base image is at most 1,572,864 pixels; the latent-rounded enabled-upscale result is at most 4,194,304 pixels; sampling stages are at most 100 steps; API seed is an integer from 0 through `2^64 - 1`; CFG is at most 20; and upscale scale is at most 4. The browser limits seed to JavaScript's exact-integer range (`2^53 - 1`) so it never silently rounds a value. Tiles are 64-2048 pixels with overlap limited to one quarter of the tile, while face-detailer and LoRA inputs have matching finite upper bounds. Feature flags must be JSON booleans rather than truthy strings. SAM3 and masked inpaint apply prompt and source-image pixel guards before decoding or model work. These guards block accidental unbounded allocations and non-finite values; they do not guarantee that every valid request fits every GPU.
+
+The server accepts 1-99 jobs per finite batch and at most 99 queued, waiting, or running jobs in total. Queue delay is a finite value from 0 through 60 seconds, and an incrementing seed wraps inside the supported seed range. Generation, model preparation, SAM3 segment/compare, and masked inpaint share one GPU lock. A competing direct GPU request returns HTTP `409` with `error_code: "generation_busy"`; queued work remains visible as waiting until the lock is available.
+
+## Cancelable Generation and Auto Queue
+
+The GUI sends both a normal Generate action and Auto Queue batches through the server-side job queue. A normal Generate action is a one-job fixed-seed batch, so the same `현재 작업 정지` control can cancel it without adding a second generation path.
+
+Once queued, jobs continue while the Python server process is alive even if the browser is refreshed or its polling loop is interrupted. On reload, the GUI reconnects to the active server batch, restores the running controls and stage progress, and lets the user stop that batch. Queue state is in memory and is not restored after the Python server itself restarts.
+
+Infinity mode schedules another job only after the current job succeeds. A failed generation remains in the queue results and stops further Infinity scheduling.
+
+Fixed and Infinity queues validate the generation request and selected checkpoint before creating jobs. An invalid request returns HTTP `400`; an unready request returns one HTTP `409` response instead of registering a batch of deterministic failures. Dry-run queues bypass the model gate but keep request resource validation.
+
+Stop cancels queued or lock-waiting jobs immediately and sends a runtime interrupt request only for the job that has actually started rendering. A cooperative Comfy interrupt is reported as `cancelled`; some GPU work may finish its current internal step before the running job stops. If a stop request fails, the Stop control becomes available again while the server job remains tracked.
+
+`POST /api/generate` remains available as a synchronous compatibility endpoint. API clients that need polling or cancellation should enqueue one job with `POST /api/jobs` and cancel it with `POST /api/jobs/<job-id>/cancel`.
 
 ## Update Check
 
@@ -194,7 +247,33 @@ Update checks are read-only. The app does not run `git pull`, download archives,
 
 ## History And Compare Grid
 
-Click a history item to load that generation's final image in the center result panel. When a generation has intermediate outputs, the result panel shows a Compare Stages button for Original, Upscale, and Face Detailer image comparison.
+Click a history item to load that generation's final image in the center result panel. History loads eight records at a time and exposes `더 보기` while an opaque cursor has older records. Search and the All / Images / Dry Run filters are applied by the server before pagination, so older matching records are not hidden behind a newer page. `GET /api/history` accepts a bounded `q` value and `type=all|images|dry-run`.
+
+History cards request an on-demand JPEG thumbnail bounded to 320 pixels instead of downloading the full PNG. Thumbnail generation stays in memory and does not create a second thumbnail cache on disk. The history panel also shows managed image and manifest counts, their byte totals, and free disk space from `/api/health`.
+
+A malformed manifest is skipped instead of breaking the whole list, and newly written manifests are atomically published. Deletion remains an explicit, confirmed, per-record action: it preflights the complete manifest, never follows output symlinks or Windows junctions, rolls back a multi-file deletion that fails partway, and retains an image that another manifest still references. The app does not automatically delete old, unreferenced, or over-quota files because `outputs` can contain masks, crops, overlays, and manually managed artifacts outside history ownership.
+
+When a generation has intermediate outputs, the result panel shows a Compare Stages button for Original, Upscale, and Face Detailer image comparison. Generation warnings are also shown in the visible result summary rather than only in raw JSON.
+
+## Package Verification
+
+Run the release-path checks from a source checkout:
+
+```powershell
+python scripts\verify_vendor.py
+python scripts\package_dry_run.py
+python scripts\source_archive.py
+```
+
+The vendor check verifies the disclosed patched package hashes and product boundary. The wheel check copies package source into a temporary build root, installs the resulting wheel into a temporary target, verifies package/application version agreement and the packaged GUI JavaScript, proves that the root vendored runtime is absent, and runs a CLI dry-run. It does not turn the wheel into a standalone generation build.
+
+The source-archive command writes `outputs\release\anima-app-0.4.0-source.zip` and its `.sha256` file, verifies required runtime, launcher, UI, notice, license, and wildcard-disclosure files, then extracts it and runs vendor plus CLI dry-run checks. A local dirty checkout can produce a review candidate. The official release command is stricter:
+
+```powershell
+python scripts\source_archive.py --require-clean
+```
+
+That mode refuses uncommitted files and reads committed Git blobs with fixed uncompressed ZIP metadata, avoiding checkout line-ending and compressor-version drift. The script does not create a tag, publish a GitHub release, or upload anything.
 
 ## Runtime Boundary
 
@@ -204,4 +283,4 @@ Click a history item to load that generation's final image in the center result 
 - The optional LLM bridge does not launch Gemma4 itself; `ANIMA_LLM_RUNTIME_URL` must point at a separately managed local worker.
 - Local model weights, detector weights, LoRA files, input images, and generated outputs are ignored by git and are not part of the public release.
 - Set `ANIMA_APP_CUDA_VISIBLE_DEVICES` when you need to choose a CUDA device for Anima APP. Direct CLI runs also respect an existing `CUDA_VISIBLE_DEVICES` value when the app-specific variable is not set.
-- GitHub source archives are the supported release artifact. The Python wheel does not currently bundle the root-level vendored Comfy runtime and is not a standalone generation build.
+- The verified source-checkout ZIP is the supported release artifact. GitHub's automatic source archives are convenience copies and are not the digest-bound verified artifact. The Python wheel does not bundle the root-level vendored Comfy runtime and is not a standalone generation build.

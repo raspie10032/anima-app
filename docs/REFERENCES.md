@@ -98,8 +98,10 @@ Supported environment variables:
 - `ANIMA_APP_MODEL_SOURCE`: optional local mirror for base model files.
 - `ANIMA_APP_FACE_DETECTOR_SOURCE`: optional detector source folder.
 - `ANIMA_APP_FACE_DETECTOR_FALLBACKS`: optional detector fallback folders separated by the platform path separator.
+- `ANIMA_APP_AUTOCOMPLETE_SOURCE`: optional prompt-autocomplete file path.
 - `ANIMA_APP_CUDA_VISIBLE_DEVICES`: optional app-specific CUDA device selection. The Windows GUI launcher defaults it to `0` before Python starts.
 - `CUDA_VISIBLE_DEVICES`: standard CUDA device selection respected by direct CLI runs when `ANIMA_APP_CUDA_VISIBLE_DEVICES` is not set.
+- `ANIMA_LLM_RUNTIME_URL`: optional URL for a separately managed local LLM worker.
 
 ## Quality Defaults
 
@@ -126,11 +128,11 @@ Prompt preset files live under `wildcards\presets\*.txt`. Tokens use `__presets/
 
 Wildcard file values can contain nested wildcard tokens and inline random choices using `{choice A|choice B|choice C}` syntax. File-backed wildcard tokens follow the selected wildcard mode, while inline choices are always random. The GUI preview expands the current prompt without starting generation and surfaces missing files, invalid paths, and recursive wildcard cycles before GPU work begins.
 
-The included wildcard files may be derived from ComfyUI Impact Pack wildcard files. Keep attribution and license notices with redistributed builds.
+The included wildcard files were copied or derived from a local ComfyUI Impact Pack checkout under the observed GPL-3.0 license. The exact upstream revision was not preserved. Keep that provenance limit, attribution, and the license text with redistributed builds.
 
 ## Release Boundary
 
-Current release target: `0.3.0` source-checkout beta.
+Current release target: `0.4.0` source-checkout beta.
 
 Included:
 
@@ -139,6 +141,7 @@ Included:
 - Selected vendored Python packages under `vendor\python_packages`.
 - Root GUI launcher for Windows users.
 - Public docs, notices, and wildcard files.
+- CI and release verification scripts, including the vendored integrity check and deterministic source archive generator.
 
 Excluded:
 
@@ -147,10 +150,11 @@ Excluded:
 - LoRA files.
 - Input images.
 - Generated output images and generation-info JSON files.
+- Unused aimdo native allocator DLLs and ignored local `comfy-kitchen` native extensions.
 
 Not finalized:
 
 - Standalone binary packaging.
 - Final wheel redistribution policy for vendored runtime assets.
-- Automated public release packaging beyond GitHub source archives.
+- Public tag creation and release upload; these remain owner-controlled manual actions.
 - A standalone wheel containing the root-level vendored Comfy runtime.

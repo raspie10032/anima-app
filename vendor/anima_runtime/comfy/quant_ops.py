@@ -5,8 +5,8 @@ import os
 from comfy.cli_args import args
 
 try:
-    if os.environ.get("GEMMANIMA_DISABLE_COMFY_KITCHEN", "1").strip().lower() not in {"0", "false", "no"}:
-        raise ImportError("GemmAnima embedded runtime disables comfy_kitchen native ops by default")
+    if os.environ.get("ANIMA_APP_DISABLE_COMFY_KITCHEN", "1").strip().lower() not in {"0", "false", "no"}:
+        raise ImportError("Anima APP embedded runtime disables comfy_kitchen native ops by default")
     import comfy_kitchen as ck
     from comfy_kitchen.tensor import (
         QuantizedTensor,

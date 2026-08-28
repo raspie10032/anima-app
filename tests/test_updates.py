@@ -12,7 +12,7 @@ from anima_app.updates import (
 def test_version_payload_reports_current_app_metadata():
     payload = version_payload()
 
-    assert payload["version"] == "0.3.0"
+    assert payload["version"] == "0.4.0"
     assert payload["repository"] == APP_REPOSITORY
     assert payload["repository_url"] == APP_REPOSITORY_URL
 

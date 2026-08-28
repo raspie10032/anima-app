@@ -1,21 +1,34 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import time
 from typing import Sequence
+import warnings
 
 import numpy as np
 import torch
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, UnidentifiedImageError
 
+from anima_app.assets import (
+    MAX_LORA_UPLOAD_BYTES,
+    MAX_REFERENCE_IMAGE_DIMENSION,
+    MAX_REFERENCE_IMAGE_PIXELS,
+    MAX_REFERENCE_UPLOAD_BYTES,
+    REFERENCE_IMAGE_EXTENSIONS,
+    asset_file_is_ready,
+    required_t2i_model_files,
+)
 from anima_app.comfy_runtime import bootstrap_comfy_runtime
 from anima_app.config import AppPaths
 from anima_app.defaults import DEFAULT_T2I_CHECKPOINT
 from anima_app.gpu import configure_default_cuda_device
 from anima_app.output_names import allocate_output_path
 from anima_app.requests import FaceDetailerSettings, T2ILoraConfig, T2IRequest, VaeDecodeSettings
-from anima_app.runtime.pipeline import T2IRenderOutput, latent_shape_for_request
+from anima_app.runtime.pipeline import ModelsNotReadyError, T2IRenderOutput, latent_shape_for_request
+
+
+FACE_DETAILER_TARGET_LONG_EDGE = 1536
 
 
 @dataclass(frozen=True)
@@ -66,10 +79,11 @@ class RuntimeMetrics:
 
 
 def default_model_paths(paths: AppPaths, *, checkpoint: str = DEFAULT_T2I_CHECKPOINT) -> T2IModelPaths:
+    diffusion_model, text_encoder, vae = required_t2i_model_files(paths, checkpoint)
     return T2IModelPaths(
-        diffusion_model=_diffusion_model_path(paths, checkpoint),
-        text_encoder=paths.model_root / "text_encoders" / "qwen_3_06b_base.safetensors",
-        vae=paths.model_root / "vae" / "qwen_image_vae.safetensors",
+        diffusion_model=diffusion_model,
+        text_encoder=text_encoder,
+        vae=vae,
     )
 
 
@@ -77,19 +91,12 @@ def model_paths_for_request(request: T2IRequest, paths: AppPaths) -> T2IModelPat
     return default_model_paths(paths, checkpoint=request.checkpoint)
 
 
-def _diffusion_model_path(paths: AppPaths, checkpoint: str) -> Path:
-    root = (paths.model_root / "diffusion_models").resolve()
-    candidate = (root / checkpoint).resolve()
-    candidate.relative_to(root)
-    return candidate
-
-
 def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
     metrics = RuntimeMetrics()
     configure_default_cuda_device()
-    bootstrap_comfy_runtime(paths)
     model_paths = model_paths_for_request(request, paths)
     _require_model_files(model_paths)
+    bootstrap_comfy_runtime(paths)
 
     import comfy.sample
     import comfy.sd
@@ -277,9 +284,13 @@ def _variant_output_path(output_path: Path, name: str) -> Path:
 
 
 def _require_model_files(model_paths: T2IModelPaths) -> None:
-    missing = [str(path) for path in (model_paths.diffusion_model, model_paths.text_encoder, model_paths.vae) if not path.is_file()]
+    missing = tuple(
+        path
+        for path in (model_paths.diffusion_model, model_paths.text_encoder, model_paths.vae)
+        if not asset_file_is_ready(path)
+    )
     if missing:
-        raise FileNotFoundError("missing copied Anima T2I assets: " + ", ".join(missing))
+        raise ModelsNotReadyError(missing)
 
 
 def _encode_prompt(clip: object, text: str) -> object:
@@ -315,6 +326,95 @@ def _resolve_i2i_image_path(image_path: str, paths: AppPaths) -> Path:
         if candidate.is_file():
             return candidate
     raise FileNotFoundError(f"missing i2i source image: {image_path}")
+
+
+def resolve_managed_reference_path(reference_path: str, paths: AppPaths) -> Path:
+    parts = _managed_relative_parts(reference_path, "managed reference")
+    if parts[:2] == ("inputs", "references"):
+        root = paths.input_root / "references"
+    elif parts[:2] == ("outputs", "images"):
+        root = paths.image_root
+    else:
+        raise ValueError("managed reference path must be under inputs/references or outputs/images")
+    if len(parts) <= 2:
+        raise ValueError("managed reference path must name a file")
+    resolved = _resolve_managed_file(root, parts[2:], "managed reference")
+    _validate_managed_reference_image(resolved)
+    return resolved
+
+
+def resolve_managed_lora_path(lora_path: str, paths: AppPaths) -> Path:
+    parts = _managed_relative_parts(lora_path, "managed LoRA")
+    relative = Path(*parts)
+    if relative.suffix.lower() != ".safetensors":
+        raise ValueError("managed LoRA path must use the .safetensors extension")
+    resolved = _resolve_managed_file(paths.model_root / "loras", parts, "managed LoRA")
+    if resolved.stat().st_size > MAX_LORA_UPLOAD_BYTES:
+        raise ValueError(f"managed LoRA file size must not exceed {MAX_LORA_UPLOAD_BYTES} bytes")
+    return resolved
+
+
+def _managed_relative_parts(value: str, label: str) -> tuple[str, ...]:
+    if not isinstance(value, str):
+        raise ValueError(f"{label} path must be a relative string")
+    raw = value.strip()
+    normalized = raw.replace("\\", "/")
+    windows_path = PureWindowsPath(raw)
+    parts = tuple(normalized.split("/"))
+    if (
+        not raw
+        or normalized.startswith("/")
+        or windows_path.drive
+        or windows_path.root
+        or any(part in {"", ".", ".."} or ":" in part for part in parts)
+    ):
+        raise ValueError(f"{label} path must be a safe relative path")
+    return parts
+
+
+def _resolve_managed_file(root: Path, parts: Sequence[str], label: str) -> Path:
+    resolved_root = root.resolve()
+    try:
+        candidate = root.joinpath(*parts).resolve()
+        candidate.relative_to(resolved_root)
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise ValueError(f"{label} path escapes its managed root") from exc
+    if not candidate.is_file():
+        raise FileNotFoundError(f"missing {label} file: {'/'.join(parts)}")
+    return candidate
+
+
+def _validate_managed_reference_image(path: Path) -> None:
+    suffix = path.suffix.lower()
+    if suffix not in REFERENCE_IMAGE_EXTENSIONS:
+        raise ValueError(f"unsupported managed reference image format: {suffix or '(none)'}")
+    if path.stat().st_size > MAX_REFERENCE_UPLOAD_BYTES:
+        raise ValueError(f"managed reference image size must not exceed {MAX_REFERENCE_UPLOAD_BYTES} bytes")
+
+    expected_format = {".png": "PNG", ".jpg": "JPEG", ".jpeg": "JPEG", ".webp": "WEBP"}[suffix]
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", Image.DecompressionBombWarning)
+            with Image.open(path) as image:
+                width, height = image.size
+                actual_format = str(image.format or "").upper()
+                frames = int(getattr(image, "n_frames", 1))
+                if actual_format != expected_format:
+                    raise ValueError("managed reference image extension does not match its encoded format")
+                if frames != 1:
+                    raise ValueError("managed reference image must contain exactly one frame")
+                if max(width, height) > MAX_REFERENCE_IMAGE_DIMENSION:
+                    raise ValueError(
+                        f"managed reference image dimension must not exceed {MAX_REFERENCE_IMAGE_DIMENSION}"
+                    )
+                if width * height > MAX_REFERENCE_IMAGE_PIXELS:
+                    raise ValueError(
+                        f"managed reference image pixel count must not exceed {MAX_REFERENCE_IMAGE_PIXELS}"
+                    )
+    except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
+        raise ValueError("managed reference image exceeds safe decompression limits") from exc
+    except (OSError, UnidentifiedImageError) as exc:
+        raise ValueError("unsupported or invalid managed reference image") from exc
 
 
 def _load_image_tensor(path: Path, width: int, height: int) -> torch.Tensor:
@@ -469,7 +569,7 @@ def _repaint_face_crop(
     positive: object,
     negative: object,
 ) -> Image.Image:
-    width, height = _latent_aligned_size(crop.size)
+    width, height = _face_detailer_render_size(crop.size)
     pixels = _pil_to_image_tensor(crop, width, height)
     with torch.inference_mode():
         encoded = vae.encode(pixels)
@@ -496,6 +596,12 @@ def _repaint_face_crop(
 def _latent_aligned_size(size: tuple[int, int]) -> tuple[int, int]:
     width, height = size
     return _nearest_multiple(width, 8), _nearest_multiple(height, 8)
+
+
+def _face_detailer_render_size(size: tuple[int, int]) -> tuple[int, int]:
+    width, height = size
+    scale = max(1.0, FACE_DETAILER_TARGET_LONG_EDGE / max(width, height))
+    return _nearest_multiple(round(width * scale), 8), _nearest_multiple(round(height * scale), 8)
 
 
 def _nearest_multiple(value: int, divisor: int) -> int:
