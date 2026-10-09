@@ -41,6 +41,20 @@
     const historyLoadMore = document.getElementById("history-load-more");
     const historyFilters = [...document.querySelectorAll("[data-history-filter]")];
     const checkpointSelect = document.getElementById("checkpoint-select");
+    const providerSelect = document.getElementById("provider-select");
+    const providerStatus = document.getElementById("provider-status");
+    const novelAISettings = document.getElementById("novelai-settings");
+    const naiEffective = document.getElementById("nai-effective");
+    let providerCapabilities = null;
+    let naiTokenConfigured = false;
+    const naiCharacters = document.getElementById("nai-characters");
+    const naiAddCharacter = document.getElementById("nai-add-character");
+    const naiUseCoords = document.getElementById("nai-use-coords");
+    const naiUseOrder = document.getElementById("nai-use-order");
+    const convertField = document.getElementById("convert-field");
+    const convertApply = document.getElementById("convert-apply");
+    let conversion = null;
+    let conversionRevision = 0;
     const loraList = document.getElementById("lora-list");
     const addLoraButton = document.getElementById("add-lora");
     const presetName = document.getElementById("preset-name");
@@ -52,6 +66,23 @@
     const presetImportFile = document.getElementById("preset-import-file");
     const presetStatus = document.getElementById("preset-status");
     const applyManifestButton = document.getElementById("apply-manifest");
+    const naiMetadataFile = document.getElementById("nai-metadata-file");
+    const naiMetadataDropZone = document.getElementById("nai-metadata-drop-zone");
+    const naiMetadataStatus = document.getElementById("nai-metadata-status");
+    const naiMetadataPreview = document.getElementById("nai-metadata-preview");
+    const naiMetadataModel = document.getElementById("nai-metadata-model");
+    const applyNaiMetadataButton = document.getElementById("apply-nai-metadata");
+    let naiMetadata = null;
+    let naiMetadataRevision = 0;
+    const naiOperation = document.getElementById("nai-operation");
+    naiOperation.value = "generate";
+    const naiInpaintInputs = document.getElementById("nai-inpaint-inputs");
+    const naiInpaintStatus = document.getElementById("nai-inpaint-status");
+    const naiMaskCanvas = document.getElementById("nai-mask-canvas");
+    const naiInputPreview = document.getElementById("nai-input-preview");
+    const naiMaskBuffer = document.createElement("canvas");
+    let naiInputObjectUrl = null;
+    let naiMaskPointer = null;
     const sam3Tools = document.getElementById("sam3-tools");
     const sam3Prompt = document.getElementById("sam3-prompt");
     const sam3SegmentButton = document.getElementById("sam3-segment");
@@ -304,15 +335,30 @@
       return card;
     }
     function syncGenerationControls() {
-      const blocked = Boolean(generationReadiness && !generationReadiness.ready);
+      const localPreview = ["detail", "focused_infill"].includes(naiOperation.value) && document.getElementById("nai-detailer-preview").checked;
+      const blocked = providerSelect.value === "novelai"
+        ? !providerCapabilities || (!providerCapabilities.default_dry_run && !naiTokenConfigured && !localPreview)
+        : Boolean(generationReadiness && !generationReadiness.ready);
       const uploadBlocked = activeUploadCount > 0;
       generateButton.disabled = queueRunning || blocked || uploadBlocked;
       startQueueButton.disabled = queueRunning || blocked || uploadBlocked;
       const explanation = uploadBlocked
         ? "파일 업로드가 끝날 때까지 기다려 주세요."
-        : (blocked ? "선택한 체크포인트의 필수 모델 파일을 먼저 준비하세요." : "");
+        : (blocked ? (providerSelect.value === "novelai" ? "NAI_ACCESS_TOKEN 환경변수와 엔진 상태를 확인하세요." : "선택한 체크포인트의 필수 모델 파일을 먼저 준비하세요.") : "");
       generateButton.title = explanation;
       startQueueButton.title = explanation;
+      providerSelect.disabled = queueRunning || uploadBlocked;
+      applyNaiMetadataButton.disabled = queueRunning || uploadBlocked || !naiMetadata || !naiMetadataModel.value;
+      naiOperation.disabled = providerSelect.value !== "novelai" || queueRunning || uploadBlocked;
+      naiInpaintInputs.querySelectorAll("input, select, button").forEach((input) => {
+        input.disabled = naiInpaintInputs.hidden || queueRunning || uploadBlocked;
+      });
+      document.getElementById("nai-reference-panel").querySelectorAll("input, select, button").forEach((input) => {
+        input.disabled = providerSelect.value !== "novelai" || queueRunning || uploadBlocked;
+      });
+      document.getElementById("nai-detailer-panel").querySelectorAll("input, select, button").forEach((input) => {
+        input.disabled = providerSelect.value !== "novelai" || queueRunning || uploadBlocked;
+      });
     }
     function renderReadiness(payload) {
       const profiles = payload.profiles || [];
@@ -402,6 +448,7 @@
     function statusLabel(status) {
       const labels = {
         generated: "생성됨",
+        previewed: "디테일러 미리보기",
         dry_run: "드라이런",
         manifest_exported: "생성 정보 내보냄",
         settings_exported: "설정 내보냄",
@@ -440,6 +487,7 @@
       resultTitle.textContent = payload.prompt || "현재 결과";
       resultStatus.textContent = warnings.length ? `${resultMode(payload)} · 경고 ${warnings.length}` : resultMode(payload);
       const items = [
+        summaryItem("엔진", payload.provider === "novelai" ? "NovelAI" : "로컬 Anima"),
         summaryItem("상태", resultMode(payload)),
         summaryItem("크기", size),
         summaryItem("스텝 / CFG", `${payload.steps ?? "?"} / ${payload.cfg ?? "?"}`),
@@ -452,6 +500,9 @@
       if (payload.face_detailer?.enabled) {
         items.push(summaryItem("페이스 디테일러", face));
       }
+      const regions = payload.detailer_regions || payload.novelai?.detailer || [];
+      if (regions.length) items.push(summaryItem("NAI 보정 영역", regions.map((r) =>
+        `${r.region}: ${r.concept} → ${r.character ? `캐릭터 ${r.character}` : "공통 / 미확정"} · ${r.status} (${r.reason})`).join(" / ")));
       if (warnings.length) {
         items.push(summaryItem("경고", warnings.join(" · ")));
       }
@@ -538,6 +589,10 @@
       syncCompareControls(null);
     }
     function buildGenerationStages(data) {
+      if (data.provider === "novelai") {
+        return [{key: "request", label: "요청"}, {key: "wildcards", label: "프롬프트 / 와일드카드"},
+                {key: "base_t2i", label: "NovelAI 응답 대기"}, {key: "metadata", label: "결과 저장"}];
+      }
       return [
         {key: "request", label: "요청"},
         {key: "wildcards", label: "프롬프트 / 와일드카드"},
@@ -714,7 +769,7 @@
       preview.hidden = false;
       outputLink.href = url;
       outputLink.hidden = false;
-      sam3Tools.hidden = false;
+      sam3Tools.hidden = providerSelect.value === "novelai" || currentManifest?.provider === "novelai";
       sam3Status.textContent = "SAM3 마스크를 만들 수 있습니다.";
     }
     function setCurrentMaskFromPayload(payload) {
@@ -1044,7 +1099,10 @@
         throw new Error("파일 한 개를 선택해 주세요.");
       }
       const name = file.name.toLowerCase();
-      if (kind === "reference") {
+      if (kind === "reference" || kind === "metadata") {
+        if (kind === "metadata" && !/[.](png|webp)$/.test(name)) {
+          throw new Error("NAI PNG 또는 WebP 파일을 선택해 주세요.");
+        }
         if (!/[.](png|jpe?g|webp)$/.test(name)) {
           throw new Error("참조 이미지는 PNG, JPEG 또는 WebP만 사용할 수 있습니다.");
         }
@@ -1208,6 +1266,165 @@
         setUploadActive(false);
       }
     }
+    async function readNaiMetadata(file) {
+      const revision = ++naiMetadataRevision;
+      naiMetadata = null;
+      naiMetadataPreview.hidden = true;
+      syncGenerationControls();
+      if (queueRunning || activeUploadCount > 0) {
+        throw new Error("생성과 파일 업로드가 끝난 뒤 생성 조건을 불러와 주세요.");
+      }
+      validateUploadFile(file, "metadata");
+      setUploadActive(true);
+      naiMetadataStatus.textContent = `${file.name}: 메타데이터 읽는 중…`;
+      try {
+        const payload = await uploadFile("/api/metadata/novelai", file, "metadata");
+        if (revision !== naiMetadataRevision) return;
+        naiMetadata = payload;
+        const request = payload.request;
+        document.getElementById("nai-metadata-summary").textContent = [
+          `모델 해시: ${payload.model_hash || "없음"}`,
+          `원본 표기: ${payload.source_model || "미기록"}`,
+          `모델 대응: ${payload.detected_model || "확인 필요"} · 생성 방식: ${{t2i: "T2I", i2i: "I2I", inpaint: "인페인트", unknown: "확인 필요"}[payload.generation_mode]}`,
+          `생성 크기: ${request.width ?? "미기록"} × ${request.height ?? "미기록"}`,
+          `스텝: ${request.steps ?? "미기록"} · CFG: ${request.cfg ?? "미기록"} · 시드: ${request.seed ?? "미기록"}`,
+          `샘플러: ${request.nai_sampler ?? "미기록"} · 스케줄러: ${request.nai_scheduler ?? "미기록"}`,
+          `CFG rescale: ${request.nai_cfg_rescale ?? "미기록"} · Brownian: ${request.nai_prefer_brownian ?? "미기록"} · Variety boost: ${request.nai_variety_boost ?? "미기록"}`,
+          "", "프롬프트", request.prompt ?? "미기록", "", "네거티브 프롬프트", request.negative_prompt ?? "미기록"
+        ].join("\n");
+        naiMetadataModel.replaceChildren(new Option("모델을 확인하고 선택하세요", ""),
+          ...payload.model_candidates.map((value) => new Option(value, value)));
+        document.getElementById("nai-metadata-summary").textContent += `\n\n캐릭터: ${request.nai_characters?.length ?? 0}명\n` +
+          (request.nai_characters || []).map((c, index) => `캐릭터 ${index + 1} (${c.x}, ${c.y})\n${c.prompt}\n네거티브: ${c.negative_prompt}`).join("\n");
+        naiMetadataModel.value = request.nai_model || "";
+        document.getElementById("nai-metadata-warnings").textContent = payload.warnings.join("\n");
+        naiMetadataPreview.hidden = false;
+        applyNaiMetadataButton.textContent = payload.generation_mode === "inpaint"
+          ? "인페인트 조건 적용" : payload.generation_mode === "i2i" ? "Img2Img 조건 적용" : "생성 조건 적용";
+        naiMetadataStatus.textContent = `${file.name}: 생성 조건을 읽었습니다. 확인 후 적용하세요.`;
+      } finally {
+        naiMetadataFile.value = "";
+        setUploadActive(false);
+      }
+    }
+    function resetNaiEditor() {
+      if (naiInputObjectUrl) URL.revokeObjectURL(naiInputObjectUrl);
+      naiInputObjectUrl = null;
+      naiInputPreview.removeAttribute("src");
+      document.getElementById("nai-mask-editor").hidden = true;
+      naiMaskCanvas.width = naiMaskBuffer.width = 0;
+      naiMaskCanvas.height = naiMaskBuffer.height = 0;
+      naiMaskPointer = null;
+      naiInpaintStatus.textContent = form.elements.input_image.value
+        ? `입력: ${form.elements.input_image.value} · 마스크: ${form.elements.mask_image.value || "없음"}. 편집하려면 입력 파일을 다시 선택하세요.`
+        : "입력 이미지와 수정할 마스크를 지정하세요.";
+    }
+    function redrawNaiMask() {
+      const pixels = naiMaskBuffer.getContext("2d").getImageData(0, 0, naiMaskBuffer.width, naiMaskBuffer.height);
+      for (let i = 0; i < pixels.data.length; i += 4) {
+        const coverage = pixels.data[i];
+        pixels.data[i] = 65;
+        pixels.data[i + 1] = 145;
+        pixels.data[i + 2] = 255;
+        pixels.data[i + 3] = Math.round(coverage * 0.5);
+      }
+      naiMaskCanvas.getContext("2d").putImageData(pixels, 0, 0);
+    }
+    async function showNaiInput(url) {
+      const image = new Image();
+      image.src = url;
+      await image.decode();
+      naiInputPreview.src = url;
+      naiMaskCanvas.width = naiMaskBuffer.width = image.naturalWidth;
+      naiMaskCanvas.height = naiMaskBuffer.height = image.naturalHeight;
+      const context = naiMaskBuffer.getContext("2d");
+      context.fillStyle = "black";
+      context.fillRect(0, 0, image.naturalWidth, image.naturalHeight);
+      document.getElementById("nai-mask-editor").hidden = false;
+      form.elements.width.value = image.naturalWidth;
+      form.elements.height.value = image.naturalHeight;
+      redrawNaiMask();
+    }
+    async function uploadNaiInput(file, mask = false) {
+      if (queueRunning || !uploadsAreIdle()) return;
+      validateUploadFile(file, "reference");
+      if (mask && !form.elements.input_image.value) throw new Error("입력 이미지를 먼저 지정하세요.");
+      const field = mask ? form.elements.mask_image : form.elements.input_image;
+      field.value = "";
+      if (!mask) { form.elements.mask_image.value = ""; resetNaiEditor(); }
+      setUploadActive(true);
+      try {
+        const uploaded = await uploadFile("/api/inputs/reference", file, "reference");
+        const url = URL.createObjectURL(file);
+        try {
+          const image = new Image();
+          image.src = url;
+          await image.decode();
+          if (mask) {
+            if (image.naturalWidth !== Number(form.elements.width.value) || image.naturalHeight !== Number(form.elements.height.value)) {
+              throw new Error("입력 이미지와 마스크 크기가 다릅니다.");
+            }
+            if (naiMaskBuffer.width) {
+              const ctx = naiMaskBuffer.getContext("2d");
+              ctx.fillStyle = "black";
+              ctx.fillRect(0, 0, naiMaskBuffer.width, naiMaskBuffer.height);
+              ctx.drawImage(image, 0, 0);
+              // Use luminance, matching the server's grayscale mask interpretation.
+              const data = ctx.getImageData(0, 0, naiMaskBuffer.width, naiMaskBuffer.height);
+              for (let i = 0; i < data.data.length; i += 4) {
+                const gray = Math.round(0.299 * data.data[i] + 0.587 * data.data[i + 1] + 0.114 * data.data[i + 2]);
+                data.data[i] = data.data[i + 1] = data.data[i + 2] = gray;
+              }
+              ctx.putImageData(data, 0, 0);
+              redrawNaiMask();
+            }
+          } else {
+            await showNaiInput(url);
+            naiInputObjectUrl = url;
+          }
+          field.value = uploaded.relative_path;
+        } finally { if (mask || naiInputObjectUrl !== url) URL.revokeObjectURL(url); }
+        naiInpaintStatus.textContent = `입력: ${form.elements.input_image.value} · 마스크: ${form.elements.mask_image.value || "그린 뒤 저장하세요"}`;
+      } finally { setUploadActive(false); syncGenerationResourceValidity(); syncGenerationControls(); }
+    }
+    async function saveNaiMask() {
+      if (queueRunning || !uploadsAreIdle() || !naiMaskBuffer.width) return;
+      setUploadActive(true);
+      try {
+        const blob = await new Promise((resolve) => naiMaskBuffer.toBlob(resolve, "image/png"));
+        if (!blob) throw new Error("마스크를 저장할 수 없습니다.");
+        const uploaded = await uploadFile("/api/inputs/reference", new File([blob], "inpaint-mask.png", {type: "image/png"}), "reference");
+        form.elements.mask_image.value = uploaded.relative_path;
+        naiInpaintStatus.textContent = "그린 마스크를 저장했습니다. 전송 설정과 비용 한도를 확인하세요.";
+      } finally { setUploadActive(false); syncGenerationResourceValidity(); syncGenerationControls(); }
+    }
+    function applyNaiMetadata() {
+      if (!naiMetadata || !naiMetadataModel.value || queueRunning || !uploadsAreIdle()) return;
+      // Apply only recognized fields. Missing fields and the user's cost cap stay unchanged.
+      const request = naiMetadata.request;
+      providerSelect.value = "novelai";
+      naiOperation.value = request.operation || "generate";
+      renderNovelAIOptions();
+      setSelectValue(form.elements.nai_model, naiMetadataModel.value);
+      for (const [key, value] of Object.entries(request)) {
+        if (["provider", "nai_model", "nai_characters", "nai_use_coords", "nai_use_order"].includes(key)) continue;
+        const input = form.elements[key];
+        if (!input) continue;
+        if (input.type === "checkbox") input.checked = value;
+        else if (input.tagName === "SELECT") setSelectValue(input, value);
+        else input.value = value;
+      }
+      setNaiCharacters(request.nai_characters || []);
+      setNaiReferences([], []);
+      setNaiDetailer(request.nai_detailer || {});
+      naiUseCoords.checked = request.nai_use_coords ?? true;
+      naiUseOrder.checked = request.nai_use_order ?? true;
+      syncStartingPointSelectionFromInputs();
+      syncProviderControls();
+      if (request.operation && request.operation !== "generate") resetNaiEditor();
+      naiMetadataStatus.textContent = "NAI 생성 조건을 적용했습니다. 전송 설정을 확인하고 생성하기를 누르세요.";
+      form.elements.prompt.focus();
+    }
     function setupSingleFileDropZone(zone, input, onFile, onError, uploadOnChange = true) {
       const run = (files) => {
         if (!files || files.length !== 1) {
@@ -1265,17 +1482,25 @@
       return payload.outputs;
     }
     async function loadStatus() {
-      const [healthResponse, loraResponse, checkpointResponse, versionResponse] = await Promise.all([
+      const [healthResponse, loraResponse, checkpointResponse, versionResponse, providersResponse, naiResponse] = await Promise.all([
         fetch("/api/health"),
         fetch("/api/loras"),
         fetch("/api/checkpoints"),
-        fetch("/api/version")
+        fetch("/api/version"),
+        fetch("/api/providers"),
+        fetch("/api/nai/status")
       ]);
       const health = await healthResponse.json();
       renderHistoryStorage(health.outputs);
       const loras = await loraResponse.json();
       const checkpoints = await checkpointResponse.json();
       const version = await versionResponse.json();
+      if (!providersResponse.ok || !naiResponse.ok) {
+        throw new Error("생성 엔진 상태 확인 실패");
+      }
+      providerCapabilities = await providersResponse.json();
+      naiTokenConfigured = Boolean((await naiResponse.json()).configured);
+      renderNovelAIOptions();
       const selectedCheckpoint = checkpointSelect.value;
       renderCheckpointOptions(checkpoints, selectedCheckpoint);
       loraCatalog = loras.items || [];
@@ -1294,6 +1519,7 @@
         statusCard("출력", health.outputs.image_root)
       );
       renderUpdateStatus(version);
+      syncProviderControls();
     }
     function historyType(item) {
       return item.output_url ? "images" : "dry-run";
@@ -2028,7 +2254,8 @@
         return null;
       }
       const normalized = value.replace(/^0+(?=\d)/, "");
-      const maximum = String(animaDefaults.limits.max_seed_safe);
+      const maximum = String(input === form.elements.seed && providerSelect.value === "novelai"
+        ? 4294967295 : animaDefaults.limits.max_seed_safe);
       if (normalized.length > maximum.length || (normalized.length === maximum.length && normalized > maximum)) {
         input.setCustomValidity(`웹 시드는 ${maximum} 이하여야 합니다.`);
         return null;
@@ -2039,6 +2266,9 @@
       return seedNumberFromElement(form.elements.seed);
     }
     function syncGenerationResourceValidity() {
+      form.elements.nai_model.setCustomValidity(providerSelect.value === "novelai" && naiCharacters.children.length &&
+        !form.elements.nai_model.value.startsWith("nai-diffusion-4") && !form.elements.nai_model.value.startsWith("nai-diffusion-5")
+        ? "캐릭터별 프롬프트는 V4 / V5 모델에서 지원합니다." : "");
       const widthInput = form.elements.width;
       const heightInput = form.elements.height;
       const upscaleScaleInput = form.elements.upscale_scale;
@@ -2048,6 +2278,36 @@
       heightInput.setCustomValidity("");
       upscaleScaleInput.setCustomValidity("");
       seedNumberFromInput();
+
+      if (providerSelect.value === "novelai") {
+        naiOperation.setCustomValidity("");
+        if (["infill", "focused_infill"].includes(naiOperation.value)) {
+          if (!form.elements.input_image.value || !form.elements.mask_image.value) {
+            naiOperation.setCustomValidity("입력 이미지와 마스크를 지정하고, 그린 마스크는 저장해 주세요.");
+          } else if (form.elements.nai_limit_opus_free.checked && naiOperation.value === "infill") {
+            naiOperation.setCustomValidity("인페인트는 비용이 발생할 수 있습니다. Opus 요청 한도를 직접 해제해 주세요.");
+          }
+        }
+        if (naiOperation.value === "img2img") {
+          if (!form.elements.input_image.value) naiOperation.setCustomValidity("Img2Img 입력 이미지를 지정해 주세요.");
+          else if (form.elements.nai_limit_opus_free.checked) naiOperation.setCustomValidity("Img2Img는 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요.");
+        }
+        if (naiOperation.value === "detail" && !form.elements.input_image.value) naiOperation.setCustomValidity("디테일러 입력 이미지를 지정해 주세요.");
+        if (!form.elements.nai_limit_opus_free.checked && width * height > animaDefaults.limits.max_base_image_pixels) {
+          heightInput.setCustomValidity(`한도 미적용 시 ${animaDefaults.limits.max_base_image_pixels.toLocaleString()}픽셀 이하여야 합니다.`);
+        }
+        renderNovelAIEffective();
+        const vibes = readNaiReferences("vibe"), references = readNaiReferences("precise");
+        const model = form.elements.nai_model.value;
+        if (vibes.length || references.length) {
+          if (form.elements.nai_limit_opus_free.checked) naiOperation.setCustomValidity("참조는 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요.");
+          else if (vibes.length && references.length) naiOperation.setCustomValidity("Vibe와 Precise Reference는 함께 사용할 수 없습니다.");
+          else if (vibes.length && (!/^nai-diffusion-(3|furry-3|4)/.test(model) || ["infill", "focused_infill", "detail"].includes(naiOperation.value) && model.startsWith("nai-diffusion-4"))) naiOperation.setCustomValidity("이 모델 / 생성 방식은 Vibe를 지원하지 않습니다.");
+          else if (references.length && !model.startsWith("nai-diffusion-4-5")) naiOperation.setCustomValidity("Precise Reference는 V4.5 모델을 선택해 주세요.");
+          else if ([...vibes, ...references].some((r) => !r.image)) naiOperation.setCustomValidity("참조 이미지를 업로드해 주세요.");
+        }
+        return;
+      }
 
       if (width > 0 && height > 0 && width * height > animaDefaults.limits.max_base_image_pixels) {
         heightInput.setCustomValidity(`기본 이미지는 ${animaDefaults.limits.max_base_image_pixels.toLocaleString()}픽셀 이하여야 합니다.`);
@@ -2075,7 +2335,16 @@
     }
     function generationFormIsValid({report = false} = {}) {
       syncGenerationResourceValidity();
-      return report ? form.reportValidity() : form.checkValidity();
+      if (!(report ? form.reportValidity() : form.checkValidity())) return false;
+      if (providerSelect.value === "novelai") {
+        for (const input of naiCharacters.querySelectorAll("input, textarea")) {
+          if (!input.checkValidity()) {
+            if (report) { document.getElementById("nai-characters-panel").open = true; input.reportValidity(); }
+            return false;
+          }
+        }
+      }
+      return true;
     }
     function buildRequestData() {
       if (!generationFormIsValid()) {
@@ -2086,6 +2355,43 @@
       data.height = Number(data.height);
       data.steps = Number(data.steps);
       data.cfg = Number(data.cfg);
+      if (providerSelect.value === "novelai") {
+        const request = {
+          provider: "novelai", prompt: data.prompt, negative_prompt: data.negative_prompt,
+          width: data.width, height: data.height, steps: data.steps, cfg: data.cfg,
+          wildcard_mode: data.wildcard_mode, nai_model: data.nai_model,
+          nai_sampler: data.nai_sampler, nai_scheduler: data.nai_scheduler,
+          nai_cfg_rescale: Number(data.nai_cfg_rescale || 0),
+          nai_prefer_brownian: form.elements.nai_prefer_brownian.checked,
+          nai_variety_boost: form.elements.nai_variety_boost.checked,
+          nai_limit_opus_free: form.elements.nai_limit_opus_free.checked,
+          operation: naiOperation.value,
+          input_image: naiOperation.value !== "generate" ? form.elements.input_image.value : "",
+          mask_image: ["infill", "focused_infill"].includes(naiOperation.value) ? form.elements.mask_image.value : "",
+          inpaint_strength: Number(form.elements.inpaint_strength.value),
+          img2img_strength: Number(form.elements.img2img_strength.value),
+          img2img_noise: Number(form.elements.img2img_noise.value)
+        };
+        for (const input of naiCharacters.querySelectorAll("input, textarea")) {
+          if (!input.checkValidity()) {
+            document.getElementById("nai-characters-panel").open = true;
+            input.reportValidity(); throw new Error("캐릭터 프롬프트와 좌표를 확인해 주세요.");
+          }
+        }
+        request.nai_characters = readNaiCharacters();
+        for (const input of document.querySelectorAll("#nai-reference-panel input, #nai-detailer-panel input")) {
+          if (!input.checkValidity()) { input.closest("details").open = true; input.reportValidity(); throw new Error("참조 / 디테일러 설정 범위를 확인해 주세요."); }
+        }
+        request.nai_use_coords = naiUseCoords.checked;
+        request.nai_use_order = naiUseOrder.checked;
+        request.nai_vibes = readNaiReferences("vibe");
+        request.nai_references = readNaiReferences("precise");
+        request.nai_normalize_vibe_strengths = document.getElementById("nai-normalize-vibes").checked;
+        request.nai_detailer = readNaiDetailer();
+        const seed = seedNumberFromInput();
+        if (seed !== null) request.seed = seed;
+        return request;
+      }
       data.checkpoint = data.checkpoint || animaDefaults.checkpoint;
       if (data.i2i_image) {
         data.i2i = {enabled: true, image_path: data.i2i_image, denoise: Number(data.i2i_denoise || 0.35)};
@@ -2167,6 +2473,237 @@
       }
       return data;
     }
+    function renderNovelAIOptions() {
+      const capability = providerCapabilities?.providers.find((item) => item.id === "novelai");
+      if (!capability) return;
+      const isInfill = ["infill", "focused_infill"].includes(naiOperation.value);
+      const models = isInfill ? capability.inpaint_models : capability.models;
+      [["nai_model", models], ["nai_sampler", capability.samplers], ["nai_scheduler", capability.schedulers]].forEach(([name, values]) => {
+        const select = form.elements[name];
+        const selected = select.value || capability.defaults[name];
+        select.replaceChildren(...values.map((value) => new Option(value, value)));
+        const routing = capability.inpaint_routing || {};
+        const paired = name === "nai_model" && isInfill
+          ? routing[selected] : Object.keys(routing).find((base) => routing[base] === selected);
+        select.value = values.includes(selected) ? selected : values.includes(paired) ? paired : values[0];
+      });
+    }
+    function readNaiDetailer() {
+      const settings = {enabled: document.getElementById("nai-detailer-enabled").checked || naiOperation.value === "detail",
+        preview_only: document.getElementById("nai-detailer-preview").checked,
+        concepts: [...document.querySelectorAll(".nai-detailer-concept:checked")].map((input) => input.value)};
+      for (const key of ["mode", "matching", "backend", "wd_device"]) settings[key] = document.getElementById(`nai-detailer-${key}`).value;
+      for (const key of ["threshold", "mask_threshold", "crop_factor", "padding", "dilation", "strength", "steps", "max_regions", "match_min_score", "match_min_margin", "match_crop_factor", "wd_batch_size"]) {
+        settings[key] = Number(document.getElementById(`nai-detailer-${key}`).value);
+      }
+      return settings;
+    }
+    function setNaiDetailer(value = {}) {
+      const defaults = {enabled: false, preview_only: false, mode: "all", matching: "shared", backend: "sam_b",
+        threshold: .5, mask_threshold: .3, crop_factor: 2, padding: 32, dilation: 0, strength: .55, steps: 28,
+        max_regions: 16, match_min_score: .25, match_min_margin: .08, match_crop_factor: 2, wd_device: "auto", wd_batch_size: 4};
+      for (const [key, initial] of Object.entries(defaults)) {
+        const input = document.getElementById(`nai-detailer-${key === "preview_only" ? "preview" : key}`);
+        if (input.type === "checkbox") input.checked = value[key] ?? initial;
+        else input.value = value[key] ?? initial;
+      }
+      for (const input of document.querySelectorAll(".nai-detailer-concept")) input.checked = (value.concepts || ["face", "eyes"]).includes(input.value);
+    }
+    function readNaiReferences(kind) {
+      const container = document.getElementById(kind === "vibe" ? "nai-vibes" : "nai-references");
+      return [...container.children].map((row) => ({image: row.dataset.image || "",
+        strength: Number(row.querySelector(".reference-strength").value),
+        ...(kind === "vibe" ? {information_extracted: Number(row.querySelector(".reference-information_extracted").value)}
+          : {reference_type: row.querySelector(".reference-type").value, fidelity: Number(row.querySelector(".reference-fidelity").value)})}));
+    }
+    function addNaiReference(kind, value = {}) {
+      const container = document.getElementById(kind === "vibe" ? "nai-vibes" : "nai-references");
+      if (container.children.length >= 16 || queueRunning || !uploadsAreIdle()) return;
+      const row = document.createElement("fieldset");
+      row.dataset.image = value.image || "";
+      const legend = document.createElement("legend"); legend.textContent = kind === "vibe" ? "Vibe" : "Precise Reference"; row.append(legend);
+      const path = document.createElement("p"); path.className = "reference-path"; path.textContent = value.image || "이미지를 업로드하세요."; row.append(path);
+      const file = document.createElement("input"); file.type = "file"; file.accept = "image/png,image/webp,image/jpeg";
+      file.addEventListener("change", async () => {
+        if (!file.files[0] || queueRunning || !uploadsAreIdle()) return;
+        setUploadActive(true);
+        try {
+          const uploaded = await uploadFile("/api/inputs/reference", file.files[0], "reference");
+          row.dataset.image = uploaded.relative_path; path.textContent = uploaded.relative_path;
+        } catch (error) { document.getElementById("nai-reference-status").textContent = String(error); }
+        finally { file.value = ""; setUploadActive(false); syncGenerationResourceValidity(); }
+      }); row.append(file);
+      for (const [key, label, initial] of [["strength", "강도", kind === "vibe" ? .6 : 1],
+        [kind === "vibe" ? "information_extracted" : "fidelity", kind === "vibe" ? "정보 추출량" : "Fidelity", 1]]) {
+        const wrapper = document.createElement("label"); wrapper.textContent = label;
+        const input = document.createElement("input"); input.type = "number"; input.min = "0"; input.max = "1"; input.step = "any"; input.required = true;
+        input.className = `reference-${key}`; input.value = value[key] ?? initial;
+        wrapper.append(input); row.append(wrapper);
+      }
+      if (kind === "precise") {
+        const select = document.createElement("select"); select.className = "reference-type";
+        for (const type of ["character", "style", "character&style"]) select.add(new Option(type, type));
+        select.value = value.reference_type || "character"; row.append(select);
+      }
+      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "참조 삭제";
+      remove.addEventListener("click", () => { if (!queueRunning && uploadsAreIdle()) { row.remove(); syncGenerationResourceValidity(); } }); row.append(remove);
+      container.append(row); syncGenerationResourceValidity();
+    }
+    function setNaiReferences(vibes, references) {
+      document.getElementById("nai-vibes").replaceChildren(); document.getElementById("nai-references").replaceChildren();
+      vibes.forEach((value) => addNaiReference("vibe", value)); references.forEach((value) => addNaiReference("precise", value));
+    }
+    document.getElementById("nai-add-vibe").addEventListener("click", () => addNaiReference("vibe"));
+    document.getElementById("nai-add-reference").addEventListener("click", () => addNaiReference("precise"));
+    function readNaiCharacters() {
+      return [...naiCharacters.children].map((row) => ({
+        prompt: row.querySelector(".character-prompt").value,
+        negative_prompt: row.querySelector(".character-negative").value,
+        x: Number(row.querySelector(".character-x").value), y: Number(row.querySelector(".character-y").value)
+      }));
+    }
+    function refreshConvertFields() {
+      const selected = convertField.value;
+      convertField.replaceChildren(new Option("공통 프롬프트", "prompt"), new Option("공통 네거티브", "negative_prompt"));
+      [...naiCharacters.children].forEach((_, index) => {
+        for (const [kind, label] of [["prompt", "프롬프트"], ["negative", "네거티브"]]) {
+          convertField.add(new Option(`캐릭터 ${index + 1} ${label}`, `character:${index}:${kind}`));
+        }
+      });
+      if ([...convertField.options].some((item) => item.value === selected)) convertField.value = selected;
+      invalidateConversion();
+    }
+    function addNaiCharacter(value = {}) {
+      if (naiCharacters.children.length >= 5) return;
+      const row = document.createElement("fieldset");
+      row.className = "nai-character";
+      const legend = document.createElement("legend");
+      legend.textContent = "캐릭터";
+      row.append(legend);
+      for (const [key, label] of [["prompt", "프롬프트"], ["negative", "네거티브"], ["x", "X"], ["y", "Y"]]) {
+        const wrapper = document.createElement("label");
+        wrapper.textContent = label;
+        const input = document.createElement(key === "prompt" || key === "negative" ? "textarea" : "input");
+        input.className = `character-${key}`;
+        if (input.tagName === "TEXTAREA") {
+          input.maxLength = form.elements.prompt.maxLength;
+          input.value = value[key === "negative" ? "negative_prompt" : key] ?? "";
+          input.rows = 2;
+        } else {
+          input.type = "number"; input.min = "0"; input.max = "1"; input.step = "any"; input.required = true;
+          input.value = value[key] ?? 0.5;
+        }
+        input.addEventListener("input", invalidateConversion);
+        wrapper.append(input); row.append(wrapper);
+      }
+      const remove = document.createElement("button");
+      remove.type = "button"; remove.textContent = "캐릭터 삭제"; remove.className = "secondary-button";
+      remove.addEventListener("click", () => { row.remove(); refreshCharacterRows(); });
+      row.append(remove); naiCharacters.append(row); refreshCharacterRows();
+    }
+    function refreshCharacterRows() {
+      [...naiCharacters.children].forEach((row, index) => { row.querySelector("legend").textContent = `캐릭터 ${index + 1}`; });
+      naiAddCharacter.disabled = providerSelect.value !== "novelai" || naiCharacters.children.length >= 5;
+      refreshConvertFields();
+      form.elements.nai_model.setCustomValidity("");
+    }
+    function setNaiCharacters(values) {
+      naiCharacters.replaceChildren();
+      values.forEach(addNaiCharacter);
+      refreshCharacterRows();
+    }
+    function conversionInput() {
+      if (!convertField.value.startsWith("character:")) return form.elements[convertField.value];
+      const [, index, kind] = convertField.value.split(":");
+      return naiCharacters.children[Number(index)]?.querySelector(`.character-${kind}`);
+    }
+    function invalidateConversion() {
+      conversionRevision += 1; conversion = null; convertApply.disabled = true;
+    }
+    document.getElementById("convert-preview").addEventListener("click", async () => {
+      invalidateConversion();
+      const revision = conversionRevision, input = conversionInput();
+      const source = document.getElementById("convert-source").value;
+      const target = document.getElementById("convert-target").value;
+      const original = input?.value ?? "";
+      try {
+        const response = await fetch("/api/prompts/convert", {method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({source, target, text: original})});
+        const result = await response.json();
+        if (revision !== conversionRevision) return;
+        if (!response.ok) throw new Error(result.error);
+        document.getElementById("convert-result").textContent = `원문\n${original}\n\n변환 결과\n${result.converted}`;
+        document.getElementById("convert-status").textContent = result.warnings.join("\n") || "변환 결과를 확인한 뒤 적용하세요.";
+        conversion = {input, original, converted: result.converted}; convertApply.disabled = false;
+      } catch (error) {
+        if (revision === conversionRevision) document.getElementById("convert-status").textContent = String(error);
+      }
+    });
+    convertApply.addEventListener("click", () => {
+      if (!conversion || !conversion.input.isConnected || conversion.input !== conversionInput() || conversion.input.value !== conversion.original) {
+        invalidateConversion(); return;
+      }
+      const {input, converted} = conversion;
+      input.value = converted; input.dispatchEvent(new Event("input", {bubbles: true})); invalidateConversion();
+      document.getElementById("convert-status").textContent = "선택한 프롬프트에 적용했습니다.";
+    });
+    for (const id of ["convert-field", "convert-source", "convert-target"]) document.getElementById(id).addEventListener("change", invalidateConversion);
+    form.elements.prompt.addEventListener("input", invalidateConversion);
+    form.elements.negative_prompt.addEventListener("input", invalidateConversion);
+    naiAddCharacter.addEventListener("click", () => addNaiCharacter());
+    function renderNovelAIEffective() {
+      let width = Number(form.elements.width.value), height = Number(form.elements.height.value);
+      let steps = Number(form.elements.steps.value);
+      const capped = form.elements.nai_limit_opus_free.checked;
+      if (naiOperation.value !== "generate") {
+        const label = {infill: "인페인트", img2img: "Img2Img", detail: "자동 디테일러", focused_infill: "Focused Inpainting"}[naiOperation.value];
+        const focused = ["detail", "focused_infill"].includes(naiOperation.value);
+        const preview = focused && document.getElementById("nai-detailer-preview").checked;
+        const model = naiOperation.value === "detail" ? providerCapabilities?.providers.find((p) => p.id === "novelai")?.inpaint_routing[form.elements.nai_model.value] : form.elements.nai_model.value;
+        naiEffective.textContent = `${label}: ${model || "인페인트 모델 확인 필요"} · 원본 ${width}x${height}${preview ? " · 원격 요청 없는 미리보기" : capped ? focused ? " · 작은 크롭 (각 축 1024 이하 / 28스텝) 자격 확인" : " · Opus 보호로 전송 차단" : " · Anlas 비용 가능"}`;
+        return;
+      }
+      if (capped && width * height > 1048576) {
+        const scale = Math.sqrt(1048576 / (width * height));
+        width = Math.max(64, Math.floor(width * scale / 64) * 64);
+        height = Math.max(64, Math.floor(height * scale / 64) * 64);
+      }
+      if (capped) steps = Math.min(steps, 28);
+      naiEffective.textContent = `전송 설정: ${width}x${height} · ${steps}스텝${capped ? " · Opus 요청 한도" : " · 계정 비용이 발생할 수 있음"}`;
+    }
+    function syncProviderControls() {
+      const isNovelAI = providerSelect.value === "novelai";
+      novelAISettings.hidden = !isNovelAI;
+      novelAISettings.querySelectorAll("input, select, textarea").forEach((input) => { input.disabled = !isNovelAI; });
+      naiAddCharacter.disabled = !isNovelAI || naiCharacters.children.length >= 5;
+      naiInpaintInputs.hidden = !isNovelAI || naiOperation.value === "generate";
+      document.getElementById("nai-img2img-options").hidden = naiOperation.value !== "img2img";
+      document.getElementById("nai-mask-controls").hidden = !["infill", "focused_infill"].includes(naiOperation.value);
+      document.getElementById("nai-input-help").textContent = naiOperation.value === "img2img"
+        ? "입력 이미지를 생성 크기로 Lanczos 리사이즈합니다. Opus 보호 모드를 직접 해제해야 합니다."
+        : naiOperation.value === "detail" ? "입력 이미지와 생성 크기를 같게 지정하세요. 검출 영역을 순차 보정합니다."
+        : "입력·마스크·생성 크기는 같아야 합니다. 그린 마스크를 저장하세요. 일반 인페인트는 Opus 보호에서 차단하며 Focused는 작은 크롭만 허용합니다.";
+      naiInpaintInputs.querySelectorAll("input, select, button").forEach((input) => { input.disabled = naiInpaintInputs.hidden; });
+      [document.getElementById("local-model-settings"), loraImportForm,
+       document.getElementById("local-sampling-controls"), document.getElementById("local-memory-controls"),
+       document.querySelector('[data-control-group="enhance"]')].forEach((section) => {
+        section.hidden = isNovelAI;
+        section.querySelectorAll("input, select, textarea, button").forEach((input) => { input.disabled = isNovelAI; });
+      });
+      for (const name of ["width", "height"]) {
+        form.elements[name].step = isNovelAI ? "64" : "8";
+        form.elements[name].min = isNovelAI ? "64" : "8";
+      }
+      form.elements.steps.max = isNovelAI ? "50" : "100";
+      form.elements.seed.max = isNovelAI ? "4294967295" : String(animaDefaults.limits.max_seed_safe);
+      providerStatus.textContent = isNovelAI
+        ? (providerCapabilities?.default_dry_run ? "NovelAI 드라이런 · 네트워크 요청 없음" : naiTokenConfigured ? "NovelAI · 토큰 설정됨" : "NAI_ACCESS_TOKEN 환경변수를 설정하고 서버를 시작하세요.")
+        : "로컬 Anima";
+      sam3Tools.hidden = isNovelAI || !currentOutputUrl || currentManifest?.provider === "novelai";
+      if (!isNovelAI) syncLoraRemoveButtons();
+      syncGenerationResourceValidity();
+      syncGenerationControls();
+    }
     function syncSam3DetailerControls() {
       sam3DetailerControls.hidden = form.elements.face_mask_backend.value !== "sam3";
     }
@@ -2176,13 +2713,38 @@
         return false;
       }
       const request = item.request || {};
+      providerSelect.value = request.provider || "local";
+      const naiSettings = request.novelai?.effective || request;
+      setNaiDetailer(naiSettings.nai_detailer || naiSettings.detailer || {});
+      setNaiReferences(naiSettings.nai_vibes || naiSettings.vibes || [], naiSettings.nai_references || naiSettings.references || []);
+      document.getElementById("nai-normalize-vibes").checked = naiSettings.nai_normalize_vibe_strengths ?? naiSettings.normalize_vibe_strengths ?? true;
+      naiOperation.value = naiSettings.operation || "generate";
+      renderNovelAIOptions();
+      form.elements.input_image.value = naiSettings.input_image || "";
+      form.elements.mask_image.value = naiSettings.mask_image || "";
+      form.elements.inpaint_strength.value = naiSettings.inpaint_strength ?? 1;
+      form.elements.img2img_strength.value = naiSettings.img2img_strength ?? 0.5;
+      form.elements.img2img_noise.value = naiSettings.img2img_noise ?? 0;
+      resetNaiEditor();
+      for (const name of ["model", "sampler", "scheduler"]) {
+        setSelectValue(form.elements[`nai_${name}`], naiSettings[`nai_${name}`] || (request.provider === "novelai" ? request[name] : "") ||
+          {model: "nai-diffusion-5-curated", sampler: "k_euler", scheduler: "karras"}[name]);
+      }
+      form.elements.nai_cfg_rescale.value = naiSettings.nai_cfg_rescale ?? request.cfg_rescale ?? 0;
+      form.elements.nai_prefer_brownian.checked = naiSettings.nai_prefer_brownian ?? request.prefer_brownian ?? false;
+      form.elements.nai_variety_boost.checked = naiSettings.nai_variety_boost ?? request.variety_boost ?? true;
+      form.elements.nai_limit_opus_free.checked = naiSettings.nai_limit_opus_free ?? request.limit_opus_free ?? true;
+      const originalCharacters = request.wildcards?.characters?.map((item) => item.original);
+      setNaiCharacters(originalCharacters || naiSettings.nai_characters || request.characters || []);
+      naiUseCoords.checked = naiSettings.nai_use_coords ?? request.use_coords ?? true;
+      naiUseOrder.checked = naiSettings.nai_use_order ?? request.use_order ?? true;
       const wildcardInfo = request.wildcards || {};
       form.elements.prompt.value = wildcardInfo.original_prompt || request.prompt || "";
       form.elements.negative_prompt.value = wildcardInfo.original_negative_prompt || request.negative_prompt || "";
       form.elements.width.value = request.width || animaDefaults.width;
       form.elements.height.value = request.height || animaDefaults.height;
       form.elements.steps.value = request.steps || animaDefaults.steps;
-      form.elements.cfg.value = request.cfg || animaDefaults.cfg;
+      form.elements.cfg.value = request.cfg ?? animaDefaults.cfg;
       form.elements.sampler.value = request.sampler || animaDefaults.sampler;
       form.elements.scheduler.value = request.scheduler || animaDefaults.scheduler;
       form.elements.seed.value = request.seed ?? "";
@@ -2221,6 +2783,7 @@
       referenceImageSection.open = Boolean(request.i2i?.image_path || request.upscale?.enabled || request.upscale?.tiled || (request.vae_decode?.mode && request.vae_decode.mode !== "auto"));
       faceDetailerSection.open = Boolean(request.face_detailer?.enabled);
       setLoraRows(request.loras || []);
+      syncProviderControls();
       presetName.value = item.name || "";
       syncStartingPointSelectionFromInputs();
       syncGenerationResourceValidity();
@@ -2354,6 +2917,9 @@
       const active = items.find((item) => item.status === "running") || items.find((item) => item.status === "waiting") || items.find((item) => item.status === "queued");
       const total = items.length;
       setQueueStatus(`등록 ${summary.queued}, 대기 ${summary.waiting}, 실행 ${summary.running}, 완료 ${summary.completed}, 실패 ${summary.failed}, 취소 ${summary.cancelled}`);
+      if (active?.request?.provider === "novelai" && active.cancel_requested) {
+        setQueueStatus("다음 작업 예약 중지 · 이미 전송한 NovelAI 응답을 기다립니다.");
+      }
       if (active?.progress_id && active.status === "running" && active.progress_id !== activeProgressId) {
         startStageProgress(buildGenerationStages(active.request || {}));
         startProgressPolling(active.progress_id);
@@ -2669,6 +3235,12 @@
       }
     });
     setupSingleFileDropZone(
+      naiMetadataDropZone, naiMetadataFile, readNaiMetadata,
+      (error) => { naiMetadataStatus.textContent = String(error); }
+    );
+    naiMetadataModel.addEventListener("change", syncGenerationControls);
+    applyNaiMetadataButton.addEventListener("click", applyNaiMetadata);
+    setupSingleFileDropZone(
       referenceDropZone,
       referenceFileInput,
       uploadReferenceFile,
@@ -2711,6 +3283,84 @@
     });
     window.addEventListener("beforeunload", revokeReferencePreviewUrl);
     addLoraRow();
+    providerSelect.addEventListener("change", syncProviderControls);
+    form.elements.nai_model.addEventListener("change", syncGenerationResourceValidity);
+    naiOperation.addEventListener("change", () => { renderNovelAIOptions(); syncProviderControls(); });
+    for (const id of ["nai-reference-panel", "nai-detailer-panel"]) {
+      document.getElementById(id).addEventListener("input", () => { syncGenerationResourceValidity(); syncGenerationControls(); });
+      document.getElementById(id).addEventListener("change", () => { syncGenerationResourceValidity(); syncGenerationControls(); });
+    }
+    const reportNaiInputError = (error) => { naiInpaintStatus.textContent = String(error); };
+    document.getElementById("nai-input-file").addEventListener("change", (event) => {
+      if (event.target.files.length === 1) uploadNaiInput(event.target.files[0]).catch(reportNaiInputError);
+      event.target.value = "";
+    });
+    document.getElementById("nai-mask-file").addEventListener("change", (event) => {
+      if (event.target.files.length === 1) uploadNaiInput(event.target.files[0], true).catch(reportNaiInputError);
+      event.target.value = "";
+    });
+    document.getElementById("nai-use-result").addEventListener("click", async () => {
+      if (queueRunning || !uploadsAreIdle() || !currentOutputUrl) return;
+      try {
+        const url = new URL(currentOutputUrl, location.href);
+        if (url.origin !== location.origin || !/^\/outputs\/images\/[^/]+$/.test(url.pathname)) throw new Error("관리된 결과 이미지만 사용할 수 있습니다.");
+        resetNaiEditor();
+        form.elements.input_image.value = "outputs/images/" + decodeURIComponent(url.pathname.split("/").pop());
+        form.elements.mask_image.value = "";
+        setUploadActive(true);
+        await showNaiInput(url.href);
+        naiInpaintStatus.textContent = "현재 결과를 입력으로 지정했습니다. 마스크를 칠하고 저장하세요.";
+      } catch (error) { form.elements.input_image.value = ""; reportNaiInputError(error); }
+      finally { setUploadActive(false); syncGenerationResourceValidity(); syncGenerationControls(); }
+    });
+    document.getElementById("nai-mask-save").addEventListener("click", () => saveNaiMask().catch(reportNaiInputError));
+    document.getElementById("nai-mask-clear").addEventListener("click", () => {
+      if (queueRunning || !uploadsAreIdle() || !naiMaskBuffer.width) return;
+      const context = naiMaskBuffer.getContext("2d");
+      context.fillStyle = "black";
+      context.fillRect(0, 0, naiMaskBuffer.width, naiMaskBuffer.height);
+      form.elements.mask_image.value = "";
+      redrawNaiMask();
+      syncGenerationControls();
+    });
+    function paintNaiMask(event) {
+      if (queueRunning || !uploadsAreIdle() || !naiMaskBuffer.width) return;
+      const rect = naiMaskCanvas.getBoundingClientRect();
+      const point = {x: (event.clientX - rect.left) * naiMaskBuffer.width / rect.width,
+                     y: (event.clientY - rect.top) * naiMaskBuffer.height / rect.height};
+      const context = naiMaskBuffer.getContext("2d");
+      const size = Math.max(1, Math.min(512, Number(document.getElementById("nai-brush-size").value) || 48));
+      context.fillStyle = context.strokeStyle = document.getElementById("nai-brush-mode").value === "erase" ? "black" : "white";
+      context.lineWidth = size;
+      context.lineCap = "round";
+      context.beginPath();
+      context.moveTo(naiMaskPointer?.x ?? point.x, naiMaskPointer?.y ?? point.y);
+      context.lineTo(point.x, point.y);
+      context.stroke();
+      context.beginPath();
+      context.arc(point.x, point.y, size / 2, 0, 2 * Math.PI);
+      context.fill();
+      naiMaskPointer = {...point, pointerId: event.pointerId};
+      form.elements.mask_image.value = "";
+      naiInpaintStatus.textContent = "마스크를 수정했습니다. 그린 마스크 저장을 눌러주세요.";
+      redrawNaiMask();
+      syncGenerationControls();
+    }
+    naiMaskCanvas.addEventListener("pointerdown", (event) => {
+      if (queueRunning || !uploadsAreIdle()) return;
+      naiMaskPointer = null;
+      naiMaskCanvas.setPointerCapture(event.pointerId);
+      paintNaiMask(event);
+    });
+    naiMaskCanvas.addEventListener("pointermove", (event) => {
+      if (naiMaskPointer?.pointerId === event.pointerId) paintNaiMask(event);
+    });
+    for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) naiMaskCanvas.addEventListener(type, () => { naiMaskPointer = null; });
+    window.addEventListener("beforeunload", () => { if (naiInputObjectUrl) URL.revokeObjectURL(naiInputObjectUrl); });
+    ["nai_limit_opus_free", "steps"].forEach((name) => {
+      form.elements[name].addEventListener("input", syncGenerationResourceValidity);
+    });
+    syncProviderControls();
     form.elements.face_mask_backend.addEventListener("change", syncSam3DetailerControls);
     syncSam3DetailerControls();
     renderSam3Presets();

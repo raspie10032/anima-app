@@ -164,7 +164,7 @@ def test_segment_image_concept_writes_mask_and_overlay(tmp_path, monkeypatch):
             assert overrides["model"].endswith("sam3.pt")
 
         def set_image(self, image):
-            assert image.shape[:2] == (16, 16)
+            assert isinstance(image, Image.Image) and image.mode == "RGB" and image.size == (16, 16)
 
         def __call__(self, *, text):
             assert text == ["clothes"]
@@ -222,7 +222,7 @@ def test_segment_image_concepts_reuses_image_for_prompt_candidates(tmp_path, mon
 
         def set_image(self, image):
             self.image_set_count += 1
-            assert image.shape[:2] == (16, 16)
+            assert isinstance(image, Image.Image) and image.mode == "RGB" and image.size == (16, 16)
 
         def __call__(self, *, text):
             calls.append(text)

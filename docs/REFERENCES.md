@@ -12,6 +12,12 @@ This document keeps public source references, model layout, and release boundari
 - SAM detector source: Ultralytics asset `sam_b.pt`; SAM reference project: https://github.com/facebookresearch/segment-anything
 - ComfyUI upstream project: https://github.com/comfyanonymous/ComfyUI
 - ComfyUI Impact Pack upstream project: https://github.com/ltdrdata/ComfyUI-Impact-Pack
+- ComfyUI NAI node source for the strict Opus guards and serialized request timing: https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request (`nai_api.py`)
+- NovelAI Opus usage-limit documentation: https://docs.novelai.net/en/faq/
+- Vibe/Precise, matching, optional native WD and focused-region source: https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request (`references.py`, `detailer.py`, `detailer_matching.py`, `wd_tagger.py`; ported modules retain GPL-3.0-only notices).
+- WD source: https://huggingface.co/SmilingWolf/wd-vit-tagger-v3 (revision `7f6b584d0bd3f55c4531f14ba3d4761b2bccdc0f`).
+- Reference and focused behavior: https://docs.novelai.net/en/image/vibetransfer/ ; https://docs.novelai.net/en/image/precisereference/ ; https://docs.novelai.net/en/image/inpaint/
+- ComfyUI NAI character payload and six prompt-conversion source: https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request (`nai_api.py`, `generators.py`, `converters.py`; converter helpers retain their GPL-3.0-only header).
 - Comfy Kitchen metadata: https://github.com/Comfy-Org/comfy-kitchen
 - Comfy AIMDO metadata: https://github.com/Comfy-Org/comfy-aimdo
 
@@ -132,7 +138,7 @@ The included wildcard files were copied or derived from a local ComfyUI Impact P
 
 ## Release Boundary
 
-Current release target: `0.4.0` source-checkout beta.
+Current release target: `0.5.0` source-checkout beta.
 
 Included:
 

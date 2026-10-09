@@ -109,7 +109,8 @@ def segment_image_concepts(
             "device": device,
         }
     )
-    predictor.set_image(image_np)
+    # NumPy input is interpreted as BGR by Ultralytics; PIL preserves RGB.
+    predictor.set_image(image)
     segment_results = []
     for prompt in normalized_prompts:
         results = predictor(text=[prompt])

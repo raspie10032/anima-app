@@ -15,6 +15,7 @@ dependencies = [
   "torchsde",
   "numpy>=1.25.0",
   "Pillow",
+  "requests>=2.31.0",
   "einops",
   "transformers>=4.50.3",
   "tokenizers>=0.13.3",
@@ -32,6 +33,14 @@ dependencies = [
 [project.optional-dependencies]
 face-detailer = [
   "ultralytics>=8.4.0",
+  "segment-anything>=1.0",
+]
+wd-matching = [
+  "timm>=1.0.20",
+]
+sam3 = [
+  "ultralytics>=8.4.0",
+  "clip @ git+https://github.com/ultralytics/CLIP.git@7ffa84b3bfa40c42ecc1c77147a855e69cb2dd40",
 ]
 
 [project.scripts]

@@ -1,5 +1,7 @@
 import urllib.error
 
+from anima_app import __version__
+
 from anima_app.updates import (
     APP_REPOSITORY,
     APP_REPOSITORY_URL,
@@ -12,7 +14,7 @@ from anima_app.updates import (
 def test_version_payload_reports_current_app_metadata():
     payload = version_payload()
 
-    assert payload["version"] == "0.4.0"
+    assert payload["version"] == __version__
     assert payload["repository"] == APP_REPOSITORY
     assert payload["repository_url"] == APP_REPOSITORY_URL
 

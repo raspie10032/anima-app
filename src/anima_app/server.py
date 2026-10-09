@@ -15,7 +15,7 @@ import threading
 import time
 import warnings
 from collections import deque
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -61,6 +61,11 @@ from anima_app.manifests import _write_json_atomically, history_sort_key, read_m
 from anima_app.memory_profiles import resolve_auto_memory_profile
 from anima_app.openapi import build_openapi_document
 from anima_app.path_safety import path_is_link as _path_is_link
+from anima_app.providers import novelai
+from anima_app.providers.novelai.errors import NovelAIError
+from anima_app.providers.novelai.metadata import read_image_metadata
+from anima_app.providers.novelai.converters import convert_prompt
+from anima_app.providers.novelai.requests import MAX_NAI_SEED, reject_credentials
 from anima_app.requests import (
     DEFAULT_FACE_DETAILER_STEPS,
     DEFAULT_TILE_SIZE,
@@ -151,6 +156,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
       margin: 0;
       min-height: 100vh;
       overflow: hidden;
+    }
+    [hidden] {
+      display: none !important;
     }
     .visually-hidden {
       position: absolute;
@@ -1212,6 +1220,12 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     <aside class="control-frame" aria-label="생성 컨트롤">
       <h1>Anima APP</h1>
       <form id="generate-form"></form>
+      <label for="provider-select">생성 엔진</label>
+      <select id="provider-select" name="provider" form="generate-form" aria-describedby="provider-status">
+        <option value="local" selected>로컬 Anima</option>
+        <option value="novelai">NovelAI</option>
+      </select>
+      <p id="provider-status" class="queue-status" role="status" aria-live="polite">로컬 Anima</p>
       <div id="control-groups" class="control-groups">
         <details class="control-group" data-control-group="prompt-generate" open>
           <summary>프롬프트와 생성</summary>
@@ -1222,6 +1236,19 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <textarea id="prompt" name="prompt" maxlength="__MAX_PROMPT_CHARACTERS__" form="generate-form" required>anime portrait, clean lineart</textarea>
               <label for="negative">네거티브</label>
               <input id="negative" name="negative_prompt" maxlength="__MAX_PROMPT_CHARACTERS__" value="low quality" form="generate-form">
+              <details id="prompt-converter">
+                <summary>프롬프트 가중치 문법 변환</summary>
+                <label for="convert-field">적용할 프롬프트</label>
+                <select id="convert-field"><option value="prompt">공통 프롬프트</option><option value="negative_prompt">공통 네거티브</option></select>
+                <label for="convert-source">원본 문법</label>
+                <select id="convert-source"><option value="comfyui">ComfyUI</option><option value="naiv4">NAI V4 / V5</option><option value="oldnai">구형 NAI</option></select>
+                <label for="convert-target">변환 문법</label>
+                <select id="convert-target"><option value="naiv4">NAI V4 / V5</option><option value="comfyui">ComfyUI</option><option value="oldnai">구형 NAI</option></select>
+                <button id="convert-preview" type="button" class="secondary-button">변환 미리보기</button>
+                <pre id="convert-result" class="wildcard-preview"></pre>
+                <p id="convert-status" class="upload-status" aria-live="polite"></p>
+                <button id="convert-apply" type="button" class="secondary-button" disabled>선택한 프롬프트에 적용</button>
+              </details>
               <div class="prompt-tools-block" aria-label="프롬프트 와일드카드와 프리셋">
                 <h2>와일드카드와 프리셋</h2>
                 <label for="wildcard-mode">와일드카드 방식</label>
@@ -1255,6 +1282,22 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 </div>
                 <p id="llm-prompt-status" class="queue-status" aria-live="polite"></p>
                 <pre id="wildcard-preview" class="wildcard-preview" hidden></pre>
+              </div>
+            </section>
+            <section class="form-section" aria-label="NAI 이미지에서 생성 조건 불러오기">
+              <h2>이미지에서 생성 조건 불러오기</h2>
+              <div id="nai-metadata-drop-zone" class="file-drop-zone">
+                <label for="nai-metadata-file">기존 NAI 이미지 (PNG / WebP)</label>
+                <input id="nai-metadata-file" type="file" accept="image/png,image/webp" aria-describedby="nai-metadata-status">
+                <p>파일을 선택하거나 여기에 드래그하세요.</p>
+              </div>
+              <p id="nai-metadata-status" class="upload-status" aria-live="polite">메타데이터를 읽어 확인 후 적용합니다.</p>
+              <div id="nai-metadata-preview" hidden>
+                <pre id="nai-metadata-summary" class="wildcard-preview"></pre>
+                <label for="nai-metadata-model">복원할 모델</label>
+                <select id="nai-metadata-model"></select>
+                <p id="nai-metadata-warnings" class="upload-status" style="white-space: pre-line"></p>
+                <button id="apply-nai-metadata" type="button" class="secondary-button" disabled>생성 조건 적용</button>
               </div>
             </section>
             <section class="preset-strip" aria-label="시작 설정 프리셋">
@@ -1312,7 +1355,119 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         <details class="control-group" data-control-group="model-style" open>
           <summary>모델과 스타일</summary>
           <div class="control-group-body">
-            <section class="form-section">
+            <section id="novelai-settings" class="form-section" hidden>
+              <h2>NovelAI</h2>
+              <label for="nai-operation">생성 방식</label>
+              <select id="nai-operation" name="operation" form="generate-form">
+                <option value="detail">기존 이미지 자동 디테일러</option>
+                <option value="focused_infill">Focused Inpainting (작은 마스크 영역 크롭)</option>
+                <option value="img2img">입력 이미지 변형 (Img2Img)</option>
+                <option value="generate">새 이미지 생성 (T2I)</option>
+                <option value="infill">마스크 인페인트</option>
+              </select>
+              <label for="nai-model">모델</label>
+              <select id="nai-model" name="nai_model" form="generate-form"></select>
+              <details id="nai-characters-panel">
+                <summary>캐릭터별 프롬프트와 위치 (최대 5명)</summary>
+                <p>V4 / V5 지원 · X는 왼쪽 0 → 오른쪽 1, Y는 위 0 → 아래 1입니다.</p>
+                <label><input id="nai-use-coords" type="checkbox" checked> 캐릭터 위치 지정</label>
+                <label><input id="nai-use-order" type="checkbox" checked> 캐릭터 순서 사용</label>
+                <div id="nai-characters"></div>
+                <button id="nai-add-character" type="button" class="secondary-button">캐릭터 추가</button>
+              </details>
+              <div id="nai-inpaint-inputs" hidden>
+                <label for="nai-input-file">입력 이미지</label>
+                <input id="nai-input-file" type="file" accept="image/png,image/webp,image/jpeg">
+                <button type="button" id="nai-use-result" class="secondary-button">현재 결과를 입력 이미지로 사용</button>
+                <input name="input_image" type="hidden" form="generate-form" value="">
+                <div id="nai-img2img-options" hidden>
+                  <label>Img2Img 강도 <input name="img2img_strength" type="number" min="0" max="1" step="0.01" value="0.5" form="generate-form"></label>
+                  <label>추가 노이즈 <input name="img2img_noise" type="number" min="0" max="1" step="0.01" value="0" form="generate-form"></label>
+                  <p>입력 이미지를 생성 크기로 Lanczos 리사이즈합니다. Img2Img는 Anlas 비용이 발생할 수 있습니다.</p>
+                </div>
+                <div id="nai-mask-controls">
+                <label for="nai-mask-file">마스크 파일 (흰색 = 수정 / 검정 = 보존)</label>
+                <input id="nai-mask-file" type="file" accept="image/png,image/webp,image/jpeg">
+                <input name="mask_image" type="hidden" form="generate-form" value="">
+                <div id="nai-mask-editor" style="position:relative;max-width:100%;" hidden>
+                  <img id="nai-input-preview" alt="인페인트 입력 이미지" style="display:block;width:100%;">
+                  <canvas id="nai-mask-canvas" aria-label="인페인트 마스크 그리기" style="position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair;"></canvas>
+                </div>
+                <label for="nai-brush-size">마스크 브러시 크기 (원본 픽셀)</label>
+                <input id="nai-brush-size" type="number" min="1" max="512" value="48">
+                <select id="nai-brush-mode" aria-label="마스크 브러시 모드"><option value="paint">칠하기</option><option value="erase">지우기</option></select>
+                <button type="button" id="nai-mask-clear" class="secondary-button">마스크 비우기</button>
+                <button type="button" id="nai-mask-save" class="secondary-button">그린 마스크 저장</button>
+                <label for="nai-inpaint-strength">인페인트 강도 (V3는 1)</label>
+                <input id="nai-inpaint-strength" name="inpaint_strength" type="number" min="0" max="1" step="0.01" value="1" form="generate-form">
+                </div>
+                <p id="nai-inpaint-status" class="queue-status" role="status"></p>
+                <p id="nai-input-help" class="queue-status">입력과 마스크는 생성 크기와 같아야 합니다. 그린 마스크를 저장한 뒤 생성하세요.</p>
+              </div>
+              <details id="nai-reference-panel">
+                <summary>Vibe Transfer / Precise Reference (최대 16개)</summary>
+                <p>Vibe: V3/V4/V4.5 지원. V4/V4.5는 최초 인코딩에 비용이 들고 캐시를 재사용합니다.
+                Precise: V4.5 지원, 참조마다 생성 비용이 추가됩니다. 둘은 함께 사용할 수 없습니다.</p>
+                <label><input id="nai-normalize-vibes" type="checkbox" checked> V4/V4.5 Vibe 강도 합을 1 이하로 정규화</label>
+                <div id="nai-vibes"></div>
+                <button id="nai-add-vibe" type="button" class="secondary-button">Vibe 추가</button>
+                <div id="nai-references"></div>
+                <button id="nai-add-reference" type="button" class="secondary-button">Precise Reference 추가</button>
+                <p id="nai-reference-status" role="status"></p>
+              </details>
+              <details id="nai-detailer-panel">
+                <summary>NAI 자동 디테일러 / Focused 크롭 설정</summary>
+                <label><input id="nai-detailer-enabled" type="checkbox"> 생성 후 자동 디테일러</label>
+                <label><input id="nai-detailer-preview" type="checkbox"> 영역·매칭 미리보기 (기존 이미지에서는 원격 생성 없음)</label>
+                <label>영역 <select id="nai-detailer-mode"><option value="all">모든 영역</option><option value="first">첫 영역만</option></select></label>
+                <label>캐릭터 선택 <select id="nai-detailer-matching"><option value="shared">공통 / 캐릭터 1명</option><option value="wd14">WD 원본 캐릭터 매칭</option></select></label>
+                <label>마스크 <select id="nai-detailer-backend"><option value="sam_b">YOLO + SAM B</option><option value="sam3">SAM3 텍스트 검출</option></select></label>
+                <label><input class="nai-detailer-concept" type="checkbox" value="face" checked> 얼굴</label>
+                <label><input class="nai-detailer-concept" type="checkbox" value="eyes" checked> 눈</label>
+                <label><input class="nai-detailer-concept" type="checkbox" value="hands"> 손</label>
+                <label>검출 임계값 <input id="nai-detailer-threshold" type="number" min="0" max="1" step="0.01" value="0.5"></label>
+                <label>마스크 그리드 임계값 <input id="nai-detailer-mask_threshold" type="number" min="0" max="1" step="0.01" value="0.3"></label>
+                <label>크롭 배율 <input id="nai-detailer-crop_factor" type="number" min="1" max="8" step="0.1" value="2"></label>
+                <label>패딩 (픽셀) <input id="nai-detailer-padding" type="number" min="0" max="256" value="32"></label>
+                <label>마스크 팽창 / 수축 <input id="nai-detailer-dilation" type="number" min="-64" max="128" value="0"></label>
+                <label>보정 강도 <input id="nai-detailer-strength" type="number" min="0" max="1" step="0.01" value="0.55"></label>
+                <label>보정 스텝 <input id="nai-detailer-steps" type="number" min="1" max="50" value="28"></label>
+                <label>최대 영역 수 <input id="nai-detailer-max_regions" type="number" min="1" max="16" value="16"></label>
+                <label>WD 최소 점수 <input id="nai-detailer-match_min_score" type="number" min="0" max="1" step="0.01" value="0.25"></label>
+                <label>WD 최소 점수 차 <input id="nai-detailer-match_min_margin" type="number" min="0" max="1" step="0.01" value="0.08"></label>
+                <label>WD 문맥 크롭 배율 <input id="nai-detailer-match_crop_factor" type="number" min="1" max="8" step="0.1" value="2"></label>
+                <label>WD 장치 <select id="nai-detailer-wd_device"><option value="auto">자동</option><option value="cpu">CPU</option></select></label>
+                <label>WD 배치 크기 <input id="nai-detailer-wd_batch_size" type="number" min="1" max="16" value="4"></label>
+                <p>검출 모델은 models/detectors, WD 모델은 models/rs_wd_tagger에 준비하세요. 2명 이상은 WD 매칭이 필요합니다.
+                원본 캐릭터 프롬프트만 사용하며 불확실한 매칭은 건너뜁니다. Focused 모드는 원본보다 작은 크롭만 Opus 보호에서 허용합니다.</p>
+              </details>
+              <label for="nai-sampler">샘플러</label>
+              <select id="nai-sampler" name="nai_sampler" form="generate-form"></select>
+              <label for="nai-scheduler">스케줄러</label>
+              <select id="nai-scheduler" name="nai_scheduler" form="generate-form"></select>
+              <label for="nai-cfg-rescale">CFG rescale</label>
+              <input id="nai-cfg-rescale" name="nai_cfg_rescale" type="number" min="0" max="1" step="0.01" value="0" form="generate-form">
+              <label class="toggle-switch" for="nai-prefer-brownian">
+                <input id="nai-prefer-brownian" name="nai_prefer_brownian" type="checkbox" form="generate-form">
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-copy"><span class="toggle-title">Brownian noise 선호</span><span class="toggle-state" aria-hidden="true"></span></span>
+              </label>
+              <label class="toggle-switch" for="nai-variety-boost">
+                <input id="nai-variety-boost" name="nai_variety_boost" type="checkbox" checked form="generate-form">
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-copy"><span class="toggle-title">Variety boost</span><span class="toggle-state" aria-hidden="true"></span></span>
+              </label>
+              <label class="toggle-switch" for="nai-limit-opus-free">
+                <input id="nai-limit-opus-free" name="nai_limit_opus_free" type="checkbox" checked form="generate-form">
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-copy"><span class="toggle-title">Opus 보호 모드 (한도·계정 확인)</span><span class="toggle-state" aria-hidden="true"></span></span>
+              </label>
+              <p id="nai-effective" class="queue-status" role="status" aria-live="polite"></p>
+              <p class="queue-status">Opus 보호 모드: 한 번에 1장, 1,048,576픽셀 / 28스텝 이하. 매 전송 직전 활성 Opus 구독과 V5 잔여량 2% 이상을 확인하며, 확인 실패 시 생성을 차단합니다. 잔액 차감은 측정하지 않습니다.</p>
+              <p class="queue-status">NovelAI 요청은 순서대로 전송하며, 앞 요청 종료 후 최소 2초를 기다립니다.</p>
+              <p class="queue-status">전송 후 정지는 다음 작업을 막습니다. 이미 전송된 요청은 완료·과금될 수 있으며, 도착한 결과는 저장합니다.</p>
+            </section>
+            <section id="local-model-settings" class="form-section">
               <h2>LoRA 스타일</h2>
               <label for="checkpoint-select">체크포인트</label>
               <select id="checkpoint-select" name="checkpoint" form="generate-form">
@@ -1360,7 +1515,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   <input id="cfg" name="cfg" type="number" min="0" max="__MAX_CFG__" step="0.1" value="__DEFAULT_T2I_CFG__" form="generate-form">
                 </div>
               </div>
-              <div class="row">
+              <div class="row" id="local-sampling-controls">
                 <div>
                   <label for="sampler">샘플러</label>
                   <select id="sampler" name="sampler" form="generate-form">
@@ -1379,7 +1534,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               </div>
               <label for="seed">시드</label>
               <input id="seed" name="seed" type="number" min="0" max="__MAX_BROWSER_SAFE_SEED__" step="1" placeholder="랜덤" form="generate-form">
-              <div class="row">
+              <div class="row" id="local-memory-controls">
                 <div>
                   <label for="memory-profile">VRAM 프로필</label>
                   <select id="memory-profile" name="memory_profile" form="generate-form">
@@ -1901,11 +2056,26 @@ class JobQueue:
         if not isinstance(raw_request, dict):
             return HTTPStatus.BAD_REQUEST, {"error": "job request must be an object"}
         request = copy.deepcopy(raw_request)
-        if not str(request.get("checkpoint", "")).strip():
-            request["checkpoint"] = handle_checkpoints(paths=self._paths)["default"]
         try:
-            parsed_request = request_from_payload(request)
-            _validate_managed_generation_inputs(parsed_request, self._paths)
+            provider = _generation_provider(request)
+            reject_credentials(request)
+            if provider == "novelai":
+                request = _normalized_preset_request(request) | {
+                    "dry_run": _boolean_value(request.get("dry_run", self._default_dry_run), "dry_run")}
+                parsed_nai = novelai.request_from_payload(request)
+                from anima_app.providers.novelai.references import validate_managed_references
+                validate_managed_references(parsed_nai, self._paths)
+                if parsed_nai.operation in {"infill", "focused_infill"}:
+                    from anima_app.providers.novelai.inpaint import read_inputs
+                    read_inputs(parsed_nai, self._paths)
+                elif parsed_nai.operation in {"img2img", "detail"}:
+                    from anima_app.providers.novelai.inpaint import read_img2img_input
+                    read_img2img_input(parsed_nai, self._paths)
+            else:
+                if not str(request.get("checkpoint", "")).strip():
+                    request["checkpoint"] = handle_checkpoints(paths=self._paths)["default"]
+                parsed_request = request_from_payload(request)
+                _validate_managed_generation_inputs(parsed_request, self._paths)
             count = _bounded_job_count(payload.get("count", 1))
             delay_seconds = _bounded_queue_delay(payload.get("delay_seconds", payload.get("delay", 0)))
             dry_run = _boolean_value(request.get("dry_run", self._default_dry_run), "dry_run")
@@ -1914,7 +2084,10 @@ class JobQueue:
                 "error_code": "generation_invalid_request",
                 "error": str(exc),
             }
-        if not dry_run:
+        preview_only = provider == "novelai" and parsed_nai.operation in {"detail", "focused_infill"} and parsed_nai.detailer["preview_only"]
+        if not dry_run and provider == "novelai" and not preview_only and not novelai.token_status()["configured"]:
+            return HTTPStatus.CONFLICT, NovelAIError("nai_token_missing", "NAI_ACCESS_TOKEN 환경변수를 설정해 주세요.", 409).payload()
+        if not dry_run and provider == "local":
             checkpoint = str(request["checkpoint"])
             try:
                 generation = _generation_readiness(self._paths, checkpoint=checkpoint, dry_run=False)
@@ -1942,6 +2115,9 @@ class JobQueue:
             return HTTPStatus.BAD_REQUEST, {"error": "seed_mode must be fixed, increment, or random"}
         base_seed = _optional_queue_seed(request.get("seed"))
         base_seed_provided = "seed" in request and base_seed is not None
+        if seed_mode == "increment" and base_seed is None:
+            # Freeze once for the entire batch, including later infinite jobs.
+            base_seed = int(time.time() * 1000) % 2147483647
         batch_id = self._new_id("batch")
         created: list[dict[str, Any]] = []
         with self._condition:
@@ -2019,9 +2195,12 @@ class JobQueue:
             elif job["status"] == "running":
                 job["cancel_requested"] = True
                 job["updated_at"] = time.time()
-                interrupt_requested = _set_runtime_interrupt(True)
+                if job["request"].get("provider") != "novelai":
+                    interrupt_requested = _set_runtime_interrupt(True)
             response = self._public_job_locked(job)
             response["interrupt_requested"] = interrupt_requested
+            if job["request"].get("provider") == "novelai":
+                response["remote_request_may_complete"] = job["status"] == "running"
             self._prune_batches_locked()
             self._condition.notify_all()
         return HTTPStatus.OK, {"status": response["status"], "job": response}
@@ -2098,7 +2277,9 @@ class JobQueue:
         payload = copy.deepcopy(job["request"])
         payload["progress_id"] = str(job.get("progress_id", job_id))
         with self._generation_lock:
-            _set_runtime_interrupt(False)
+            is_local = payload.get("provider", "local") == "local"
+            if is_local:
+                _set_runtime_interrupt(False)
             try:
                 if not self._mark_running(job_id):
                     return
@@ -2110,6 +2291,7 @@ class JobQueue:
                         default_dry_run=self._default_dry_run,
                         progress_store=self._progress_store,
                         enforce_managed_inputs=True,
+                        cancelled=(lambda: self._cancel_requested(job_id)) if not is_local else None,
                     )
                 except BaseException as exc:
                     if exc.__class__.__name__ == "InterruptProcessingException" and self._cancel_requested(job_id):
@@ -2127,13 +2309,17 @@ class JobQueue:
                             "error": (
                                 "generation interrupted"
                                 if status == 499
+                                else "NovelAI 생성에 실패했습니다. 결과가 불확실하므로 자동 재전송하지 않습니다." if not is_local
                                 else f"이미지 생성 중 오류가 발생했습니다: {exc}"
                             ),
                         }
+                        if not is_local:
+                            response["remote_outcome_unknown"] = True
                         self._progress_store.fail(str(payload["progress_id"]), str(response["error"]))
                 self._finish_job(job_id, int(status), response)
             finally:
-                _set_runtime_interrupt(False)
+                if is_local:
+                    _set_runtime_interrupt(False)
 
     def _finish_job(self, job_id: str, http_status: int, response: dict[str, Any]) -> None:
         enqueue_next = False
@@ -2149,6 +2335,11 @@ class JobQueue:
             job["finished_at"] = time.time()
             job["updated_at"] = time.time()
             batch = self._batches.get(str(job.get("batch_id")))
+            if response.get("stop_scheduling") and batch:
+                batch["stopped"] = True
+                for pending in self._jobs.values():
+                    if pending.get("batch_id") == batch["id"] and pending["status"] in {"queued", "waiting"}:
+                        pending.update(status="cancelled", cancel_requested=True, updated_at=time.time())
             enqueue_next = bool(
                 http_status < 400
                 and batch
@@ -2283,7 +2474,8 @@ def _request_for_queue_index(
         queued["seed"] = _QUEUE_RANDOM.randint(0, 2147483646)
     elif seed_mode == "increment":
         seed = base_seed if base_seed is not None else int(time.time() * 1000) % 2147483647
-        queued["seed"] = (seed + index) % (MAX_SEED + 1)
+        maximum = MAX_NAI_SEED if queued.get("provider") == "novelai" else MAX_SEED
+        queued["seed"] = (seed + index) % (maximum + 1)
     elif base_seed_provided and base_seed is not None:
         queued["seed"] = base_seed
     else:
@@ -2313,6 +2505,10 @@ def _progress_id_from_path(value: str) -> str:
 
 
 def _initial_progress_stages(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    if payload.get("provider") == "novelai":
+        return {key: {"label": "NovelAI 응답 대기" if key == "base_t2i" else label,
+                      "status": "pending" if key in {"request", "wildcards", "base_t2i", "metadata"} else "skipped"}
+                for key, label in _PROGRESS_STAGE_LABELS.items()}
     upscale = payload.get("upscale") if isinstance(payload.get("upscale"), dict) else {}
     face_detailer = payload.get("face_detailer") if isinstance(payload.get("face_detailer"), dict) else {}
     stages: dict[str, dict[str, Any]] = {}
@@ -2344,7 +2540,9 @@ def _completed_progress_stages(
     for key in _PROGRESS_STAGE_ORDER:
         stage = completed.setdefault(key, {"label": _PROGRESS_STAGE_LABELS[key]})
         manifest_stage = manifest_stages.get(key, {}) if isinstance(manifest_stages, dict) else {}
-        if key in {"request", "wildcards", "text_encode", "metadata"}:
+        if isinstance(manifest_stage, dict) and manifest_stage.get("status") == "skipped":
+            stage.update(manifest_stage)
+        elif key in {"request", "wildcards", "text_encode", "metadata"}:
             stage["status"] = "completed"
         elif isinstance(manifest_stage, dict) and (
             manifest_stage.get("status") in {"disabled", "skipped"} or manifest_stage.get("method") == "not_run"
@@ -2391,6 +2589,136 @@ def _validate_managed_generation_inputs(request: T2IRequest, paths: AppPaths) ->
         resolve_managed_lora_path(lora.path, paths)
 
 
+def _generation_provider(payload: dict[str, Any]) -> str:
+    provider = payload.get("provider", "local")
+    if not isinstance(provider, str) or provider not in {"local", "novelai"}:
+        raise ValueError("provider must be one of: local, novelai")
+    return provider
+
+
+def _provider_capabilities(*, default_dry_run: bool) -> dict[str, Any]:
+    from anima_app.providers.novelai.models import (
+        INPAINT_ROUTING, MODEL_IDS, SAMPLERS, SCHEDULERS, SUPPORTED_INPAINT_MODEL_IDS,
+    )
+
+    return {
+        "default": "local", "default_dry_run": default_dry_run,
+        "providers": [
+            {"id": "local", "label": "로컬 Anima", "operations": ["generate", "img2img", "masked_inpaint"]},
+            {"id": "novelai", "label": "NovelAI", "operations": ["generate", "img2img", "infill", "detail", "focused_infill"],
+             "inpaint_models": sorted(SUPPORTED_INPAINT_MODEL_IDS), "inpaint_routing": INPAINT_ROUTING,
+             "characters": {"max_count": 5, "models": "V4/V5", "centers_per_character": 1},
+             "references": {"max_count": 16, "vibe_models": ["V3", "V4", "V4.5"],
+                            "precise_models": ["V4.5"], "mutually_exclusive": True},
+             "models": sorted(MODEL_IDS), "samplers": sorted(SAMPLERS), "schedulers": sorted(SCHEDULERS),
+             "limits": {"dimension_step": 64, "max_dimension": MAX_GENERATION_DIMENSION,
+                        "max_pixels_uncapped": MAX_BASE_IMAGE_PIXELS, "max_steps": 50,
+                        "max_seed": MAX_NAI_SEED, "max_cfg": MAX_CFG,
+                        "opus_max_pixels": 1024 * 1024, "opus_max_steps": 28},
+             "defaults": novelai.NovelAIRequest(prompt="preview").to_payload(),
+             "configured": novelai.token_status()["configured"],
+             "cancellation": "stop scheduling; an already submitted remote request may finish",
+             "automatic_retry": "one bounded retry after HTTP 429 only",
+             "account_entitlement_verified": False,
+             "opus_preflight": {"per_attempt": True, "active_tier": 3, "v5_min_remaining_percent": 2,
+                                "fail_closed": True},
+             "request_interval_seconds": 2.0},
+        ],
+    }
+
+
+def handle_novelai_generate(
+    payload: dict[str, Any], *, paths: AppPaths, default_dry_run: bool = False,
+    progress_store: ProgressStore | None = None, cancelled: Any = None,
+) -> tuple[int, dict[str, Any]]:
+    progress_id = _progress_id_from_payload(payload)
+    if progress_store is not None and progress_id:
+        progress_store.start(progress_id, {"provider": "novelai"})
+        progress_store.update_stage(progress_id, "request", "active")
+    try:
+        request = novelai.request_from_payload(payload)
+        from anima_app.providers.novelai.references import validate_managed_references
+        validate_managed_references(request, paths)
+        dry_run = _boolean_value(payload.get("dry_run", default_dry_run), "dry_run")
+        if request.operation in {"infill", "focused_infill"}:
+            from anima_app.providers.novelai.inpaint import read_inputs
+            read_inputs(request, paths)
+        elif request.operation in {"img2img", "detail"}:
+            from anima_app.providers.novelai.inpaint import read_img2img_input
+            read_img2img_input(request, paths)
+        # Choose random seed once so wildcard expansion and transport use the same value.
+        effective, _ = novelai.build_payload(request)
+        request = replace(request, seed=effective.seed)
+        mode = _normalized_preset_request(payload)["wildcard_mode"]
+        prompt = expand_text_wildcards(request.prompt, paths=paths, mode=mode, seed=request.seed)
+        negative = expand_text_wildcards(request.negative_prompt, paths=paths, mode=mode, seed=request.seed, salt="negative")
+        wildcard_expansion = {
+            "enabled": bool(prompt.selections or negative.selections), "mode": mode,
+            "original_prompt": request.prompt, "original_negative_prompt": request.negative_prompt,
+            "prompt": prompt.text, "negative_prompt": negative.text,
+            "selections": [*prompt.selections, *negative.selections],
+        }
+        request = replace(request, prompt=prompt.text, negative_prompt=negative.text)
+        character_expansions = []
+        characters = []
+        for index, character in enumerate(request.characters):
+            cp = expand_text_wildcards(character["prompt"], paths=paths, mode=mode, seed=request.seed, salt=f"character:{index}:prompt")
+            uc = expand_text_wildcards(character["negative_prompt"], paths=paths, mode=mode, seed=request.seed, salt=f"character:{index}:negative")
+            characters.append({**character, "prompt": cp.text, "negative_prompt": uc.text})
+            character_expansions.append({"index": index, "original": character, "prompt": cp.text,
+                                         "negative_prompt": uc.text, "selections": [*cp.selections, *uc.selections]})
+        wildcard_expansion["characters"] = character_expansions
+        wildcard_expansion["enabled"] |= any(item["selections"] for item in character_expansions)
+        request = replace(request, characters=tuple(characters))
+        if progress_store is not None and progress_id:
+            progress_store.update_stage(progress_id, "request", "completed")
+            progress_store.update_stage(progress_id, "wildcards", "completed")
+            progress_store.update_stage(progress_id, "base_t2i", "active")
+            progress_store.update_summary(progress_id, "NovelAI 응답 대기 중" if not dry_run else "NovelAI 드라이런")
+        result = novelai.generate(request, paths=paths, dry_run=dry_run, wildcards=wildcard_expansion,
+                                 cancelled=cancelled or (lambda: False))
+        manifest = read_manifest(result.manifest_path)
+        stages = {key: {"status": "completed" if key in {"request", "wildcards", "metadata"} or (key == "base_t2i" and result.output_path) else "skipped"}
+                  for key in _PROGRESS_STAGE_ORDER}
+        stages["face_detailer"] = manifest["stages"]["face_detailer"]
+        warnings = manifest["warnings"]
+        response = {
+            "status": result.status, "provider": "novelai", "manifest_path": str(result.manifest_path),
+            "manifest_name": result.manifest_path.name,
+            "output_path": str(result.output_path) if result.output_path else None,
+            "output_url": _output_url(result.output_path, paths),
+            "variants": {name: {"output_path": value, "output_url": _output_url(Path(value), paths)}
+                         for name, value in manifest["variants"].items()}, "warnings": warnings,
+            "stages": stages, "wildcards": wildcard_expansion, "checkpoint": result.request.model,
+            "detailer_regions": manifest["novelai"].get("detailer", []),
+            "stop_scheduling": "detailer_failure" in manifest["novelai"],
+            "remote_outcome_unknown": manifest["novelai"].get("detailer_failure", {}).get("remote_outcome_unknown", False),
+            "width": result.request.width, "height": result.request.height, "seed": result.request.seed,
+            "dry_run": dry_run, "cancellation_requested": result.cancellation_requested,
+        }
+        if progress_store is not None and progress_id:
+            progress_store.complete(progress_id, response)
+        return HTTPStatus.OK, response
+    except NovelAIError as exc:
+        if progress_store is not None and progress_id:
+            if exc.status == 499:
+                progress_store.cancel(progress_id, str(exc))
+            else:
+                progress_store.fail(progress_id, str(exc))
+        return exc.status, exc.payload()
+    except (AttributeError, FileNotFoundError, OverflowError, TypeError, ValueError):
+        error = "NovelAI 생성 설정이 올바르지 않습니다. 모델, 크기, 스텝, 시드와 지원 기능을 확인해 주세요."
+        if progress_store is not None and progress_id:
+            progress_store.fail(progress_id, error)
+        return HTTPStatus.BAD_REQUEST, {"error_code": "generation_invalid_request", "error": error, "provider": "novelai"}
+    except Exception:
+        error = "NovelAI 생성에 실패했습니다. 결과가 불확실하므로 자동 재전송하지 않습니다."
+        if progress_store is not None and progress_id:
+            progress_store.fail(progress_id, error)
+        return HTTPStatus.BAD_GATEWAY, {"error_code": "nai_generation_failed", "error": error,
+                                       "provider": "novelai", "remote_outcome_unknown": True}
+
+
 def handle_generate(
     payload: dict[str, Any],
     *,
@@ -2399,7 +2727,16 @@ def handle_generate(
     default_dry_run: bool = False,
     progress_store: ProgressStore | None = None,
     enforce_managed_inputs: bool = False,
+    cancelled: Any = None,
 ) -> tuple[int, dict[str, Any]]:
+    try:
+        provider = _generation_provider(payload)
+        reject_credentials(payload)
+    except ValueError:
+        return HTTPStatus.BAD_REQUEST, {"error_code": "generation_invalid_request", "error": "생성 엔진 또는 인증 설정이 올바르지 않습니다."}
+    if provider == "novelai":
+        return handle_novelai_generate(payload, paths=paths, default_dry_run=default_dry_run,
+                                      progress_store=progress_store, cancelled=cancelled)
     payload = dict(payload)
     if not str(payload.get("checkpoint", "")).strip():
         payload["checkpoint"] = handle_checkpoints(paths=paths)["default"]
@@ -3397,6 +3734,12 @@ def create_http_server(
             if parsed.path == "/api/llm/status":
                 self._send_json(HTTPStatus.OK, llm_status_payload(llm_client))
                 return
+            if parsed.path == "/api/nai/status":
+                self._send_json(HTTPStatus.OK, novelai.token_status())
+                return
+            if parsed.path == "/api/providers":
+                self._send_json(HTTPStatus.OK, _provider_capabilities(default_dry_run=default_dry_run))
+                return
             if parsed.path == "/api/loras":
                 self._send_json(HTTPStatus.OK, handle_loras(paths=paths))
                 return
@@ -3486,6 +3829,8 @@ def create_http_server(
                 "/api/generate",
                 "/api/jobs",
                 "/api/inputs/reference",
+                "/api/metadata/novelai",
+                "/api/prompts/convert",
                 "/api/loras/import",
                 "/api/loras/upload",
                 "/api/presets",
@@ -3503,11 +3848,20 @@ def create_http_server(
             if parsed.path in {"/api/inputs/reference", "/api/loras/upload"}:
                 self._handle_file_upload(parsed)
                 return
+            if parsed.path == "/api/metadata/novelai":
+                self._handle_nai_metadata()
+                return
             payload = self._read_json_object()
             if payload is None:
                 return
             if parsed.path == "/api/loras/import":
                 status, response = handle_lora_import(payload, paths=paths)
+            elif parsed.path == "/api/prompts/convert":
+                try:
+                    status, response = HTTPStatus.OK, convert_prompt(payload)
+                except (ValueError, OverflowError, RecursionError):
+                    status, response = HTTPStatus.BAD_REQUEST, {"error_code": "prompt_conversion_invalid",
+                        "error": "문법·길이·중첩·가중치를 확인해 주세요. 변환할 수 없는 프롬프트입니다."}
             elif parsed.path == "/api/presets/import":
                 status, response = handle_preset_import(payload, paths=paths)
             elif parsed.path == "/api/presets":
@@ -3652,6 +4006,26 @@ def create_http_server(
                 )
                 return False
             return True
+
+        def _handle_nai_metadata(self) -> None:
+            temporary = self._read_upload_body(
+                root=paths.input_root / "metadata",
+                maximum_bytes=MAX_REFERENCE_UPLOAD_BYTES,
+                allowed_content_types={"image/png", "image/webp", "application/octet-stream"},
+            )
+            if temporary is None:
+                return
+            try:
+                response = read_image_metadata(temporary)
+            except (ValueError, RecursionError):
+                self._send_json(HTTPStatus.BAD_REQUEST, {
+                    "error_code": "nai_metadata_invalid",
+                    "error": "NAI 메타데이터를 읽을 수 없습니다. 메타데이터가 보존된 원본 PNG 또는 WebP를 사용해 주세요.",
+                })
+                return
+            finally:
+                temporary.unlink(missing_ok=True)
+            self._send_json(HTTPStatus.OK, response)
 
         def _handle_file_upload(self, parsed: Any) -> None:
             filenames = parse_qs(parsed.query, keep_blank_values=True).get("filename", [])
@@ -4199,6 +4573,7 @@ def _history_item(payload: dict[str, Any], paths: AppPaths) -> dict[str, Any]:
         "height": payload.get("height"),
         "seed": payload.get("seed"),
         "checkpoint": payload.get("checkpoint", DEFAULT_T2I_CHECKPOINT),
+        "provider": payload.get("provider", "local"),
     }
 
 
@@ -4349,9 +4724,14 @@ def _validated_preset_name(value: Any) -> tuple[str, str]:
 def _normalized_preset_request(value: Any) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("preset request must be an object")
-    request = request_from_payload(value)
-    normalized = asdict(request)
-    normalized["loras"] = list(normalized["loras"])
+    provider = _generation_provider(value)
+    reject_credentials(value)
+    if provider == "novelai":
+        normalized = novelai.request_from_payload(value).to_payload()
+    else:
+        request = request_from_payload(value)
+        normalized = asdict(request)
+        normalized["loras"] = list(normalized["loras"])
     raw_mode: Any = value.get("wildcard_mode")
     if raw_mode is None:
         wildcard_value = value.get("wildcards", DEFAULT_WILDCARD_MODE)

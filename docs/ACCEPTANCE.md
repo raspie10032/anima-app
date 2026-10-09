@@ -1,8 +1,33 @@
 # Anima APP Acceptance
 
-This checklist records the accepted public `0.4.0` source-checkout beta scope.
+This checklist records the implemented `0.5.0` source-checkout beta scope. A separate 2026-10-09 acceptance record documents one live V5 Curated T2I request. The new masked-infill extension is verified with synthetic transport and browser acceptance only; billing and live infill remain separate checks.
 
 ## Implemented
+
+- [x] Up to five V4/V5 characters retain prompt, negative, normalized center and coordinate/order flags through requests, payloads, presets, wildcard provenance, manifests and metadata import. V3, invalid values and unrepresentable imported layouts are rejected or warned before generation.
+- [x] Six local prompt-weight syntax conversions show original/result, node fallback and old-NAI approximation warnings; explicit apply is invalidated when the source or selection changes.
+- [ ] Live remote multi-character acceptance and composition quality have not been checked for this implementation.
+
+- [x] Local Anima and optional NovelAI T2I share the browser server queue, presets, history, thumbnails and manifests.
+- [x] NovelAI token discovery is environment-only; status and capability endpoints expose only token presence, with credential keys rejected before queue/preset storage.
+- [x] NovelAI requests validate bounded text, dimensions, sampling values, booleans and 32-bit seeds before transport. Local LoRAs and local-only enhancements are rejected; NAI-specific references and detailing use separate validated contracts.
+- [x] The browser shows provider controls, effective Opus-capped dimensions/steps, and remote cancellation/cost boundaries.
+- [x] Protected T2I checks active Opus tier 3 and V5 integer remaining allowance >=2 percent immediately before every attempt, including the bounded 429 retry; malformed/failed account checks stop before generation. Dry-run performs no account lookup.
+- [x] One process-wide lock serializes account checks, generation and retries across provider instances; successful and failed transmissions enforce at least two seconds from completion before the next attempt. Pending lock/cooldown waits are cancellable.
+- [ ] These new account guards are validated with synthetic account/transport and clock/concurrency tests; current live account acceptance and billing are unverified.
+- [x] NovelAI timeout/network failures are secret-free, expose an unknown remote outcome and stop Infinity scheduling without automatic resubmission. Only HTTP 429 gets one bounded retry.
+- [x] Remote cancellation leaves local GPU interrupts untouched, stops future jobs, and preserves an already submitted result when it arrives.
+- [x] NovelAI result PNGs are validated, byte-preserved and atomically written with request/effective parameters, SHA-256, retries and provider provenance in the manifest.
+- [x] OpenAPI includes provider discovery, token-presence status and both generation request schemas.
+- [x] NovelAI masked infill supports dedicated model IDs, managed source/mask inputs, in-browser paint/erase/save, pre-queue size/empty-mask validation, cost-cap rejection, and exact preservation outside the mask in the composited result.
+- [x] Infill settings and model identity round-trip through manifests/presets and app-produced PNG metadata. Remote response bytes remain a separate variant.
+- [x] Img2Img strength/noise, input resizing and metadata settings; Vibe multireference encoding/cache/normalization; Precise types/fidelity/letterboxing persist through canonical queue/preset/history contracts.
+- [x] Sequential native detector / WD prompt selection and frozen-source, disjoint focused masks; preview without remote requests; strict focused preflight per crop and durable partial-result preservation with batch stop.
+- [x] Real local CPU face/eye YOLO + SAM B and WD inference checked against the preserved earlier NAI image; other remote transports mocked.
+- [x] Offline CPU SAM3 face/eye/hand inference and YOLO hand n/s with SAM B `.pt`/`.pth` loader paths produced nonempty masks on the preserved detector-preview derivative. Original input/model hashes were retained; native reports are under `outputs/all-nai-port-20261009/sam3/native` and `hands/native` in the development checkout.
+- [ ] Broad detector accuracy, GPU execution, optional native dependencies in the app environment, actual remote acceptance/correction quality/Anlas changes for the new ports, and Windows GUI remain unverified.
+- [ ] Actual NovelAI infill endpoint acceptance and correction quality remain unverified; `scripts/browser_inpaint_smoke.py` uses a synthetic transport only.
+- [ ] Current integrated live NovelAI endpoint, actual account entitlement/billing and real GPU generation acceptance remain separate from mock/browser regression.
 
 - [x] Python package source exists under `src\anima_app`.
 - [x] Runtime assets are read from the project-local `models` tree.
@@ -62,7 +87,7 @@ This checklist records the accepted public `0.4.0` source-checkout beta scope.
 
 ## Release Boundary
 
-- [x] Current release target is a `0.4.0` source-checkout beta.
+- [x] Current release target is a `0.5.0` source-checkout beta.
 - [x] The verified `scripts/source_archive.py --require-clean` ZIP is the intended public artifact for this version; GitHub's automatic source archives are convenience copies rather than the verified artifact.
 - [ ] Creating the public tag/release and uploading the verified ZIP remain manual owner actions.
 - [ ] Standalone binary packaging is not finalized.

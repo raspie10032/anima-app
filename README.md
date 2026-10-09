@@ -2,6 +2,8 @@
 
 Lightweight local Anima image-generation app with a browser GUI.
 
+The optional NovelAI provider supports T2I, Img2Img, masked and focused inpainting, Vibe Transfer, Precise Reference and sequential automatic detailing through the browser queue, presets, history and manifests. It includes five-character prompts, six weight-syntax conversions and optional native WD matching of original character prompts. Configure `NAI_ACCESS_TOKEN` in the server environment; local Anima remains the default. References and Img2Img require explicit removal of Opus protection. Focused crops have their own strict preflight. See [docs/NOVELAI_PROVIDER.md](docs/NOVELAI_PROVIDER.md) for setup, model dependencies, costs and the local/mock versus live validation boundary.
+
 Anima APP packages a focused Anima text-to-image workflow around a local, project-owned `models` folder. It does not require launching a ComfyUI server for normal generation.
 
 ## Reference Map
@@ -267,7 +269,7 @@ python scripts\source_archive.py
 
 The vendor check verifies the disclosed patched package hashes and product boundary. The wheel check copies package source into a temporary build root, installs the resulting wheel into a temporary target, verifies package/application version agreement and the packaged GUI JavaScript, proves that the root vendored runtime is absent, and runs a CLI dry-run. It does not turn the wheel into a standalone generation build.
 
-The source-archive command writes `outputs\release\anima-app-0.4.0-source.zip` and its `.sha256` file, verifies required runtime, launcher, UI, notice, license, and wildcard-disclosure files, then extracts it and runs vendor plus CLI dry-run checks. A local dirty checkout can produce a review candidate. The official release command is stricter:
+The source-archive command writes `outputs\release\anima-app-0.5.0-source.zip` and its `.sha256` file, verifies required runtime, launcher, UI, notice, license, and wildcard-disclosure files, then extracts it and runs vendor plus CLI dry-run checks. A local dirty checkout can produce a review candidate. The official release command is stricter:
 
 ```powershell
 python scripts\source_archive.py --require-clean

@@ -10,6 +10,15 @@ Relevant upstream project:
 
 - ComfyUI: https://github.com/comfyanonymous/ComfyUI
 
+## NovelAI Node Ports
+
+Prompt converters, reference preparation/cache behavior, region ownership, focused inpainting,
+character matching and optional native WD inference are derived from
+https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request. Ported modules retain their
+`SPDX-License-Identifier: GPL-3.0-only` notices. ComfyUI graph interfaces are replaced by
+standalone request, managed-input and queue contracts. NovelAI is an external service;
+this app is not an official NovelAI client or a guarantee of account billing behavior.
+
 ## Vendored Python Packages
 
 The `vendor/python_packages` tree contains selected runtime packages and their metadata:

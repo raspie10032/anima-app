@@ -18,6 +18,7 @@ import pytest
 from PIL import Image
 from safetensors.numpy import save_file
 
+from anima_app import __version__
 from anima_app.assets import ANIMA_T2I_ASSET_PROFILE, FACE_DETAILER_DETECTOR_ASSET_PROFILE, required_t2i_model_files
 from anima_app import requests as requests_module
 from anima_app import server as server_module
@@ -4244,10 +4245,10 @@ def test_http_server_serves_version_metadata(tmp_path):
             payload = json.loads(response.read().decode("utf-8"))
 
         assert response.status == 200
-        assert payload["version"] == "0.4.0"
+        assert payload["version"] == __version__
         assert payload["repository"] == "raspie10032/anima-app"
         assert payload["repository_url"] == "https://github.com/raspie10032/anima-app"
-        assert response.headers["Server"].startswith("AnimaAPP/0.4.0")
+        assert response.headers["Server"].startswith(f"AnimaAPP/{__version__}")
     finally:
         server.shutdown()
         server.server_close()
@@ -4849,7 +4850,7 @@ def test_index_html_loads_history_panel():
     assert "request.width || animaDefaults.width" in INDEX_HTML
     assert "request.height || animaDefaults.height" in INDEX_HTML
     assert "request.steps || animaDefaults.steps" in INDEX_HTML
-    assert "request.cfg || animaDefaults.cfg" in INDEX_HTML
+    assert "request.cfg ?? animaDefaults.cfg" in INDEX_HTML
     assert "form.elements.sampler.value = request.sampler || animaDefaults.sampler" in INDEX_HTML
     assert "form.elements.scheduler.value = request.scheduler || animaDefaults.scheduler" in INDEX_HTML
     assert "setSelectValue(checkpointSelect, request.checkpoint || animaDefaults.checkpoint)" in INDEX_HTML
@@ -5136,7 +5137,7 @@ def test_index_html_hides_sam3_tools_until_an_output_is_selected():
     assert ".sam3-tools[hidden]" in INDEX_DOCUMENT
     assert 'const sam3Tools = document.getElementById("sam3-tools")' in APP_JS
     assert "sam3Tools.hidden = true;" in clear_preview
-    assert "sam3Tools.hidden = false;" in show_preview
+    assert 'sam3Tools.hidden = providerSelect.value === "novelai" || currentManifest?.provider === "novelai";' in show_preview
 
 
 def test_masked_inpaint_success_refreshes_history_with_existing_loader():
@@ -5513,7 +5514,7 @@ def test_index_html_contains_llm_refine_contract(needle):
 
 
 def test_index_html_renders_binary_options_as_color_toggles():
-    assert INDEX_HTML.count('class="toggle-switch"') == 6
+    assert INDEX_HTML.count('class="toggle-switch"') == 9
     assert "toggle-switch:has(input:checked)" in INDEX_HTML
     assert "background: #a9444f" in INDEX_HTML
     assert "background: #2f9f55" in INDEX_HTML

@@ -23,11 +23,11 @@ def _load_script(module_name: str, filename: str):
 def test_release_version_has_one_packaging_source_of_truth():
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert __version__ == "0.4.0"
+    assert __version__ == "0.5.0"
     assert 'dynamic = ["version"]' in pyproject
     assert '[tool.setuptools.dynamic]' in pyproject
     assert 'version = {attr = "anima_app.__version__"}' in pyproject
-    assert 'version = "0.4.0"' not in pyproject
+    assert f'version = "{__version__}"' not in pyproject
 
 
 def test_release_docs_and_manifest_target_current_version():

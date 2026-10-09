@@ -10,6 +10,7 @@ ENV_MODEL_SOURCE = "ANIMA_APP_MODEL_SOURCE"
 ENV_FACE_DETECTOR_SOURCE = "ANIMA_APP_FACE_DETECTOR_SOURCE"
 ENV_FACE_DETECTOR_FALLBACKS = "ANIMA_APP_FACE_DETECTOR_FALLBACKS"
 ENV_AUTOCOMPLETE_SOURCE = "ANIMA_APP_AUTOCOMPLETE_SOURCE"
+ENV_WD_TAGGER_SOURCE = "ANIMA_APP_WD_TAGGER_SOURCE"
 
 
 def _env_path(name: str) -> Path | None:
@@ -62,6 +63,10 @@ class AppPaths:
     @property
     def model_root(self) -> Path:
         return self.project_root / "models"
+
+    @property
+    def wd_tagger_root(self) -> Path:
+        return _env_path(ENV_WD_TAGGER_SOURCE) or self.model_root / "rs_wd_tagger"
 
     @property
     def output_root(self) -> Path:

@@ -33,6 +33,8 @@ from anima_app.requests import (
     VaeDecodeSettings,
 )
 from anima_app.wildcards import WILDCARD_MODES
+from anima_app.providers.novelai.models import MODEL_IDS, SAMPLERS, SCHEDULERS, SUPPORTED_INPAINT_MODEL_IDS
+from anima_app.providers.novelai.requests import MAX_NAI_SEED
 
 
 def _schema_ref(name: str) -> dict[str, str]:
@@ -106,6 +108,8 @@ def build_openapi_document(
             "properties": {
                 "error_code": {"type": "string"},
                 "error": {"type": "string"},
+                "provider": {"type": "string", "enum": ["local", "novelai"]},
+                "remote_outcome_unknown": {"type": "boolean"},
                 "missing_files": {"type": "array", "items": {"type": "string"}},
                 "invalid_files": {"type": "array", "items": {"type": "string"}},
             },
@@ -291,6 +295,7 @@ def build_openapi_document(
                 "combined pixel budgets and tile overlap constraints."
             ),
             "properties": {
+                "provider": {"type": "string", "const": "local", "default": "local"},
                 "prompt": {
                     "type": "string",
                     "minLength": 1,
@@ -369,6 +374,71 @@ def build_openapi_document(
             },
             "additionalProperties": False,
         },
+        "NovelAICharacter": {
+            "type": "object", "additionalProperties": False,
+            "properties": {
+                "prompt": {"type": "string", "maxLength": MAX_PROMPT_CHARACTERS, "default": ""},
+                "negative_prompt": {"type": "string", "maxLength": MAX_PROMPT_CHARACTERS, "default": ""},
+                "x": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.5},
+                "y": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.5},
+            },
+        },
+        "NovelAIRequest": {
+            "type": "object", "required": ["provider", "prompt"], "additionalProperties": False,
+            "description": "NovelAI T2I or infill. Infill requires managed input/mask paths matching the requested size, a dedicated inpainting model and nai_limit_opus_free=false. Credentials come from the server environment.",
+            "properties": {
+                "provider": {"type": "string", "const": "novelai"},
+                "prompt": {"type": "string", "minLength": 1, "maxLength": MAX_PROMPT_CHARACTERS, "pattern": "\\S"},
+                "negative_prompt": {"type": "string", "maxLength": MAX_PROMPT_CHARACTERS, "default": ""},
+                "width": {"type": "integer", "minimum": 64, "maximum": MAX_GENERATION_DIMENSION, "multipleOf": 64, "default": 832},
+                "height": {"type": "integer", "minimum": 64, "maximum": MAX_GENERATION_DIMENSION, "multipleOf": 64, "default": 1216},
+                "steps": {"type": "integer", "minimum": 1, "maximum": 50, "default": 28},
+                "cfg": {"type": "number", "minimum": 0, "maximum": MAX_CFG, "default": 6.0},
+                "seed": {"type": ["integer", "null"], "minimum": 0, "maximum": MAX_NAI_SEED, "default": None},
+                "nai_model": {"type": "string", "enum": sorted(MODEL_IDS | SUPPORTED_INPAINT_MODEL_IDS), "default": "nai-diffusion-5-curated"},
+                "operation": {"type": "string", "enum": ["generate", "img2img", "infill", "detail", "focused_infill"], "default": "generate"},
+                "input_image": {"type": "string", "maxLength": 4096, "default": "", "description": "Managed path under inputs/references or outputs/images."},
+                "mask_image": {"type": "string", "maxLength": 4096, "default": "", "description": "Same-sized mask: white repaints, black preserves."},
+                "inpaint_strength": {"type": "number", "minimum": 0, "maximum": 1, "default": 1},
+                "img2img_strength": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.5},
+                "img2img_noise": {"type": "number", "minimum": 0, "maximum": 1, "default": 0},
+                "nai_sampler": {"type": "string", "enum": sorted(SAMPLERS), "default": "k_euler"},
+                "nai_scheduler": {"type": "string", "enum": sorted(SCHEDULERS), "default": "karras"},
+                "nai_cfg_rescale": {"type": "number", "minimum": 0, "maximum": 1, "default": 0},
+                "nai_prefer_brownian": {"type": "boolean", "default": False},
+                "nai_characters": {"type": "array", "maxItems": 5, "items": _schema_ref("NovelAICharacter"), "default": [],
+                                   "description": "V4/V5 only; one normalized center per character."},
+                "nai_use_coords": {"type": "boolean", "default": True},
+                "nai_use_order": {"type": "boolean", "default": True},
+                "nai_vibes": {"type": "array", "maxItems": 16, "items": {"type": "object", "additionalProperties": False,
+                    "required": ["image"], "properties": {"image": {"type": "string", "maxLength": 4096},
+                    "strength": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.6},
+                    "information_extracted": {"type": "number", "minimum": 0, "maximum": 1, "default": 1}}}},
+                "nai_references": {"type": "array", "maxItems": 16, "items": {"type": "object", "additionalProperties": False,
+                    "required": ["image"], "properties": {"image": {"type": "string", "maxLength": 4096},
+                    "reference_type": {"type": "string", "enum": ["character", "style", "character&style"], "default": "character"},
+                    "strength": {"type": "number", "minimum": 0, "maximum": 1, "default": 1},
+                    "fidelity": {"type": "number", "minimum": 0, "maximum": 1, "default": 1}}}},
+                "nai_normalize_vibe_strengths": {"type": "boolean", "default": True},
+                "nai_detailer": {"type": "object", "description": "NAI detector/matching/focused crop settings. See provider guide.",
+                    "additionalProperties": False, "properties": {
+                        "enabled": {"type": "boolean", "default": False}, "preview_only": {"type": "boolean", "default": False},
+                        "mode": {"type": "string", "enum": ["first", "all"]}, "matching": {"type": "string", "enum": ["shared", "wd14"]},
+                        "backend": {"type": "string", "enum": ["sam_b", "sam3"]},
+                        "wd_device": {"type": "string", "enum": ["auto", "cpu"]}, "wd_batch_size": {"type": "integer", "minimum": 1, "maximum": 16},
+                        "concepts": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"enum": ["face", "eyes", "hands"]}},
+                        **{key: {"type": "number", "minimum": 0, "maximum": 1} for key in ("threshold", "mask_threshold", "strength", "match_min_score", "match_min_margin")},
+                        **{key: {"type": "number", "minimum": 1, "maximum": 8} for key in ("crop_factor", "match_crop_factor")},
+                        "steps": {"type": "integer", "minimum": 1, "maximum": 50}, "max_regions": {"type": "integer", "minimum": 1, "maximum": 16},
+                        "padding": {"type": "integer", "minimum": 0, "maximum": 256}, "dilation": {"type": "integer", "minimum": -64, "maximum": 128}}},
+                "nai_variety_boost": {"type": "boolean", "default": True},
+                "nai_limit_opus_free": {"type": "boolean", "default": True,
+                                        "description": "Cap T2I to one image, 1048576 pixels and 28 steps; before each transport attempt require active Opus tier 3 and, for V5, verifiable remaining allowance >=2 percent. Failed checks block generation. Infill is rejected while enabled."},
+                "wildcard_mode": {"type": "string", "enum": sorted(WILDCARD_MODES), "default": "random"},
+                "dry_run": {"type": "boolean", "default": default_dry_run},
+            },
+        },
+        "GenerationRequest": {"oneOf": [_schema_ref("T2IRequest"), _schema_ref("NovelAIRequest")]},
         "Variant": {
             "type": "object",
             "properties": {
@@ -382,6 +452,8 @@ def build_openapi_document(
             "type": "object",
             "required": ["status", "manifest_path", "manifest_name", "warnings", "stages", "dry_run"],
             "properties": {
+                "provider": {"type": "string", "enum": ["local", "novelai"]},
+                "cancellation_requested": {"type": "boolean"},
                 "status": {"type": "string", "enum": ["generated", "dry_run"]},
                 "manifest_path": {"type": "string"},
                 "manifest_name": {"type": "string"},
@@ -410,7 +482,7 @@ def build_openapi_document(
                     "type": "string",
                     "enum": ["queued", "waiting", "running", "completed", "failed", "cancelled"],
                 },
-                "request": _schema_ref("T2IRequest"),
+                "request": _schema_ref("GenerationRequest"),
                 "progress_id": {"type": "string"},
                 "cancel_requested": {"type": "boolean"},
                 "result": {
@@ -434,7 +506,7 @@ def build_openapi_document(
             "type": "object",
             "required": ["request"],
             "properties": {
-                "request": _schema_ref("T2IRequest"),
+                "request": _schema_ref("GenerationRequest"),
                 "count": {
                     "type": "integer",
                     "minimum": 1,
@@ -491,6 +563,8 @@ def build_openapi_document(
     }
 
     paths: dict[str, Any] = {
+        "/api/providers": {"get": {"operationId": "getProviders", "summary": "Discover provider capabilities and dry-run policy", "tags": ["Discovery"], "responses": {"200": generic_response}}},
+        "/api/nai/status": {"get": {"operationId": "getNovelAIStatus", "summary": "Check server token presence without exposing credentials", "tags": ["Discovery"], "responses": {"200": generic_response}}},
         "/api/openapi.json": {
             "get": {
                 "operationId": "getOpenApiDocument",
@@ -548,6 +622,32 @@ def build_openapi_document(
                 "responses": {"200": generic_response},
             }
         },
+        "/api/prompts/convert": {"post": {
+            "operationId": "convertPromptWeights", "summary": "Preview one of six local prompt syntax conversions",
+            "tags": ["Discovery"],
+            "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                "type": "object", "required": ["source", "target", "text"], "additionalProperties": False,
+                "properties": {"source": {"enum": ["comfyui", "naiv4", "oldnai"]},
+                               "target": {"enum": ["comfyui", "naiv4", "oldnai"]},
+                               "text": {"type": "string", "maxLength": MAX_PROMPT_CHARACTERS}},
+            }}}}, "responses": {"200": generic_response, "400": error_response, "403": error_response},
+        }},
+        "/api/metadata/novelai": {
+            "post": {
+                "operationId": "readNovelAIImageMetadata",
+                "summary": "Read existing PNG/WebP generation settings without generating an image",
+                "description": "Reads PNG text, WebP EXIF or alpha metadata. Returns supported form fields, model hash, "
+                               "model candidates and warnings. Temporary upload is deleted; no provider call is made.",
+                "tags": ["Discovery"],
+                "requestBody": {
+                    "required": True,
+                    "content": {media_type: {"schema": {"type": "string", "format": "binary"}}
+                                for media_type in ("image/png", "image/webp", "application/octet-stream")},
+                },
+                "responses": {"200": generic_response, "400": error_response, "403": error_response,
+                              "411": error_response, "413": error_response, "415": error_response},
+            }
+        },
         "/api/generate": {
             "post": {
                 "operationId": "generateImage",
@@ -557,7 +657,7 @@ def build_openapi_document(
                     "required": True,
                     "content": {
                         "application/json": {
-                            "schema": _schema_ref("T2IRequest"),
+                            "schema": _schema_ref("GenerationRequest"),
                             "example": {"prompt": "anime portrait", "dry_run": True},
                         }
                     },
@@ -565,8 +665,14 @@ def build_openapi_document(
                 "responses": {
                     "200": _json_response("Generation result", _schema_ref("GenerateResult")),
                     "400": error_response,
+                    "401": error_response,
+                    "402": error_response,
+                    "403": error_response,
+                    "429": error_response,
                     "409": models_not_ready_response,
                     "500": error_response,
+                    "502": error_response,
+                    "504": error_response,
                 },
             }
         },
@@ -673,7 +779,7 @@ def build_openapi_document(
             "version": app_version,
             "description": (
                 "Machine-readable contract for local AI agents. The server is loopback-only. "
-                "Use /api/jobs for cancellable work and validate requests against T2IRequest before submission."
+                "Use /api/jobs for cancellable work and validate requests against GenerationRequest before submission. NovelAI transmits prompts to the remote provider."
             ),
         },
         "servers": [{"url": "/", "description": "Current local Anima APP server"}],
@@ -688,6 +794,7 @@ def build_openapi_document(
         "x-anima-agent": {
             "local_only": True,
             "idempotency_supported": False,
+            "remote_outcome_policy": "Never automatically resubmit NovelAI requests after a timeout, lost response, malformed response or server restart. Running cancellation only stops future scheduling; already submitted requests may complete and be billed.",
             "unknown_request_fields": (
                 "Clients should enforce additionalProperties=false; current server compatibility parsing may ignore them."
             ),

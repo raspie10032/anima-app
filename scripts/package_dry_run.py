@@ -76,11 +76,22 @@ import anima_app
 from anima_app.cli import main
 from anima_app.config import AppPaths
 from anima_app.server import APP_JS, INDEX_HTML
+from anima_app.providers.novelai import (
+    converters, detailer, detailer_matching, eligibility, inpaint,
+    metadata, references, requests, service, wd_tagger,
+)
 
 assert 'const animaDefaults' in APP_JS
 assert '<script src="/app.js"></script>' in INDEX_HTML
 assert (Path(anima_app.__file__).parent / 'static/app.js').is_file()
 assert version('anima-app') == anima_app.__version__
+assert references.MAX_REFERENCES == 16
+assert callable(detailer.Detector.preflight)
+assert callable(wd_tagger.WDTagger.score)
+assert all(module.__file__.startswith(os.environ['PYTHONPATH']) for module in (
+    converters, detailer, detailer_matching, eligibility, inpaint,
+    metadata, references, requests, service, wd_tagger,
+))
 assert not (Path(anima_app.__file__).resolve().parents[1] / 'vendor').exists()
 root = Path(os.environ['ANIMA_PACKAGE_SMOKE_ROOT'])
 raise SystemExit(main(['t2i', '--prompt', 'package smoke', '--dry-run'], paths=AppPaths(project_root=root)))
