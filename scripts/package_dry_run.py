@@ -68,7 +68,7 @@ def main() -> int:
                 raise RuntimeError("wheel must not contain the source-checkout vendored runtime")
             packaged = {}
             for path in sorted((source_root / "src/anima_app").rglob("*")):
-                if not path.is_file() or path.suffix not in {".py", ".js", ".json"}:
+                if not path.is_file() or path.suffix not in {".py", ".js", ".json", ".css"}:
                     continue
                 name = path.relative_to(source_root / "src").as_posix()
                 content = path.read_bytes()

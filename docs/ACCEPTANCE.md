@@ -1,10 +1,10 @@
 # Anima APP Acceptance
 
-This checklist records the implemented `0.5.0` source-checkout beta scope. A separate 2026-10-09 acceptance record documents one live V5 Curated T2I request. The new masked-infill extension is verified with synthetic transport and browser acceptance only; billing and live infill remain separate checks.
+This checklist records the implemented `0.6.0` source-checkout beta scope. The [release notes](RELEASE_0.6.0.md) describe the current distribution and the [main integration record](MAIN_UPDATE_2026-10-14.md) records workspace, locale and workflow verification. Earlier feature-specific acceptance entries below retain their original test boundaries.
 
 ## Implemented
 
-- [x] Up to five V4/V5 characters retain prompt, negative, normalized center and coordinate/order flags through requests, payloads, presets, wildcard provenance, manifests and metadata import. V3, invalid values and unrepresentable imported layouts are rejected or warned before generation.
+- [x] Up to 22 saved character slots retain prompt, negative, normalized center and coordinate/order flags through requests, payloads, presets, wildcard provenance, manifests and metadata import. V5 allows 22 active characters; V4/V4.5 allows six. V3, invalid values and unrepresentable imported layouts are rejected or warned before generation.
 - [x] Six local prompt-weight syntax conversions show original/result, node fallback and old-NAI approximation warnings; explicit apply is invalidated when the source or selection changes.
 - [ ] Live remote multi-character acceptance and composition quality have not been checked for this implementation.
 

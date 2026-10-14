@@ -1,29 +1,54 @@
 # Release Artifact Manifest
 
-This manifest distinguishes release source, verification code, and generated deliverables for the `0.5.0` source-checkout beta candidate.
+Current distribution: **Anima APP 0.6.0 source-checkout beta**, 2026-10-15.
 
-The baseline source was published as `b363505`. The main source update integrates the pinned 2.4.6 work and image/generation workspaces at the same app version; [the original acceptance record](NAI_NODE_UPDATE_2.4.6.md) identifies the pinned source and verification limits. Dated `outputs/` paths below are local development artifacts, excluded from Git and from the ZIP itself.
+Download the attached **[anima-app-0.6.0-source.zip](https://github.com/raspie10032/anima-app/releases/download/v0.6.0/anima-app-0.6.0-source.zip)** from the [v0.6.0 release](https://github.com/raspie10032/anima-app/releases/tag/v0.6.0). Its sibling **[.sha256](https://github.com/raspie10032/anima-app/releases/download/v0.6.0/anima-app-0.6.0-source.zip.sha256)** identifies the exact verified artifact. GitHub's automatically generated source archives are convenience copies; their ZIP bytes differ from the attached verified archive.
 
-| Path | Type | Role | Source | Status | Verification |
-|---|---|---|---|---|---|
-| `src/anima_app/__init__.py` | Python source | Canonical application version | Hand-edited | Verified | Version/packaging tests passed |
-| `pyproject.toml` | Build config | Reads the canonical package version | Hand-edited | Verified | Wheel metadata matched application version |
-| `.github/workflows/ci.yml` | CI config | CPU-safe lint, test, package, and archive checks | Hand-edited | Implemented | Contract test passed; remote Actions run is not claimed |
-| `scripts/package_dry_run.py` | Verification source | Builds from a temporary source copy and installs to an isolated target without mutating the checkout | Hand-edited | Verified | Local wheel/install/CLI smoke passed |
-| `scripts/source_archive.py` | Generator source | Builds and verifies the source-checkout ZIP | Hand-edited | Verified | Reproducibility and extracted smoke tests passed |
-| `scripts/audit_nai_port_release.py` | Verification source | Checks all remaining-port evidence, source ZIP byte equality/reproducibility, preserved originals and isolated wheel | Hand-edited | Local candidate audit | Report under `outputs/all-nai-port-20261009/final-package` |
-| `scripts/audit_nai_update_release.py` | Verification source | Checks all six update requirements, preserved baseline browser behavior, current CPU taggers, installed/pinned source hashes and artifact equality | Hand-edited | Local 2.4.6 audit | Report under `outputs/nai-update-20261011/final` |
-| `outputs/release/nai-node-2.4.6-final-20261011/verified/` | Generated artifacts | Updated source ZIP, wheel, SHA-256 sidecars and wheel report | Package and archive scripts | Local 2.4.6 candidate | Exact source/static/catalog bytes, isolated wheel install, extracted CLI/vendor checks and reproducible ZIP |
-| `docs/NAI_PORT_ACCEPTANCE.md` | Acceptance document | Maps requested ports to source tests, browser/native evidence and verification limits | Hand-edited from local artifacts | Local candidate | New live-port acceptance remains unverified |
-| `vendor/README.md` | Provenance document | Records vendored runtime/package versions and licenses | Hand-edited from bundled metadata | Verified | RECORD, product-boundary, and disclosure tests passed |
-| `docs/RELEASE_0.5.0.md` | Release document | Records provider integration and its evidence boundary | Hand-edited | Implemented | Release-surface tests |
-| `docs/NOVELAI_PROVIDER.md` | User guide | NovelAI setup, costs, cancellation and API | Hand-edited | Implemented | Mock and browser acceptance |
-| `docs/USER_GUIDE_KO.md` | User guide | Korean GUI, CLI, and AI-agent instructions | Hand-edited | Verified | Link, command, API, and source-archive contract checks passed |
-| `outputs/release/all-nai-port-final-20261009/anima-app-0.5.0-source.zip` | Generated artifact | Final remaining-port local source-checkout review candidate | `scripts/source_archive.py` | Local candidate | Byte equality, repeated ZIP hash and extraction smoke; publication is separate |
-| `outputs/release/all-nai-port-final-20261009/anima-app-0.5.0-source.zip.sha256` | Generated artifact | Digest for the final local review candidate | `scripts/source_archive.py` | Local candidate | Regenerated alongside source ZIP; older dated archives preserved |
+## Public deliverables
 
-Generated release candidates are ignored by Git and are not public uploads. A working-tree candidate is review evidence; an official archive requires a committed clean checkout and `--require-clean`. Model weights, detector weights, LoRAs, inputs, outputs, local configuration, and Git history are outside the archive boundary.
+| File | Purpose |
+|---|---|
+| `anima-app-0.6.0-source.zip` | Application source, Windows launcher, browser assets, vendored local runtime, wildcards, guides, tests and license notices |
+| `anima-app-0.6.0-source.zip.sha256` | SHA-256 and filename of the source ZIP |
 
-## Current main documentation
+The ZIP contains one `anima-app-0.6.0/` directory. Install Python 3.10+ and dependencies before running the launcher or CLI. Models, detector/tagger weights, LoRAs, image collections, vectors, local artist catalogs, inputs, outputs, tokens and local configuration are not bundled. Setup is described in the [release notes](RELEASE_0.6.0.md) and first-image guides in [한국어](IMAGE_GENERATION_KO.md), [English](IMAGE_GENERATION_EN.md) and [日本語](IMAGE_GENERATION_JA.md).
 
-The [main update record](MAIN_UPDATE_2026-10-14.md), [token setup](NAI_TOKEN_SETUP.md), [app reference](APP_REFERENCE.md) and generation tutorials in [Korean](IMAGE_GENERATION_KO.md), [English](IMAGE_GENERATION_EN.md) and [Japanese](IMAGE_GENERATION_JA.md) accompany the integrated source. A main-branch push does not publish the local release artifacts listed above or create a versioned release.
+## Build and verification sources
+
+| Path | Role |
+|---|---|
+| `src/anima_app/__init__.py` | Canonical version; packaging metadata reads it through `pyproject.toml` |
+| `.github/workflows/ci.yml` | Python 3.10/3.13 CPU tests, lint, JavaScript checks, Windows launcher checks, vendor/package/archive verification |
+| `scripts/source_archive.py` | Deterministic ZIP from committed Git blobs with `--require-clean`; validates required files and excludes private runtime directories/native binaries |
+| `scripts/package_dry_run.py` | Isolated wheel build/install, Python/JS/JSON/CSS equality, license and CLI checks |
+| `scripts/verify_vendor.py` | Vendored runtime/package integrity and product boundary |
+| `tests/test_release.py` | Version agreement, required documentation/resources, omissions, reproducible source archive and packaging contracts |
+| `vendor/README.md`, `NOTICE.md` | Runtime versions, provenance and third-party licenses |
+
+From a clean checkout of `v0.6.0` with its Python environment installed:
+
+```bash
+python scripts/verify_vendor.py
+python scripts/package_dry_run.py
+python scripts/source_archive.py --require-clean
+```
+
+The final command writes `outputs/release/anima-app-0.6.0-source.zip` and its digest. Fixed timestamps, permissions, ordering and uncompressed ZIP members make a clean rebuild byte-for-byte reproducible across checkout line endings and compressor versions. It also extracts the archive and runs vendor verification and a local CLI dry-run. The command itself does not create a tag or publish anything.
+
+The wheel is checked locally and in CI but is **not the supported full-generation download**: it excludes the root-level vendored runtime. Release upload uses only the explicit source ZIP and checksum filenames, not a wildcard over development outputs.
+
+To check a downloaded ZIP on Linux:
+
+```bash
+sha256sum -c anima-app-0.6.0-source.zip.sha256
+```
+
+On Windows PowerShell, compare the result with the first value in the downloaded `.sha256`:
+
+```powershell
+Get-FileHash ./anima-app-0.6.0-source.zip -Algorithm SHA256
+```
+
+## Earlier records
+
+The [0.5.0 development record](RELEASE_0.5.0.md), [pinned RS NAI 2.4.6 acceptance](NAI_NODE_UPDATE_2.4.6.md) and [2026-10-14 main integration](MAIN_UPDATE_2026-10-14.md) retain their original dates and validation scope. Their ignored `outputs/` references are local evidence, not additional files in this release. Current remote CI and download checks are tied to the release tag/commit.

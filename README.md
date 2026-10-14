@@ -2,6 +2,12 @@
 
 Generate with local **Anima** or **NovelAI**, arrange detailing/upscaling stages, and find reusable prompts from similar images in a local browser workspace. The interface supports **English / 한국어 / 日本語**.
 
+## Download v0.6.0
+
+**[Download the verified source ZIP](https://github.com/raspie10032/anima-app/releases/download/v0.6.0/anima-app-0.6.0-source.zip)** · [Release and SHA-256 checksum](https://github.com/raspie10032/anima-app/releases/tag/v0.6.0) · [Changes and upgrade instructions](docs/RELEASE_0.6.0.md)
+
+Extract the ZIP, then follow the first-image guide below. This source-checkout beta includes the Windows launcher and local generation runtime source; install Python 3.10+ and dependencies before starting it. Model weights are prepared separately. Image management and CPU similarity search work without a VRS model; enhanced VRS search uses an optional [local encoder setup](docs/IMAGE_LIBRARY_EN.md#optional-vrs-int-encoder).
+
 ## Start here
 
 | Task | Documentation |
@@ -37,7 +43,7 @@ This source update adds V5 Full **Medium Effort** to generation, Img2Img, inpain
 
 The update also adds WD ViT v3 / WD EVA02 Large v3 / PixAI Tagger v1.0 selection for original-character matching. Prepare the selected model in the detailer panel to see per-file download progress and cancellation; generation uses the prepared cache. Install `.[wd-matching]` or `.[pixai-matching]` in the app environment first. Model choice is preserved in presets, history and PNG metadata; [setup and validation limits](docs/NOVELAI_PROVIDER.md#wd-vit--eva02--pixai-선택과-준비) describe the optional dependencies and local CPU evidence.
 
-This update targets RS NAI **2.4.6, commit `4de9146`**. Upstream 2.5.0 (`ed96a4c`) adds reference inset generation and portable character assets after that pin; those additions are not included here. The app version remains 0.5.0 for this main source update. Use the source-checkout ZIP for the bundled local runtime; the wheel alone omits that runtime. Actual NAI acceptance/billing, GPU operation and Windows GUI verification remain separate from the local/mock acceptance.
+This release targets RS NAI **2.4.6, commit `4de9146`**. Upstream 2.5.0 (`ed96a4c`) adds reference inset generation and portable character assets after that pin; those additions are not included here. **Anima APP v0.6.0** packages that integration together with the image workspace, ordered workflows and three-language UI. Use the source-checkout ZIP for the bundled local runtime; the wheel alone omits that runtime. See [release verification](docs/RELEASE_0.6.0.md#verification) for the scope of automated checks and earlier live examples.
 
 Anima APP packages a focused Anima text-to-image workflow around a local, project-owned `models` folder. It does not require launching a ComfyUI server for normal generation.
 
@@ -308,7 +314,7 @@ python scripts\source_archive.py
 
 The vendor check verifies the disclosed patched package hashes and product boundary. The wheel check copies package source into a temporary build root, installs the resulting wheel into a temporary target, verifies package/application version agreement and the packaged GUI JavaScript, proves that the root vendored runtime is absent, and runs a CLI dry-run. It does not turn the wheel into a standalone generation build.
 
-The source-archive command writes `outputs\release\anima-app-0.5.0-source.zip` and its `.sha256` file, verifies required runtime, launcher, UI, notice, license, and wildcard-disclosure files, then extracts it and runs vendor plus CLI dry-run checks. A local dirty checkout can produce a review candidate. The official release command is stricter:
+The source-archive command writes `outputs\release\anima-app-0.6.0-source.zip` and its `.sha256` file, verifies required runtime, launcher, UI, notice, license, and wildcard-disclosure files, then extracts it and runs vendor plus CLI dry-run checks. A local dirty checkout can produce a review candidate. The official release command is stricter:
 
 ```powershell
 python scripts\source_archive.py --require-clean

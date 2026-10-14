@@ -7,7 +7,8 @@ This document keeps public source references, model layout, and release boundari
 - [한국어 generation tutorial](IMAGE_GENERATION_KO.md), [English](IMAGE_GENERATION_EN.md), [日本語](IMAGE_GENERATION_JA.md): install, first image, both detailer directions, stage comparison and reuse.
 - [NAI token setup](NAI_TOKEN_SETUP.md): terminal input, source precedence, restart and status checks. There is no browser token field.
 - [Application reference](APP_REFERENCE.md): workflow/prompt contracts, library routes, storage, environment and reproducible checks.
-- [Main update](MAIN_UPDATE_2026-10-14.md): implemented behavior and remaining scope at application version 0.5.0.
+- [Current release](RELEASE_0.6.0.md): v0.6.0 download, setup, upgrade and verification.
+- [Main update](MAIN_UPDATE_2026-10-14.md): historical integration record before the v0.6.0 release.
 - [Locale settings](LOCALES.md): English/Korean/Japanese UI with original prompt preservation.
 
 ## Public Sources
@@ -228,7 +229,7 @@ The included wildcard files were copied or derived from a local ComfyUI Impact P
 
 ## Release Boundary
 
-Current release target: `0.5.0` source-checkout beta.
+Current release target: `0.6.0` source-checkout beta.
 
 Included:
 
@@ -252,7 +253,6 @@ Not finalized:
 
 - Standalone binary packaging.
 - Final wheel redistribution policy for vendored runtime assets.
-- Public tag creation and release upload; these remain owner-controlled manual actions.
 - A standalone wheel containing the root-level vendored Comfy runtime.
 
 ## UI and library design references

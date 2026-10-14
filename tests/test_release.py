@@ -25,7 +25,7 @@ def _load_script(module_name: str, filename: str):
 def test_release_version_has_one_packaging_source_of_truth():
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert __version__ == "0.5.0"
+    assert __version__ == "0.6.0"
     assert 'dynamic = ["version"]' in pyproject
     assert '[tool.setuptools.dynamic]' in pyproject
     assert 'version = {attr = "anima_app.__version__"}' in pyproject
@@ -130,7 +130,11 @@ def test_source_archive_is_verified_and_reproducible(tmp_path):
 @pytest.mark.parametrize("missing", ["src/anima_app/static/i18n.js", "src/anima_app/static/ui-messages.json",
     "src/anima_app/static/nai-error-messages.json",
     "src/anima_app/static/nai-i18n.js", "src/anima_app/static/nai-errors.js",
-    "src/anima_app/providers/novelai/tagger_setup.py", "docs/NAI_NODE_UPDATE_2.4.6.md"])
+    "src/anima_app/providers/novelai/tagger_setup.py", "docs/NAI_NODE_UPDATE_2.4.6.md",
+    "docs/RELEASE_0.6.0.md", "docs/NAI_TOKEN_SETUP.md",
+    "docs/IMAGE_GENERATION_KO.md", "docs/IMAGE_GENERATION_EN.md", "docs/IMAGE_GENERATION_JA.md",
+    "src/anima_app/static/library.js", "src/anima_app/static/generation.css",
+    "src/anima_app/static/authoring.js", "src/anima_app/static/workflow.js"])
 def test_source_archive_rejects_omitted_update_resources(tmp_path, missing):
     archive_module = _load_script("anima_source_update_archive", "source_archive.py")
     target = tmp_path / "incomplete.zip"

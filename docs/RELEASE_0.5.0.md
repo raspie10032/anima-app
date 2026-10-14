@@ -1,5 +1,7 @@
 # Anima APP v0.5.0 source-checkout beta and 2.4.6 update candidate
 
+Historical development record. The integration described here is now included in [Anima APP v0.6.0](RELEASE_0.6.0.md). The candidate/publication wording below describes its earlier state.
+
 > Current main source includes the [2026-10-14 workspace, workflow, locale and documentation update](MAIN_UPDATE_2026-10-14.md). Version remains 0.5.0. Dated acceptance and artifact entries below describe their original validation snapshots, not a new published binary.
 
 

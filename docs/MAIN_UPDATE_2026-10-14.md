@@ -1,5 +1,7 @@
 # Main update — 2026-10-14
 
+Historical integration record. These changes are included in [Anima APP v0.6.0](RELEASE_0.6.0.md), released on 2026-10-15.
+
 This source update connects image-first retrieval, provider-specific prompt authoring, ordered Anima/NAI processing and an English/Korean/Japanese interface. The application version remains **0.5.0**; this document does not announce a new versioned release or a downloadable binary.
 
 ## What changes

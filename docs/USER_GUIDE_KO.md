@@ -17,9 +17,9 @@ Anima APP은 프로젝트 내부의 `models` 폴더를 사용하는 로컬 이�
 - [9. 보안과 운영 경계](#9-보안과-운영-경계)
 - [10. 종료 전 확인](#10-종료-전-확인)
 
-관련 문서: [README](../README.md), [소스와 모델 참조](REFERENCES.md), [기능 수용 기준](ACCEPTANCE.md), [현재 릴리스 안내](RELEASE_0.5.0.md), [NovelAI 엔진 안내](NOVELAI_PROVIDER.md), [제3자 구성요소 고지](../NOTICE.md)
+관련 문서: [README](../README.md), [소스와 모델 참조](REFERENCES.md), [기능 수용 기준](ACCEPTANCE.md), [현재 릴리스 안내](RELEASE_0.6.0.md), [NovelAI 엔진 안내](NOVELAI_PROVIDER.md), [제3자 구성요소 고지](../NOTICE.md)
 
-0.5.0 기반 개발 브랜치의 NovelAI 엔진은 공통 큐·프리셋·히스토리에서 T2I·Img2Img·일반 / Focused 인페인트·Vibe·Precise·자동 디테일러를 제공합니다. 캐릭터 슬롯 최대 22개(V5 활성 22명, V4/V4.5 활성 6명)·숨기기/사용 해제/접기·가중치 변환 6종·선택 WD/PixAI 매칭도 지원합니다. 숨긴 슬롯도 프리셋·히스토리·앱 PNG에 보존합니다. Opus 보호는 계정 자격과 요청 조건을 확인하며, 참조·Img2Img·일반 인페인트는 사용자가 보호를 직접 해제해야 합니다. 선택 모델 준비와 검증 범위는 [NovelAI 엔진 안내](NOVELAI_PROVIDER.md)를 참고하세요.
+v0.6.0의 NovelAI 엔진은 공통 큐·프리셋·히스토리에서 T2I·Img2Img·일반 / Focused 인페인트·Vibe·Precise·자동 디테일러를 제공합니다. 캐릭터 슬롯 최대 22개(V5 활성 22명, V4/V4.5 활성 6명)·숨기기/사용 해제/접기·가중치 변환 6종·선택 WD/PixAI 매칭도 지원합니다. 숨긴 슬롯도 프리셋·히스토리·앱 PNG에 보존합니다. Opus 보호는 계정 자격과 요청 조건을 확인하며, 참조·Img2Img·일반 인페인트는 사용자가 보호를 직접 해제해야 합니다. 선택 모델 준비와 검증 범위는 [NovelAI 엔진 안내](NOVELAI_PROVIDER.md)를 참고하세요.
 
 화면 상단 **앱 언어**에서 English / 한국어 / 日本語를 선택합니다. 메인 화면과 이미지 작업실 문구를 즉시 바꾸며 작성 중인 프롬프트·작업 순서·초안은 유지합니다. 원문 프롬프트와 기술 오류 상세는 번역 대상이 아닙니다. [언어 설정](LOCALES.md)을 참고하세요.
 
