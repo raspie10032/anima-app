@@ -139,7 +139,9 @@ class T2IRequest:
             raise ValueError("memory profile must be one of: auto, balanced, low_vram_highres")
         object.__setattr__(self, "checkpoint", normalize_checkpoint_path(self.checkpoint))
         if self.memory_profile == LOW_VRAM_HIGHRES_PROFILE:
-            object.__setattr__(self, "upscale", low_vram_highres_upscale_settings(self.upscale))
+            # Memory tuning must not add an upscale pass to a detail-only stage.
+            if self.operation != "detail":
+                object.__setattr__(self, "upscale", low_vram_highres_upscale_settings(self.upscale))
             object.__setattr__(self, "vae_decode", low_vram_highres_vae_decode_settings(self.vae_decode))
         if not self.prompt.strip():
             raise ValueError("prompt is required")

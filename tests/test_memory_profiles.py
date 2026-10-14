@@ -1,8 +1,11 @@
 import json
+from dataclasses import replace
+
+import pytest
 
 from anima_app.config import AppPaths
 from anima_app.memory_profiles import cached_runtime_profile_decision, resolve_auto_memory_profile
-from anima_app.requests import T2IRequest
+from anima_app.requests import FaceDetailerSettings, I2ISettings, T2IRequest
 
 
 def test_auto_memory_profile_uses_low_vram_highres_for_8gb_class_gpu(tmp_path):
@@ -45,6 +48,30 @@ def test_auto_memory_profile_uses_balanced_for_larger_gpu(tmp_path):
     assert resolved.memory_profile == "balanced"
     assert resolved.upscale.enabled is False
     assert resolved.vae_decode.mode == "auto"
+
+
+@pytest.mark.parametrize("total_vram_mb", [None, 8192])
+@pytest.mark.parametrize("memory_profile", ["auto", "low_vram_highres"])
+def test_detail_only_keeps_its_operation_with_low_memory_profile(
+    tmp_path, total_vram_mb, memory_profile
+):
+    request = T2IRequest(
+        prompt="portrait", memory_profile=memory_profile, operation="detail",
+        i2i=I2ISettings(enabled=True, image_path="inputs/references/source.png", denoise=0),
+        face_detailer=FaceDetailerSettings(enabled=True),
+    )
+    resolved = resolve_auto_memory_profile(
+        request, paths=AppPaths(project_root=tmp_path),
+        probe=lambda: {"cuda_available": total_vram_mb is not None, "total_vram_mb": total_vram_mb},
+    )
+
+    assert resolved.memory_profile == "low_vram_highres"
+    assert resolved.face_detailer.enabled is True
+    assert resolved.upscale.enabled is False
+    assert resolved.vae_decode.mode == "tiled"
+    assert (resolved.width, resolved.height) == (request.width, request.height)
+    # Prompt routing and wildcard expansion reconstruct the request downstream.
+    assert replace(resolved, prompt="updated portrait").operation == "detail"
 
 
 def test_runtime_profile_decision_is_cached(tmp_path):
