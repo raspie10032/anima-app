@@ -5,6 +5,8 @@ import importlib.util
 from pathlib import Path
 import zipfile
 
+import pytest
+
 from anima_app import __version__
 
 
@@ -123,3 +125,17 @@ def test_source_archive_is_verified_and_reproducible(tmp_path):
         for excluded in ("models", "inputs", "outputs", ".git")
     )
     assert not any(Path(name).suffix.lower() in {".dll", ".pyd", ".so", ".dylib"} for name in names)
+
+
+@pytest.mark.parametrize("missing", ["src/anima_app/static/i18n.js", "src/anima_app/static/ui-messages.json",
+    "src/anima_app/static/nai-error-messages.json",
+    "src/anima_app/static/nai-i18n.js", "src/anima_app/static/nai-errors.js",
+    "src/anima_app/providers/novelai/tagger_setup.py", "docs/NAI_NODE_UPDATE_2.4.6.md"])
+def test_source_archive_rejects_omitted_update_resources(tmp_path, missing):
+    archive_module = _load_script("anima_source_update_archive", "source_archive.py")
+    target = tmp_path / "incomplete.zip"
+    with zipfile.ZipFile(target, "w") as archive:
+        for name in archive_module.REQUIRED_FILES - {missing}:
+            archive.writestr(f"anima-app-{__version__}/{name}", b"fixture")
+    with pytest.raises(RuntimeError, match="missing"):
+        archive_module.verify_source_archive(target)

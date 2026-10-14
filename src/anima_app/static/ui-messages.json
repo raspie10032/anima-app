@@ -1,0 +1,3230 @@
+{
+  "대기": {
+    "en": "Waiting",
+    "ja": "待機"
+  },
+  "진행 중": {
+    "en": "In progress",
+    "ja": "進行中"
+  },
+  "완료": {
+    "en": "Completed",
+    "ja": "完了"
+  },
+  "건너뜀": {
+    "en": "Skipped",
+    "ja": "スキップ"
+  },
+  "실패": {
+    "en": "Failed",
+    "ja": "失敗"
+  },
+  "취소됨": {
+    "en": "Cancelled",
+    "ja": "キャンセル済み"
+  },
+  "취소": {
+    "en": "Cancel",
+    "ja": "キャンセル"
+  },
+  "확인 전": {
+    "en": "Not checked",
+    "ja": "未確認"
+  },
+  "새 버전 있음: {0}": {
+    "en": "Update available: {0}",
+    "ja": "新しいバージョン: {0}"
+  },
+  "최신 상태: {0}": {
+    "en": "Up to date: {0}",
+    "ja": "最新です: {0}"
+  },
+  "업데이트 확인 실패": {
+    "en": "Update check failed",
+    "ja": "更新の確認に失敗しました"
+  },
+  "현재: {0}": {
+    "en": "Current: {0}",
+    "ja": "現在: {0}"
+  },
+  "알 수 없음": {
+    "en": "Unknown",
+    "ja": "不明"
+  },
+  "릴리스": {
+    "en": "Release",
+    "ja": "リリース"
+  },
+  "확인 중...": {
+    "en": "Checking…",
+    "ja": "確認中…"
+  },
+  "GitHub 확인 중...": {
+    "en": "Checking GitHub…",
+    "ja": "GitHubを確認中…"
+  },
+  "준비됨": {
+    "en": "Ready",
+    "ja": "準備完了"
+  },
+  "로컬에서 복사": {
+    "en": "Copy locally",
+    "ja": "ローカルからコピー"
+  },
+  "다운로드": {
+    "en": "Download",
+    "ja": "ダウンロード"
+  },
+  "용량 미확인": {
+    "en": "Size unknown",
+    "ja": "容量不明"
+  },
+  "이미지 {0}개 · {1} / 기록 {2}개 · {3} / 관리 합계 {4} / 디스크 여유 {5}": {
+    "en": "{0} images · {1} / {2} records · {3} / Total {4} / Free disk space {5}",
+    "ja": "画像{0}枚 · {1} / 記録{2}件 · {3} / 合計{4} / ディスク空き{5}"
+  },
+  "로컬 복사 · {0}": {
+    "en": "Local copy · {0}",
+    "ja": "ローカルコピー · {0}"
+  },
+  "Hugging Face 다운로드 · {0}": {
+    "en": "Download from Hugging Face · {0}",
+    "ja": "Hugging Faceからダウンロード · {0}"
+  },
+  "원격 다운로드 · {0}": {
+    "en": "Remote download · {0}",
+    "ja": "リモートダウンロード · {0}"
+  },
+  "필수": {
+    "en": "Required",
+    "ja": "必須"
+  },
+  "권장": {
+    "en": "Recommended",
+    "ja": "推奨"
+  },
+  "선택": {
+    "en": "Optional",
+    "ja": "任意"
+  },
+  "현재 생성 요청": {
+    "en": "Current generation request",
+    "ja": "現在の生成リクエスト"
+  },
+  "드라이런 · 모델 검사 생략 · {0}": {
+    "en": "Dry run · Model checks skipped · {0}",
+    "ja": "ドライラン · モデル確認を省略 · {0}"
+  },
+  "체크포인트 미선택": {
+    "en": "No checkpoint selected",
+    "ja": "チェックポイント未選択"
+  },
+  "실행 가능 · {0}": {
+    "en": "Ready to run · {0}",
+    "ja": "実行可能 · {0}"
+  },
+  "실행 불가 · {0}개 파일 미준비 · {1}": {
+    "en": "Cannot run · {0} files not ready · {1}",
+    "ja": "実行不可 · 未準備のファイル{0}件 · {1}"
+  },
+  "누락 {0}": {
+    "en": "Missing {0}",
+    "ja": "不足 {0}"
+  },
+  "손상 {0}": {
+    "en": "Corrupt {0}",
+    "ja": "破損 {0}"
+  },
+  "파일 업로드가 끝날 때까지 기다려 주세요.": {
+    "en": "Wait until the file upload finishes.",
+    "ja": "ファイルのアップロード完了をお待ちください。"
+  },
+  "NAI_ACCESS_TOKEN 환경변수와 엔진 상태를 확인하세요.": {
+    "en": "Check NAI_ACCESS_TOKEN and the engine status.",
+    "ja": "NAI_ACCESS_TOKENとエンジンの状態を確認してください。"
+  },
+  "선택한 체크포인트의 필수 모델 파일을 먼저 준비하세요.": {
+    "en": "Prepare the required files for the selected checkpoint first.",
+    "ja": "選択したチェックポイントの必須ファイルを準備してください。"
+  },
+  "{0}개 누락": {
+    "en": "{0} missing",
+    "ja": "{0}件不足"
+  },
+  "{0}개 손상": {
+    "en": "{0} corrupt",
+    "ja": "{0}件破損"
+  },
+  "확인됨": {
+    "en": "Verified",
+    "ja": "確認済み"
+  },
+  "손상": {
+    "en": "Corrupt",
+    "ja": "破損"
+  },
+  "누락": {
+    "en": "Missing",
+    "ja": "不足"
+  },
+  "로컬 원본에서 {0}를 복사합니다.": {
+    "en": "Copy {0} from the local source.",
+    "ja": "ローカルの元ファイルから{0}をコピーします。"
+  },
+  "{0}에서 다운로드합니다. 다운로드 용량은 아직 확인되지 않았습니다.": {
+    "en": "Download from {0}. Download size is not yet known.",
+    "ja": "{0}からダウンロードします。容量は未確認です。"
+  },
+  "원격 저장소": {
+    "en": "Remote repository",
+    "ja": "リモートリポジトリ"
+  },
+  "{0}\n계속할까요?": {
+    "en": "{0}\nContinue?",
+    "ja": "{0}\n続行しますか？"
+  },
+  "준비 중...": {
+    "en": "Preparing…",
+    "ja": "準備中…"
+  },
+  "드라이런": {
+    "en": "Dry run",
+    "ja": "ドライラン"
+  },
+  "생성됨": {
+    "en": "Generated",
+    "ja": "生成済み"
+  },
+  "디테일러 미리보기": {
+    "en": "Detailer preview",
+    "ja": "ディテーラープレビュー"
+  },
+  "생성 정보 내보냄": {
+    "en": "Generation info exported",
+    "ja": "生成情報をエクスポートしました"
+  },
+  "설정 내보냄": {
+    "en": "Settings exported",
+    "ja": "設定をエクスポートしました"
+  },
+  "설정 저장됨": {
+    "en": "Settings saved",
+    "ja": "設定を保存しました"
+  },
+  "모델 준비 완료": {
+    "en": "Models ready",
+    "ja": "モデル準備完了"
+  },
+  "모델 준비 실패": {
+    "en": "Model preparation failed",
+    "ja": "モデル準備失敗"
+  },
+  "LoRA 가져오기 완료": {
+    "en": "LoRA imported",
+    "ja": "LoRAの読み込み完了"
+  },
+  "LoRA 가져오기 실패": {
+    "en": "LoRA import failed",
+    "ja": "LoRAの読み込み失敗"
+  },
+  "삭제됨": {
+    "en": "Deleted",
+    "ja": "削除済み"
+  },
+  "현재 결과": {
+    "en": "Current result",
+    "ja": "現在の結果"
+  },
+  "상태": {
+    "en": "Status",
+    "ja": "状態"
+  },
+  "모델 준비 필요": {
+    "en": "Models need preparation",
+    "ja": "モデルの準備が必要です"
+  },
+  "요청 실패": {
+    "en": "Request failed",
+    "ja": "リクエスト失敗"
+  },
+  "준비 필요": {
+    "en": "Preparation needed",
+    "ja": "準備が必要です"
+  },
+  "오류": {
+    "en": "Error",
+    "ja": "エラー"
+  },
+  "랜덤": {
+    "en": "Random",
+    "ja": "ランダム"
+  },
+  " 타일": {
+    "en": " tiles",
+    "ja": " タイル"
+  },
+  "꺼짐": {
+    "en": "Off",
+    "ja": "オフ"
+  },
+  "얼굴+눈": {
+    "en": "Face + eyes",
+    "ja": "顔＋目"
+  },
+  "손": {
+    "en": "Hands",
+    "ja": "手"
+  },
+  "얼굴": {
+    "en": "Face",
+    "ja": "顔"
+  },
+  "{0} · {1} 스텝": {
+    "en": "{0} · {1} steps",
+    "ja": "{0} · {1}ステップ"
+  },
+  "선택 없음": {
+    "en": "None selected",
+    "ja": "未選択"
+  },
+  "자동": {
+    "en": "Automatic",
+    "ja": "自動"
+  },
+  "{0} · 경고 {1}": {
+    "en": "{0} · {1} warnings",
+    "ja": "{0} · 警告{1}件"
+  },
+  "엔진": {
+    "en": "Engine",
+    "ja": "エンジン"
+  },
+  "로컬 Anima": {
+    "en": "Local Anima",
+    "ja": "ローカルAnima"
+  },
+  "크기": {
+    "en": "Size",
+    "ja": "サイズ"
+  },
+  "스텝 / CFG": {
+    "en": "Steps / CFG",
+    "ja": "ステップ / CFG"
+  },
+  "샘플러": {
+    "en": "Sampler",
+    "ja": "サンプラー"
+  },
+  "시드": {
+    "en": "Seed",
+    "ja": "シード"
+  },
+  "업스케일": {
+    "en": "Upscale",
+    "ja": "アップスケール"
+  },
+  "페이스 디테일러": {
+    "en": "Face detailer",
+    "ja": "フェイスディテーラー"
+  },
+  "NAI 보정 영역": {
+    "en": "NAI corrected regions",
+    "ja": "NAI補正領域"
+  },
+  "캐릭터 {0}": {
+    "en": "Character {0}",
+    "ja": "キャラクター{0}"
+  },
+  "공통 / 미확정": {
+    "en": "Common / Undetermined",
+    "ja": "共通 / 未確定"
+  },
+  " · 점수 {0} / 차이 {1}": {
+    "en": " · Score {0} / Margin {1}",
+    "ja": " · スコア{0} / 差{1}"
+  },
+  " · 좁은 크롭 재확인": {
+    "en": " · Recheck narrow crop",
+    "ja": " · 狭いクロップで再確認"
+  },
+  "경고": {
+    "en": "Warning",
+    "ja": "警告"
+  },
+  "원본": {
+    "en": "Original",
+    "ja": "元画像"
+  },
+  "얼굴 + 눈": {
+    "en": "Face + eyes",
+    "ja": "顔＋目"
+  },
+  "생성 안 됨": {
+    "en": "Not generated",
+    "ja": "未生成"
+  },
+  "비교 숨기기": {
+    "en": "Hide comparison",
+    "ja": "比較を閉じる"
+  },
+  "단계 비교": {
+    "en": "Compare stages",
+    "ja": "段階を比較"
+  },
+  "요청": {
+    "en": "Request",
+    "ja": "リクエスト"
+  },
+  "프롬프트 / 와일드카드": {
+    "en": "Prompt / Wildcards",
+    "ja": "プロンプト / ワイルドカード"
+  },
+  "NovelAI 응답 대기": {
+    "en": "Waiting for NovelAI",
+    "ja": "NovelAIの応答待ち"
+  },
+  "결과 저장": {
+    "en": "Save results",
+    "ja": "結果を保存"
+  },
+  "텍스트 인코드": {
+    "en": "Text encoding",
+    "ja": "テキストエンコード"
+  },
+  "기본 렌더": {
+    "en": "Base render",
+    "ja": "基本レンダリング"
+  },
+  "고해상도 / 업스케일": {
+    "en": "High resolution / Upscale",
+    "ja": "高解像度 / アップスケール"
+  },
+  "VAE 디코드": {
+    "en": "VAE decoding",
+    "ja": "VAEデコード"
+  },
+  "얼굴 + 눈 보정": {
+    "en": "Face + eye correction",
+    "ja": "顔と目の補正"
+  },
+  "손 보정": {
+    "en": "Hand correction",
+    "ja": "手の補正"
+  },
+  "메타데이터 저장": {
+    "en": "Save metadata",
+    "ja": "メタデータを保存"
+  },
+  "작업 중": {
+    "en": "Working",
+    "ja": "処理中"
+  },
+  "실패: {0}": {
+    "en": "Failed: {0}",
+    "ja": "失敗: {0}"
+  },
+  "생성 결과 이미지": {
+    "en": "Generated image",
+    "ja": "生成画像"
+  },
+  "결과 이미지를 선택하면 마스크를 만들 수 있습니다.": {
+    "en": "Select a result image to create a mask.",
+    "ja": "結果画像を選択するとマスクを作成できます。"
+  },
+  "SAM3 마스크를 만들 수 있습니다.": {
+    "en": "Ready to create a SAM3 mask.",
+    "ja": "SAM3マスクを作成できます。"
+  },
+  "선택 영역이 표시된 생성 결과 이미지": {
+    "en": "Generated image with selected region",
+    "ja": "選択領域を表示した生成画像"
+  },
+  "먼저 결과 이미지를 선택하세요.": {
+    "en": "Select a result image first.",
+    "ja": "先に結果画像を選択してください。"
+  },
+  "마스크 프롬프트를 입력하세요.": {
+    "en": "Enter a mask prompt.",
+    "ja": "マスク用プロンプトを入力してください。"
+  },
+  "SAM3 마스크 생성 중...": {
+    "en": "Creating SAM3 mask…",
+    "ja": "SAM3マスクを作成中…"
+  },
+  "SAM3 마스크 생성 실패": {
+    "en": "SAM3 mask creation failed",
+    "ja": "SAM3マスクの作成に失敗しました"
+  },
+  "마스크 생성 완료: {0}개 영역": {
+    "en": "Mask created: {0} regions",
+    "ja": "マスク作成完了: {0}領域"
+  },
+  "SAM3 후보 비교 중...": {
+    "en": "Comparing SAM3 candidates…",
+    "ja": "SAM3候補を比較中…"
+  },
+  "SAM3 후보 비교 실패": {
+    "en": "SAM3 comparison failed",
+    "ja": "SAM3候補の比較に失敗しました"
+  },
+  "후보 비교 완료: {0}개, 최고 {1}개 영역": {
+    "en": "Compared {0} candidates; best: {1} regions",
+    "ja": "{0}候補を比較しました。最良候補: {1}領域"
+  },
+  "먼저 SAM3 마스크를 생성하거나 후보를 선택하세요.": {
+    "en": "Create a SAM3 mask or select a candidate first.",
+    "ja": "先にSAM3マスクを作成するか候補を選択してください。"
+  },
+  "마스크 조정 중...": {
+    "en": "Adjusting mask…",
+    "ja": "マスクを調整中…"
+  },
+  "마스크 조정 실패": {
+    "en": "Mask adjustment failed",
+    "ja": "マスクの調整に失敗しました"
+  },
+  "마스크 조정 완료: 확장 {0}px, 페더 {1}px": {
+    "en": "Mask adjusted: dilation {0}px, feather {1}px",
+    "ja": "マスク調整完了: 拡張{0}px、ぼかし{1}px"
+  },
+  "먼저 조정할 마스크를 선택하세요.": {
+    "en": "Select a mask to adjust first.",
+    "ja": "先に調整するマスクを選択してください。"
+  },
+  "바꿀 내용을 입력하세요.": {
+    "en": "Describe what to change.",
+    "ja": "変更する内容を入力してください。"
+  },
+  "인페인트 생성 중...": {
+    "en": "Inpainting…",
+    "ja": "インペイント生成中…"
+  },
+  "인페인트 실패": {
+    "en": "Inpainting failed",
+    "ja": "インペイントに失敗しました"
+  },
+  "인페인트 완료: {0}, seed {1}": {
+    "en": "Inpainting complete: {0}, seed {1}",
+    "ja": "インペイント完了: {0}、シード{1}"
+  },
+  "{0} (누락)": {
+    "en": "{0} (missing)",
+    "ja": "{0}（不足）"
+  },
+  "없음": {
+    "en": "None",
+    "ja": "なし"
+  },
+  "LoRA 경로": {
+    "en": "LoRA path",
+    "ja": "LoRAパス"
+  },
+  "강도": {
+    "en": "Strength",
+    "ja": "強度"
+  },
+  "LoRA 강도": {
+    "en": "LoRA strength",
+    "ja": "LoRA強度"
+  },
+  "삭제": {
+    "en": "Delete",
+    "ja": "削除"
+  },
+  "파일 업로드가 끝난 뒤 다시 시도해 주세요.": {
+    "en": "Try again after the file upload finishes.",
+    "ja": "ファイルのアップロード完了後に再試行してください。"
+  },
+  "파일 한 개를 선택해 주세요.": {
+    "en": "Select one file.",
+    "ja": "ファイルを1つ選択してください。"
+  },
+  "NAI PNG 또는 WebP 파일을 선택해 주세요.": {
+    "en": "Select a NAI PNG or WebP file.",
+    "ja": "NAIのPNGまたはWebPファイルを選択してください。"
+  },
+  "참조 이미지는 PNG, JPEG 또는 WebP만 사용할 수 있습니다.": {
+    "en": "Reference images must be PNG, JPEG or WebP.",
+    "ja": "参照画像はPNG、JPEG、WebPのみ使用できます。"
+  },
+  "참조 이미지는 {0} 이하여야 합니다.": {
+    "en": "Reference images must be no larger than {0}.",
+    "ja": "参照画像は{0}以下にしてください。"
+  },
+  "LoRA는 .safetensors 파일만 사용할 수 있습니다.": {
+    "en": "LoRA files must use .safetensors.",
+    "ja": "LoRAには.safetensorsファイルを使用してください。"
+  },
+  "LoRA는 {0} 이하여야 합니다.": {
+    "en": "LoRA files must be no larger than {0}.",
+    "ja": "LoRAは{0}以下にしてください。"
+  },
+  "빈 파일은 업로드할 수 없습니다.": {
+    "en": "Cannot upload an empty file.",
+    "ja": "空のファイルはアップロードできません。"
+  },
+  "파일 업로드 실패": {
+    "en": "File upload failed",
+    "ja": "ファイルのアップロードに失敗しました"
+  },
+  "관리 파일: {0}": {
+    "en": "Managed file: {0}",
+    "ja": "管理ファイル: {0}"
+  },
+  "선택된 이미지 없음": {
+    "en": "No image selected",
+    "ja": "画像未選択"
+  },
+  "{0} 업로드 중...": {
+    "en": "Uploading {0}…",
+    "ja": "{0}をアップロード中…"
+  },
+  "LoRA 스택은 {0}개까지 사용할 수 있습니다.": {
+    "en": "You can use up to {0} LoRAs.",
+    "ja": "LoRAは最大{0}個まで使用できます。"
+  },
+  "다른 LoRA 업로드가 끝날 때까지 기다려 주세요.": {
+    "en": "Wait for the other LoRA upload to finish.",
+    "ja": "他のLoRAのアップロード完了をお待ちください。"
+  },
+  "업로드 완료: {0}": {
+    "en": "Uploaded: {0}",
+    "ja": "アップロード完了: {0}"
+  },
+  "LoRA 목록 새로고침 실패": {
+    "en": "Could not refresh LoRA list",
+    "ja": "LoRA一覧を更新できませんでした"
+  },
+  "업로드 완료: {0} · 목록 새로고침 실패": {
+    "en": "Uploaded: {0} · Could not refresh list",
+    "ja": "アップロード完了: {0} · 一覧更新に失敗"
+  },
+  "생성과 파일 업로드가 끝난 뒤 생성 조건을 불러와 주세요.": {
+    "en": "Wait for generation and uploads to finish before loading settings.",
+    "ja": "生成とアップロード完了後に生成条件を読み込んでください。"
+  },
+  "{0}: 메타데이터 읽는 중…": {
+    "en": "{0}: reading metadata…",
+    "ja": "{0}: メタデータを読み込み中…"
+  },
+  "모델 해시: {0}": {
+    "en": "Model hash: {0}",
+    "ja": "モデルハッシュ: {0}"
+  },
+  "원본 표기: {0}": {
+    "en": "Original notation: {0}",
+    "ja": "元の表記: {0}"
+  },
+  "미기록": {
+    "en": "Not recorded",
+    "ja": "記録なし"
+  },
+  "모델 대응: {0} · 생성 방식: {1}": {
+    "en": "Model match: {0} · Operation: {1}",
+    "ja": "対応モデル: {0} · 生成方式: {1}"
+  },
+  "확인 필요": {
+    "en": "Needs review",
+    "ja": "確認が必要です"
+  },
+  "인페인트": {
+    "en": "Inpaint",
+    "ja": "インペイント"
+  },
+  "생성 크기: {0} × {1}": {
+    "en": "Generation size: {0} × {1}",
+    "ja": "生成サイズ: {0} × {1}"
+  },
+  "스텝: {0} · CFG: {1} · 시드: {2}": {
+    "en": "Steps: {0} · CFG: {1} · Seed: {2}",
+    "ja": "ステップ: {0} · CFG: {1} · シード: {2}"
+  },
+  "샘플러: {0} · 스케줄러: {1}": {
+    "en": "Sampler: {0} · Scheduler: {1}",
+    "ja": "サンプラー: {0} · スケジューラー: {1}"
+  },
+  "프롬프트": {
+    "en": "Prompt",
+    "ja": "プロンプト"
+  },
+  "네거티브 프롬프트": {
+    "en": "Negative prompt",
+    "ja": "ネガティブプロンプト"
+  },
+  "모델을 확인하고 선택하세요": {
+    "en": "Check and select a model",
+    "ja": "モデルを確認して選択してください"
+  },
+  "\n\n캐릭터: {0}명\n": {
+    "en": "\n\nCharacters: {0}\n",
+    "ja": "\n\nキャラクター: {0}人\n"
+  },
+  "캐릭터 {0} ({1}, {2})\n{3}\n네거티브: {4}": {
+    "en": "Character {0} ({1}, {2})\n{3}\nNegative: {4}",
+    "ja": "キャラクター{0}（{1}, {2}）\n{3}\nネガティブ: {4}"
+  },
+  "인페인트 조건 적용": {
+    "en": "Apply inpainting settings",
+    "ja": "インペイント条件を適用"
+  },
+  "Img2Img 조건 적용": {
+    "en": "Apply Img2Img settings",
+    "ja": "Img2Img条件を適用"
+  },
+  "생성 조건 적용": {
+    "en": "Apply generation settings",
+    "ja": "生成条件を適用"
+  },
+  "{0}: 생성 조건을 읽었습니다. 확인 후 적용하세요.": {
+    "en": "{0}: settings loaded. Review before applying.",
+    "ja": "{0}: 生成条件を読み込みました。確認して適用してください。"
+  },
+  "입력: {0} · 마스크: {1}. 편집하려면 입력 파일을 다시 선택하세요.": {
+    "en": "Input: {0} · Mask: {1}. Select the input file again to edit.",
+    "ja": "入力: {0} · マスク: {1}。編集するには入力ファイルを選び直してください。"
+  },
+  "입력 이미지와 수정할 마스크를 지정하세요.": {
+    "en": "Select an input image and a mask to edit.",
+    "ja": "入力画像と編集するマスクを指定してください。"
+  },
+  "입력 이미지를 먼저 지정하세요.": {
+    "en": "Select an input image first.",
+    "ja": "先に入力画像を指定してください。"
+  },
+  "입력 이미지와 마스크 크기가 다릅니다.": {
+    "en": "The input image and mask sizes differ.",
+    "ja": "入力画像とマスクのサイズが異なります。"
+  },
+  "입력: {0} · 마스크: {1}": {
+    "en": "Input: {0} · Mask: {1}",
+    "ja": "入力: {0} · マスク: {1}"
+  },
+  "그린 뒤 저장하세요": {
+    "en": "Draw, then save",
+    "ja": "描画後に保存してください"
+  },
+  "마스크를 저장할 수 없습니다.": {
+    "en": "Could not save the mask.",
+    "ja": "マスクを保存できません。"
+  },
+  "그린 마스크를 저장했습니다. 전송 설정과 비용 한도를 확인하세요.": {
+    "en": "Mask saved. Check the request settings and cost limits.",
+    "ja": "描いたマスクを保存しました。送信設定と費用の上限を確認してください。"
+  },
+  "NAI 생성 조건을 적용했습니다. 전송 설정을 확인하고 생성하기를 누르세요.": {
+    "en": "NAI settings applied. Review the request settings, then generate.",
+    "ja": "NAI生成条件を適用しました。送信設定を確認して生成を押してください。"
+  },
+  "파일은 한 번에 한 개만 선택해 주세요.": {
+    "en": "Select one file at a time.",
+    "ja": "ファイルは1つずつ選択してください。"
+  },
+  "모델 준비 상태 확인 실패": {
+    "en": "Could not check model readiness",
+    "ja": "モデルの準備状態を確認できませんでした"
+  },
+  "저장공간 확인 실패": {
+    "en": "Could not check storage",
+    "ja": "ストレージを確認できませんでした"
+  },
+  "생성 엔진 상태 확인 실패": {
+    "en": "Could not check engine status",
+    "ja": "生成エンジンの状態を確認できませんでした"
+  },
+  "현재 모델": {
+    "en": "Current model",
+    "ja": "現在のモデル"
+  },
+  "실행 가능": {
+    "en": "Ready to run",
+    "ja": "実行可能"
+  },
+  "체크포인트": {
+    "en": "Checkpoint",
+    "ja": "チェックポイント"
+  },
+  "{0}개 로컬": {
+    "en": "{0} local",
+    "ja": "ローカル{0}個"
+  },
+  "{0}개 사용 가능": {
+    "en": "{0} available",
+    "ja": "使用可能{0}個"
+  },
+  "출력": {
+    "en": "Output",
+    "ja": "出力"
+  },
+  "이미지": {
+    "en": "Images",
+    "ja": "画像"
+  },
+  "생성 정보": {
+    "en": "Generation info",
+    "ja": "生成情報"
+  },
+  "미리보기 없음": {
+    "en": "No preview",
+    "ja": "プレビューなし"
+  },
+  "(빈 프롬프트)": {
+    "en": "(Empty prompt)",
+    "ja": "（空のプロンプト）"
+  },
+  "이미지 없음": {
+    "en": "No image",
+    "ja": "画像なし"
+  },
+  "상세": {
+    "en": "Details",
+    "ja": "詳細"
+  },
+  "생성 정보 보기": {
+    "en": "View generation info",
+    "ja": "生成情報を表示"
+  },
+  "열기": {
+    "en": "Open",
+    "ja": "開く"
+  },
+  "출력 이미지 열기": {
+    "en": "Open output image",
+    "ja": "出力画像を開く"
+  },
+  "내보내기": {
+    "en": "Export",
+    "ja": "エクスポート"
+  },
+  "생성 정보 JSON 다운로드": {
+    "en": "Download generation JSON",
+    "ja": "生成情報のJSONをダウンロード"
+  },
+  "생성 정보와 관리 출력 이미지 삭제": {
+    "en": "Delete generation info and managed output image",
+    "ja": "生成情報と管理対象の出力画像を削除"
+  },
+  "{0} / {1} 표시 · 불러오는 중": {
+    "en": "Showing {0} / {1} · Loading",
+    "ja": "{0} / {1}件表示 · 読み込み中"
+  },
+  "히스토리 불러오는 중": {
+    "en": "Loading history",
+    "ja": "履歴を読み込み中"
+  },
+  "{0} / {1} 표시{2}": {
+    "en": "Showing {0} / {1}{2}",
+    "ja": "{0} / {1}件表示{2}"
+  },
+  " · 더 있음": {
+    "en": " · More available",
+    "ja": " · 続きあり"
+  },
+  "히스토리를 불러오는 중입니다.": {
+    "en": "Loading history…",
+    "ja": "履歴を読み込み中です…"
+  },
+  "검색 조건에 맞는 히스토리가 없습니다.": {
+    "en": "No history matches your search.",
+    "ja": "検索条件に一致する履歴がありません。"
+  },
+  "아직 표시할 히스토리가 없습니다.": {
+    "en": "No history to display yet.",
+    "ja": "表示する履歴はまだありません。"
+  },
+  "히스토리 불러오기 실패": {
+    "en": "Could not load history",
+    "ja": "履歴を読み込めませんでした"
+  },
+  "{0} 생성 기록과 연결된 출력 이미지를 삭제할까요?": {
+    "en": "Delete generation record {0} and its linked output images?",
+    "ja": "生成記録{0}と関連する出力画像を削除しますか？"
+  },
+  "저장된 설정 불러오기 실패": {
+    "en": "Could not load saved settings",
+    "ja": "保存した設定を読み込めませんでした"
+  },
+  "프리셋 선택": {
+    "en": "Select preset",
+    "ja": "プリセットを選択"
+  },
+  "저장된 프리셋 없음": {
+    "en": "No saved presets",
+    "ja": "保存済みプリセットなし"
+  },
+  "설정 {0}개 불러옴 · 손상 파일 {1}개 제외": {
+    "en": "Loaded {0} settings · Skipped {1} corrupt files",
+    "ja": "設定{0}件を読み込み · 破損ファイル{1}件を除外"
+  },
+  "설정 {0}개 불러옴": {
+    "en": "Loaded {0} settings",
+    "ja": "設定{0}件を読み込みました"
+  },
+  "내보내기 실패: {0}": {
+    "en": "Export failed: {0}",
+    "ja": "エクスポート失敗: {0}"
+  },
+  "알 수 없는 오류": {
+    "en": "Unknown error",
+    "ja": "不明なエラー"
+  },
+  "설정 {0}개 내보냄": {
+    "en": "Exported {0} settings",
+    "ja": "設定{0}件をエクスポートしました"
+  },
+  "가져오기 실패: {0}": {
+    "en": "Import failed: {0}",
+    "ja": "インポート失敗: {0}"
+  },
+  "설정 {0}개 가져옴": {
+    "en": "Imported {0} settings",
+    "ja": "設定{0}件をインポートしました"
+  },
+  "와일드카드 선택": {
+    "en": "Select wildcard",
+    "ja": "ワイルドカードを選択"
+  },
+  "와일드카드 파일 없음": {
+    "en": "No wildcard files",
+    "ja": "ワイルドカードファイルなし"
+  },
+  "프롬프트 프리셋 없음": {
+    "en": "No prompt presets",
+    "ja": "プロンプトプリセットなし"
+  },
+  "자동완성 제안 {0}개. 위아래 화살표로 선택하세요.": {
+    "en": "{0} suggestions. Use the up and down arrows to select.",
+    "ja": "候補{0}件。上下の矢印キーで選択してください。"
+  },
+  "오류: {0}": {
+    "en": "Error: {0}",
+    "ja": "エラー: {0}"
+  },
+  "프롬프트:": {
+    "en": "Prompt:",
+    "ja": "プロンプト:"
+  },
+  "네거티브:": {
+    "en": "Negative:",
+    "ja": "ネガティブ:"
+  },
+  "선택: {0}": {
+    "en": "Selected: {0}",
+    "ja": "選択: {0}"
+  },
+  "항목": {
+    "en": "Item",
+    "ja": "項目"
+  },
+  "프롬프트가 비어 있음": {
+    "en": "Prompt is empty",
+    "ja": "プロンプトが空です"
+  },
+  "LLM 처리 중...": {
+    "en": "LLM processing…",
+    "ja": "LLM処理中…"
+  },
+  "LLM 보정 중...": {
+    "en": "Refining with LLM…",
+    "ja": "LLMで調整中…"
+  },
+  "LLM 보정 완료 ({0}개 정리)": {
+    "en": "LLM refinement complete ({0} changes)",
+    "ja": "LLM調整完了（{0}件整理）"
+  },
+  "LLM 보정 완료": {
+    "en": "LLM refinement complete",
+    "ja": "LLM調整完了"
+  },
+  "LLM 보정 실패": {
+    "en": "LLM refinement failed",
+    "ja": "LLM調整失敗"
+  },
+  "시드는 0 이상의 10진 정수여야 합니다.": {
+    "en": "Seed must be a non-negative decimal integer.",
+    "ja": "シードには0以上の10進整数を入力してください。"
+  },
+  "웹 시드는 {0} 이하여야 합니다.": {
+    "en": "Web seeds must not exceed {0}.",
+    "ja": "Web版のシードは{0}以下にしてください。"
+  },
+  "입력 이미지와 마스크를 지정하고, 그린 마스크는 저장해 주세요.": {
+    "en": "Select the input image and mask, and save the painted mask.",
+    "ja": "入力画像とマスクを指定し、描いたマスクを保存してください。"
+  },
+  "인페인트는 비용이 발생할 수 있습니다. Opus 요청 한도를 직접 해제해 주세요.": {
+    "en": "Inpainting may cost Anlas. Disable the Opus request limit explicitly.",
+    "ja": "インペイントはAnlasを消費する場合があります。Opusリクエスト制限を手動で解除してください。"
+  },
+  "Img2Img 입력 이미지를 지정해 주세요.": {
+    "en": "Select an Img2Img input image.",
+    "ja": "Img2Imgの入力画像を指定してください。"
+  },
+  "Img2Img는 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요.": {
+    "en": "Img2Img may cost Anlas. Disable Opus protection explicitly.",
+    "ja": "Img2ImgはAnlasを消費する場合があります。Opus保護を手動で解除してください。"
+  },
+  "디테일러 입력 이미지를 지정해 주세요.": {
+    "en": "Select a detailer input image.",
+    "ja": "ディテーラーの入力画像を指定してください。"
+  },
+  "한도 미적용 시 {0}픽셀 이하여야 합니다.": {
+    "en": "Without the limit, images must not exceed {0} pixels.",
+    "ja": "制限解除時も{0}画素以下にしてください。"
+  },
+  "참조는 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요.": {
+    "en": "References may cost Anlas. Disable Opus protection explicitly.",
+    "ja": "参照はAnlasを消費する場合があります。Opus保護を手動で解除してください。"
+  },
+  "Vibe와 Precise Reference는 함께 사용할 수 없습니다.": {
+    "en": "Vibe and Precise Reference cannot be combined.",
+    "ja": "VibeとPrecise Referenceは併用できません。"
+  },
+  "이 모델 / 생성 방식은 Vibe를 지원하지 않습니다.": {
+    "en": "This model / operation does not support Vibe.",
+    "ja": "このモデル・生成方式はVibeに対応していません。"
+  },
+  "Precise Reference는 V4.5 모델을 선택해 주세요.": {
+    "en": "Select a V4.5 model for Precise Reference.",
+    "ja": "Precise ReferenceにはV4.5モデルを選択してください。"
+  },
+  "참조 이미지를 업로드해 주세요.": {
+    "en": "Upload reference images.",
+    "ja": "参照画像をアップロードしてください。"
+  },
+  "기본 이미지는 {0}픽셀 이하여야 합니다.": {
+    "en": "Base images must not exceed {0} pixels.",
+    "ja": "基本画像は{0}画素以下にしてください。"
+  },
+  "업스케일 결과는 {0}픽셀 이하여야 합니다.": {
+    "en": "Upscaled images must not exceed {0} pixels.",
+    "ja": "アップスケール結果は{0}画素以下にしてください。"
+  },
+  "작업 초안": {
+    "en": "Working draft",
+    "ja": "作業下書き"
+  },
+  "생성 설정 값을 확인해 주세요.": {
+    "en": "Check the generation settings.",
+    "ja": "生成設定の値を確認してください。"
+  },
+  "캐릭터 프롬프트와 좌표를 확인해 주세요.": {
+    "en": "Check character prompts and coordinates.",
+    "ja": "キャラクタープロンプトと座標を確認してください。"
+  },
+  "참조 / 디테일러 설정 범위를 확인해 주세요.": {
+    "en": "Check the reference / detailer setting ranges.",
+    "ja": "参照・ディテーラー設定の範囲を確認してください。"
+  },
+  "준비 중": {
+    "en": "Preparing",
+    "ja": "準備中"
+  },
+  "준비 완료": {
+    "en": "Ready",
+    "ja": "準備完了"
+  },
+  "태거 준비 상태를 확인할 수 없습니다.": {
+    "en": "Could not check tagger preparation status.",
+    "ja": "タガーの準備状態を確認できません。"
+  },
+  "태거 준비 실패": {
+    "en": "Tagger preparation failed",
+    "ja": "タガーの準備に失敗しました"
+  },
+  "캐릭터": {
+    "en": "Character",
+    "ja": "キャラクター"
+  },
+  "캐릭터 슬롯 22개를 초과한 설정은 가져올 수 없습니다.": {
+    "en": "Cannot import more than 22 character slots.",
+    "ja": "22件を超えるキャラクタースロットは読み込めません。"
+  },
+  "원문\n{0}\n\n변환 결과\n{1}": {
+    "en": "Original\n{0}\n\nConverted\n{1}",
+    "ja": "原文\n{0}\n\n変換結果\n{1}"
+  },
+  "변환 결과를 확인한 뒤 적용하세요.": {
+    "en": "Review the conversion before applying.",
+    "ja": "変換結果を確認してから適用してください。"
+  },
+  "선택한 프롬프트에 적용했습니다.": {
+    "en": "Applied to the selected prompt.",
+    "ja": "選択したプロンプトに適用しました。"
+  },
+  "LoRA 업로드가 끝난 뒤 설정을 불러와 주세요.": {
+    "en": "Wait for the LoRA upload before loading settings.",
+    "ja": "LoRAのアップロード完了後に設定を読み込んでください。"
+  },
+  "생성·업로드가 끝난 뒤 적용해 주세요.": {
+    "en": "Apply after generation and uploads finish.",
+    "ja": "生成とアップロードの完了後に適用してください。"
+  },
+  "기록에서 모델을 확인할 수 없습니다. 프롬프트만 적용하고 모델을 직접 선택해 주세요.": {
+    "en": "The model is missing from this record. Apply the prompt only and select a model manually.",
+    "ja": "記録からモデルを特定できません。プロンプトのみ適用し、モデルを手動で選択してください。"
+  },
+  "라이브러리": {
+    "en": "Library",
+    "ja": "ライブラリ"
+  },
+  "라이브러리 내용을 적용했습니다. 생성 조건을 확인해 주세요.": {
+    "en": "Library settings applied. Review generation settings.",
+    "ja": "ライブラリの内容を適用しました。生成条件を確認してください。"
+  },
+  "무한": {
+    "en": "Unlimited",
+    "ja": "無制限"
+  },
+  "등록 {0}, 대기 {1}, 실행 {2}, 완료 {3}, 실패 {4}, 취소 {5}": {
+    "en": "Submitted {0}, waiting {1}, running {2}, completed {3}, failed {4}, cancelled {5}",
+    "ja": "登録{0}、待機{1}、実行{2}、完了{3}、失敗{4}、キャンセル{5}"
+  },
+  "다음 작업 예약 중지 · 이미 전송한 NovelAI 응답을 기다립니다.": {
+    "en": "Further scheduling stopped · Waiting for the NovelAI request already sent.",
+    "ja": "次の処理予約を停止 · 送信済みのNovelAI応答を待っています。"
+  },
+  "큐 상태 확인 실패": {
+    "en": "Could not check queue status",
+    "ja": "キューの状態を確認できませんでした"
+  },
+  "큐 완료. 완료 {0}, 실패 {1}, 취소 {2}.": {
+    "en": "Queue finished. Completed {0}, failed {1}, cancelled {2}.",
+    "ja": "キュー終了。完了{0}、失敗{1}、キャンセル{2}。"
+  },
+  "하나 이상의 작업 실패": {
+    "en": "One or more jobs failed",
+    "ja": "1件以上の処理が失敗しました"
+  },
+  "작업이 취소되었습니다.": {
+    "en": "The job was cancelled.",
+    "ja": "処理をキャンセルしました。"
+  },
+  "큐 상태 복구 실패": {
+    "en": "Could not restore queue state",
+    "ja": "キュー状態の復元に失敗しました"
+  },
+  "진행 중인 서버 작업에 다시 연결했습니다.": {
+    "en": "Reconnected to the running server job.",
+    "ja": "実行中のサーバー処理に再接続しました。"
+  },
+  "큐 등록 실패": {
+    "en": "Could not submit to queue",
+    "ja": "キューへの登録に失敗しました"
+  },
+  "작업 취소 실패": {
+    "en": "Could not cancel job",
+    "ja": "処理をキャンセルできませんでした"
+  },
+  "생성 작업 등록 중...": {
+    "en": "Submitting generation job…",
+    "ja": "生成処理を登録中…"
+  },
+  "단일 생성 실행 중": {
+    "en": "Single generation running",
+    "ja": "単一生成を実行中"
+  },
+  "무한 큐 준비 중...": {
+    "en": "Preparing unlimited queue…",
+    "ja": "無制限キューを準備中…"
+  },
+  "{0}개 작업 큐 등록 중...": {
+    "en": "Submitting {0} jobs to queue…",
+    "ja": "{0}件をキューに登録中…"
+  },
+  "서버 큐 실행 중: 무한 모드": {
+    "en": "Server queue running: unlimited mode",
+    "ja": "サーバーキュー実行中: 無制限モード"
+  },
+  "서버 큐 {0} / {1}개 등록됨": {
+    "en": "Server queue: {0} / {1} submitted",
+    "ja": "サーバーキュー: {0} / {1}件登録済み"
+  },
+  "서버 큐 정지 중...": {
+    "en": "Stopping server queue…",
+    "ja": "サーバーキューを停止中…"
+  },
+  "저장 실패: {0}": {
+    "en": "Save failed: {0}",
+    "ja": "保存失敗: {0}"
+  },
+  "{0} 저장됨": {
+    "en": "Saved {0}",
+    "ja": "{0}を保存しました"
+  },
+  "{0} 불러옴": {
+    "en": "Loaded {0}",
+    "ja": "{0}を読み込みました"
+  },
+  "큐 실패: {0}": {
+    "en": "Queue failed: {0}",
+    "ja": "キュー失敗: {0}"
+  },
+  "LoRA 파일을 선택해 주세요.": {
+    "en": "Select a LoRA file.",
+    "ja": "LoRAファイルを選択してください。"
+  },
+  "선택됨: {0}": {
+    "en": "Selected: {0}",
+    "ja": "選択済み: {0}"
+  },
+  "관리된 결과 이미지만 사용할 수 있습니다.": {
+    "en": "Only managed result images can be used.",
+    "ja": "管理対象の結果画像のみ使用できます。"
+  },
+  "현재 결과를 입력으로 지정했습니다. 마스크를 칠하고 저장하세요.": {
+    "en": "Current result set as input. Paint and save the mask.",
+    "ja": "現在の結果を入力に指定しました。マスクを描いて保存してください。"
+  },
+  "마스크를 수정했습니다. 그린 마스크 저장을 눌러주세요.": {
+    "en": "Mask edited. Click Save painted mask.",
+    "ja": "マスクを変更しました。「描いたマスクを保存」を押してください。"
+  },
+  "{0} 불러오기 실패: {1}": {
+    "en": "Could not load {0}: {1}",
+    "ja": "{0}の読み込み失敗: {1}"
+  },
+  "기록": {
+    "en": "History",
+    "ja": "履歴"
+  },
+  "설정": {
+    "en": "Settings",
+    "ja": "設定"
+  },
+  "와일드카드": {
+    "en": "Wildcards",
+    "ja": "ワイルドカード"
+  },
+  "큐 상태 복구 실패: {0}": {
+    "en": "Could not restore queue state: {0}",
+    "ja": "キュー状態の復元失敗: {0}"
+  },
+  "작업 화면": {
+    "en": "Workspace",
+    "ja": "作業画面"
+  },
+  "생성": {
+    "en": "Generate",
+    "ja": "生成"
+  },
+  "이미지 작업실": {
+    "en": "Image workspace",
+    "ja": "画像ワークスペース"
+  },
+  "유사사례 · 작가 조합 · 프롬프트 찾기": {
+    "en": "Find similar images, artist combinations and prompts",
+    "ja": "類似画像・作家の組み合わせ・プロンプトを探す"
+  },
+  "최근 결과 접기": {
+    "en": "Hide recent results",
+    "ja": "最近の結果を閉じる"
+  },
+  "최근 결과 보기": {
+    "en": "Show recent results",
+    "ja": "最近の結果を表示"
+  },
+  "프리셋 · 앱 설정": {
+    "en": "Presets · App settings",
+    "ja": "プリセット · アプリ設定"
+  },
+  "모델 · 캐릭터 · 스타일": {
+    "en": "Model · Characters · Style",
+    "ja": "モデル · キャラクター · スタイル"
+  },
+  "참조 이미지 · 후처리": {
+    "en": "References · Post-processing",
+    "ja": "参照画像 · 後処理"
+  },
+  "그리고 싶은 장면": {
+    "en": "Your scene",
+    "ja": "描きたい場面"
+  },
+  "작가 조합, 인물, 장면, 빛과 색감을 적어 보세요.": {
+    "en": "Describe the artists, characters, scene, light and colors.",
+    "ja": "作家の組み合わせ、人物、場面、光や色を入力してください。"
+  },
+  "와일드카드 · 프리셋 · 문법 변환": {
+    "en": "Wildcards · Presets · Syntax conversion",
+    "ja": "ワイルドカード · プリセット · 構文変換"
+  },
+  "이미지에서 생성 조건 가져오기": {
+    "en": "Import generation settings from an image",
+    "ja": "画像から生成条件を読み込む"
+  },
+  "LoRA 파일 가져오기": {
+    "en": "Import LoRA file",
+    "ja": "LoRAファイルを読み込む"
+  },
+  "연속 생성 · 시드 반복": {
+    "en": "Batch generation · Seed repetition",
+    "ja": "連続生成 · シードの反復"
+  },
+  "생성 실행과 진행 상태": {
+    "en": "Generation actions and progress",
+    "ja": "生成の実行と進捗"
+  },
+  "연속 생성 설정": {
+    "en": "Batch settings",
+    "ja": "連続生成の設定"
+  },
+  "어떤 그림을 만들어 볼까요?": {
+    "en": "What would you like to create?",
+    "ja": "どんな絵を作りますか？"
+  },
+  "장면을 적거나, 이미지 작업실에서 마음에 드는 작가 조합을 찾아오세요.": {
+    "en": "Describe a scene or find an artist combination in the image workspace.",
+    "ja": "場面を入力するか、画像ワークスペースで好みの作家の組み合わせを探してください。"
+  },
+  "프롬프트 작성": {
+    "en": "Write a prompt",
+    "ja": "プロンプトを書く"
+  },
+  "그림에서 시작": {
+    "en": "Start from an image",
+    "ja": "画像から始める"
+  },
+  "최근 결과": {
+    "en": "Recent results",
+    "ja": "最近の結果"
+  },
+  "보관 공간": {
+    "en": "Storage",
+    "ja": "保存容量"
+  },
+  "{0} · {1} × {2} · {3} steps · 시드 {4}": {
+    "en": "{0} · {1} × {2} · {3} steps · Seed {4}",
+    "ja": "{0} · {1} × {2} · {3}ステップ · シード{4}"
+  },
+  "모델 선택": {
+    "en": "Select model",
+    "ja": "モデルを選択"
+  },
+  "작업 순서": {
+    "en": "Workflow",
+    "ja": "作業順序"
+  },
+  "앞 단계의 결과를 다음 단계에 넘깁니다. 순서와 단계별 조건은 프리셋에 함께 저장됩니다.": {
+    "en": "Each stage passes its result to the next. The order and stage settings are saved with presets.",
+    "ja": "前の段階の結果を次の段階に渡します。順序と各段階の条件はプリセットに保存されます。"
+  },
+  "추가할 작업": {
+    "en": "Stage to add",
+    "ja": "追加する処理"
+  },
+  "Anima 디테일러": {
+    "en": "Anima detailer",
+    "ja": "Animaディテーラー"
+  },
+  "NAI 디테일러": {
+    "en": "NAI detailer",
+    "ja": "NAIディテーラー"
+  },
+  "Anima 업스케일": {
+    "en": "Anima upscale",
+    "ja": "Animaアップスケール"
+  },
+  "NAI 생성 → Anima 디테일러": {
+    "en": "NAI generation → Anima detailer",
+    "ja": "NAI生成 → Animaディテーラー"
+  },
+  "Anima 생성 → NAI 디테일러": {
+    "en": "Anima generation → NAI detailer",
+    "ja": "Anima生成 → NAIディテーラー"
+  },
+  "생성만": {
+    "en": "Generate only",
+    "ja": "生成のみ"
+  },
+  "단계 추가": {
+    "en": "Add stage",
+    "ja": "段階を追加"
+  },
+  "후처리는 최대 6단계까지 추가할 수 있습니다.": {
+    "en": "You can add up to 6 post-processing stages.",
+    "ja": "後処理は最大6段階まで追加できます。"
+  },
+  "디테일러": {
+    "en": "Detailer",
+    "ja": "ディテーラー"
+  },
+  "이미지 편집": {
+    "en": "Image editing",
+    "ja": "画像編集"
+  },
+  " + 기존 후처리": {
+    "en": " + inline post-processing",
+    "ja": " ＋ 既存の後処理"
+  },
+  "{0}단계": {
+    "en": "{0} stages",
+    "ja": "{0}段階"
+  },
+  "1단계": {
+    "en": "1 stage",
+    "ja": "1段階"
+  },
+  "{0}단계 위로": {
+    "en": "Move stage {0} up",
+    "ja": "段階{0}を上へ"
+  },
+  "{0}단계 아래로": {
+    "en": "Move stage {0} down",
+    "ja": "段階{0}を下へ"
+  },
+  "{0}단계 삭제": {
+    "en": "Remove stage {0}",
+    "ja": "段階{0}を削除"
+  },
+  "단계 조건": {
+    "en": "Stage settings",
+    "ja": "段階の条件"
+  },
+  "엔진 · 기능": {
+    "en": "Engine · Operation",
+    "ja": "エンジン · 機能"
+  },
+  "모델": {
+    "en": "Model",
+    "ja": "モデル"
+  },
+  "보정 스텝": {
+    "en": "Correction steps",
+    "ja": "補正ステップ数"
+  },
+  "변경 강도": {
+    "en": "Change strength",
+    "ja": "変更強度"
+  },
+  "배율": {
+    "en": "Scale",
+    "ja": "倍率"
+  },
+  "검출 · 마스크": {
+    "en": "Detection · Mask",
+    "ja": "検出 · マスク"
+  },
+  "얼굴 · 눈 / SAM": {
+    "en": "Face · Eyes / SAM",
+    "ja": "顔 · 目 / SAM"
+  },
+  "크롭 범위 배율": {
+    "en": "Crop scale",
+    "ja": "クロップ範囲の倍率"
+  },
+  "크롭 여백(px)": {
+    "en": "Crop padding (px)",
+    "ja": "クロップの余白（px）"
+  },
+  "Opus 무료 범위 보호": {
+    "en": "Protect Opus free allowance",
+    "ja": "Opus無料範囲を保護"
+  },
+  "얼굴이 큰 그림에서는 크롭 범위·여백을 줄여 주세요. 보호 모드에서는 원본 전체를 덮는 크롭을 전송하지 않습니다.": {
+    "en": "For large faces, reduce crop scale and padding. Protection blocks crops covering the entire original image.",
+    "ja": "顔が大きい画像ではクロップ範囲と余白を減らしてください。保護モードでは元画像全体を覆うクロップを送信しません。"
+  },
+  "첫 단계 프롬프트 사용": {
+    "en": "Use the first stage's prompt",
+    "ja": "最初の段階のプロンプトを使用"
+  },
+  "이 단계 입력 표기": {
+    "en": "Prompt syntax for this stage",
+    "ja": "この段階の入力構文"
+  },
+  "자동 감지": {
+    "en": "Auto-detect",
+    "ja": "自動検出"
+  },
+  "구형 NAI": {
+    "en": "Legacy NAI",
+    "ja": "旧NAI"
+  },
+  "변환 안 함": {
+    "en": "No conversion",
+    "ja": "変換しない"
+  },
+  "이 단계 프롬프트": {
+    "en": "This stage's prompt",
+    "ja": "この段階のプロンプト"
+  },
+  "네거티브": {
+    "en": "Negative",
+    "ja": "ネガティブ"
+  },
+  "현재 엔진의 상세 설정 복사": {
+    "en": "Copy current engine settings",
+    "ja": "現在のエンジンの詳細設定をコピー"
+  },
+  "프롬프트와 현재 생성 조건을 먼저 확인해 주세요.": {
+    "en": "Check the prompt and current generation settings first.",
+    "ja": "先にプロンプトと現在の生成条件を確認してください。"
+  },
+  "위쪽 생성 엔진을 이 단계의 엔진으로 선택한 뒤 복사해 주세요.": {
+    "en": "Select this stage's engine above before copying.",
+    "ja": "上の生成エンジンをこの段階のエンジンにしてからコピーしてください。"
+  },
+  "LoRA·캐릭터·참조·디테일러 설정을 이 단계에 복사했습니다. 첫 단계 엔진은 다시 선택할 수 있습니다.": {
+    "en": "Copied LoRA, characters, references and detailer settings to this stage. You can reselect the first stage's engine.",
+    "ja": "LoRA・キャラクター・参照・ディテーラー設定をこの段階にコピーしました。最初の段階のエンジンは選び直せます。"
+  },
+  "작업 단계의 조건을 확인해 주세요.": {
+    "en": "Check the workflow stage settings.",
+    "ja": "作業段階の条件を確認してください。"
+  },
+  "기준 그림을 넣거나 보관한 사례를 살펴보세요.": {
+    "en": "Add a reference image or browse saved examples.",
+    "ja": "基準画像を追加するか、保存した作例を見てみましょう。"
+  },
+  "라이브러리 요청에 실패했습니다.": {
+    "en": "Library request failed.",
+    "ja": "ライブラリへのリクエストに失敗しました。"
+  },
+  "작가 태그 기록 없음": {
+    "en": "No artist tags recorded",
+    "ja": "作家タグの記録なし"
+  },
+  "사례를 선택하면 작가 조합과 원문을 여기서 볼 수 있습니다.": {
+    "en": "Select an example to view its artist combination and original prompt here.",
+    "ja": "作例を選ぶと作家の組み合わせと原文をここに表示します。"
+  },
+  "선택한 사례": {
+    "en": "Selected example",
+    "ja": "選択した作例"
+  },
+  "프롬프트·태그·컬렉션 검색": {
+    "en": "Search prompts, tags and collections",
+    "ja": "プロンプト・タグ・コレクションを検索"
+  },
+  "라이브러리 검색": {
+    "en": "Search library",
+    "ja": "ライブラリ検索"
+  },
+  "즐겨찾기": {
+    "en": "Favorites",
+    "ja": "お気に入り"
+  },
+  "이미지 검색 방식": {
+    "en": "Image search method",
+    "ja": "画像の検索方式"
+  },
+  "색감·배치·윤곽 (CPU)": {
+    "en": "Color · Layout · Contours (CPU)",
+    "ja": "色 · 配置 · 輪郭（CPU）"
+  },
+  "VRS 이미지 검색": {
+    "en": "VRS image search",
+    "ja": "VRS画像検索"
+  },
+  "카드 크기": {
+    "en": "Card size",
+    "ja": "カードのサイズ"
+  },
+  "작게": {
+    "en": "Small",
+    "ja": "小"
+  },
+  "보통": {
+    "en": "Medium",
+    "ja": "中"
+  },
+  "크게": {
+    "en": "Large",
+    "ja": "大"
+  },
+  "더 보기": {
+    "en": "Load more",
+    "ja": "もっと表示"
+  },
+  "사례 탐색": {
+    "en": "Browse examples",
+    "ja": "作例を探す"
+  },
+  "후보 비교": {
+    "en": "Compare candidates",
+    "ja": "候補を比較"
+  },
+  "프롬프트 편집": {
+    "en": "Edit prompt",
+    "ja": "プロンプトを編集"
+  },
+  "작업 단계": {
+    "en": "Workspace stages",
+    "ja": "作業の段階"
+  },
+  "01 탐색": {
+    "en": "01 Explore",
+    "ja": "01 探索"
+  },
+  "02 비교": {
+    "en": "02 Compare",
+    "ja": "02 比較"
+  },
+  "03 프롬프트": {
+    "en": "03 Prompt",
+    "ja": "03 プロンプト"
+  },
+  "이미지 크게 보기": {
+    "en": "View enlarged image",
+    "ja": "画像を拡大表示"
+  },
+  "확대한 이미지": {
+    "en": "Enlarged image",
+    "ja": "拡大画像"
+  },
+  "큰 그림 닫기": {
+    "en": "Close enlarged view",
+    "ja": "拡大表示を閉じる"
+  },
+  "{0} (원본 미리보기 없음, 보관된 썸네일)": {
+    "en": "{0} (original preview unavailable; stored thumbnail)",
+    "ja": "{0}（元画像のプレビューなし・保存済みサムネイル）"
+  },
+  "{0} 크게 보기": {
+    "en": "Enlarge {0}",
+    "ja": "{0}を拡大表示"
+  },
+  "기준 그림": {
+    "en": "Reference image",
+    "ja": "基準画像"
+  },
+  "아직 기준 그림이 없습니다.": {
+    "en": "No reference image yet.",
+    "ja": "基準画像はまだありません。"
+  },
+  "찾고 싶은 그림": {
+    "en": "The image you want to match",
+    "ja": "探したい画像"
+  },
+  "비슷한 사례를 찾을 이미지": {
+    "en": "Image to find similar examples",
+    "ja": "類似作例を探す画像"
+  },
+  "이미지를 놓거나 선택하세요": {
+    "en": "Drop or select an image",
+    "ja": "画像をドロップまたは選択"
+  },
+  "그림에서 출발해 사례와 작가 조합을 찾아보세요.": {
+    "en": "Start with an image to find examples and artist combinations.",
+    "ja": "画像から作例と作家の組み合わせを探しましょう。"
+  },
+  "{0} 사례 보기": {
+    "en": "View example {0}",
+    "ja": "作例{0}を表示"
+  },
+  "등록된 사례 이미지": {
+    "en": "Saved example image",
+    "ja": "登録済みの作例画像"
+  },
+  "{0}순위 · ": {
+    "en": "Rank {0} · ",
+    "ja": "順位{0} · "
+  },
+  "비교할 후보는 두 장까지 선택해 주세요.": {
+    "en": "Select up to two candidates to compare.",
+    "ja": "比較する候補は2枚まで選択してください。"
+  },
+  "비교 후보 {0}/2장 선택. 비교 탭에서 기준 그림과 나란히 볼 수 있습니다.": {
+    "en": "{0}/2 candidates selected. Compare them beside the reference in the Compare tab.",
+    "ja": "比較候補{0}/2枚を選択。比較タブで基準画像と並べて表示できます。"
+  },
+  "비교에 담기": {
+    "en": "Add to comparison",
+    "ja": "比較に追加"
+  },
+  "표시할 사례가 없습니다. 검색 조건을 바꾸거나 이미지를 가져와 주세요.": {
+    "en": "No examples to display. Change the search or import images.",
+    "ja": "表示する作例がありません。検索条件を変えるか画像を読み込んでください。"
+  },
+  "사례를 불러오는 중…": {
+    "en": "Loading examples…",
+    "ja": "作例を読み込み中…"
+  },
+  "{0} / {1}장{2}": {
+    "en": "{0} / {1} images{2}",
+    "ja": "{0} / {1}枚{2}"
+  },
+  " · 선택한 작가 조합": {
+    "en": " · Selected artist combination",
+    "ja": " · 選択した作家の組み合わせ"
+  },
+  "사례를 선택해 원문을 확인하거나 두 후보를 비교하세요.": {
+    "en": "Select an example to view its source prompt or compare two candidates.",
+    "ja": "作例を選んで原文を確認するか、2つの候補を比較してください。"
+  },
+  "PNG/JPEG/WebP, 최대 32 MiB 이미지를 선택해 주세요.": {
+    "en": "Select a PNG/JPEG/WebP image up to 32 MiB.",
+    "ja": "32 MiB以下のPNG・JPEG・WebP画像を選択してください。"
+  },
+  "이미지에서 비슷한 사례를 찾는 중…": {
+    "en": "Finding similar examples…",
+    "ja": "類似作例を検索中…"
+  },
+  "{0}장에서 유사사례 {1}장 · {2} 검색": {
+    "en": "{1} similar examples from {0} images · {2} search",
+    "ja": "{0}枚から類似作例{1}枚 · {2}検索"
+  },
+  "검색에서 찾은 작가 조합 {0}종": {
+    "en": "{0} artist combinations in these results",
+    "ja": "検索結果の作家の組み合わせ{0}種類"
+  },
+  "{0} · {1}개 사례": {
+    "en": "{0} · {1} examples",
+    "ja": "{0} · {1}作例"
+  },
+  "검색 완료 · 같은 픽셀의 사본은 제외했습니다. 순위는 화풍의 정답률을 뜻하지 않습니다.": {
+    "en": "Search complete · Identical pixel copies excluded. Ranking does not measure style accuracy.",
+    "ja": "検索完了 · 同一画素のコピーは除外しました。順位は画風の正解率を表すものではありません。"
+  },
+  "기준 그림에 더 가까운 쪽은?": {
+    "en": "Which is closer to the reference?",
+    "ja": "基準画像に近いのはどちら？"
+  },
+  "선·채색·명암·질감을 비교해 주세요. 마음에 드는 정도와 닮은 정도는 따로 기록합니다.": {
+    "en": "Compare linework, coloring, shading and texture. Preference and similarity are recorded separately.",
+    "ja": "線・彩色・陰影・質感を比較してください。好みと類似度は別々に記録します。"
+  },
+  "새 검색을 마친 뒤 비교할 수 있습니다.": {
+    "en": "Finish the new search before comparing.",
+    "ja": "新しい検索が完了すると比較できます。"
+  },
+  "먼저 기준 그림으로 검색해 주세요. 같은 검색의 후보 두 장을 비교합니다.": {
+    "en": "Search with a reference image first. Compare two candidates from that search.",
+    "ja": "先に基準画像で検索してください。同じ検索の候補2枚を比較します。"
+  },
+  "마지막 판단 취소": {
+    "en": "Undo last judgment",
+    "ja": "最後の判断を取り消す"
+  },
+  "이 검색에서 {0}회 판단": {
+    "en": "{0} judgments in this search",
+    "ja": "この検索で{0}回判断"
+  },
+  "이번 후보 비교를 마쳤습니다. 탐색에서 두 장을 골라 추가로 비교할 수 있습니다.": {
+    "en": "Comparison complete. Select two more images in Explore to keep comparing.",
+    "ja": "今回の比較は完了しました。探索で2枚選ぶと追加で比較できます。"
+  },
+  "후보 {0}": {
+    "en": "Candidate {0}",
+    "ja": "候補{0}"
+  },
+  "이 사례 기록 보기": {
+    "en": "View this example's records",
+    "ja": "この作例の記録を見る"
+  },
+  "A가 더 닮음": {
+    "en": "A is closer",
+    "ja": "Aの方が近い"
+  },
+  "B가 더 닮음": {
+    "en": "B is closer",
+    "ja": "Bの方が近い"
+  },
+  "둘 다 비슷함": {
+    "en": "Both similar",
+    "ja": "両方似ている"
+  },
+  "둘 다 다름": {
+    "en": "Neither similar",
+    "ja": "両方似ていない"
+  },
+  "판단 보류": {
+    "en": "Skip judgment",
+    "ja": "判断を保留"
+  },
+  "판단은 로컬에 저장됩니다. 아직 검색 순위에 자동 반영되지는 않습니다.": {
+    "en": "Judgments are saved locally. They do not yet automatically affect search rankings.",
+    "ja": "判断はローカルに保存されます。まだ検索順位には自動反映されません。"
+  },
+  "비교 판단을 저장했습니다. 마지막 판단을 취소할 수 있습니다.": {
+    "en": "Judgment saved. You can undo the last judgment.",
+    "ja": "比較判断を保存しました。最後の判断は取り消せます。"
+  },
+  "마지막 비교 판단을 취소했습니다.": {
+    "en": "Last judgment undone.",
+    "ja": "最後の比較判断を取り消しました。"
+  },
+  "작업 프롬프트": {
+    "en": "Working prompt",
+    "ja": "作業プロンプト"
+  },
+  "작업 네거티브": {
+    "en": "Working negative prompt",
+    "ja": "作業ネガティブ"
+  },
+  "가져오기 되돌리기": {
+    "en": "Undo import",
+    "ja": "取り込みを元に戻す"
+  },
+  "가져오기 전 초안으로 되돌렸습니다.": {
+    "en": "Restored the draft from before the import.",
+    "ja": "取り込み前の下書きに戻しました。"
+  },
+  "작업실 초안을 저장하지 못했습니다. 브라우저 저장 공간을 확인해 주세요.": {
+    "en": "Could not save the workspace draft. Check browser storage.",
+    "ja": "作業下書きを保存できません。ブラウザーの保存領域を確認してください。"
+  },
+  "가져온 기록: {0}{1}": {
+    "en": "Imported record: {0}{1}",
+    "ja": "取り込んだ記録: {0}{1}"
+  },
+  " · 생성 조건 포함": {
+    "en": " · With generation settings",
+    "ja": " · 生成条件を含む"
+  },
+  " · 프롬프트만": {
+    "en": " · Prompt only",
+    "ja": " · プロンプトのみ"
+  },
+  "현재 생성 화면의 프롬프트에서 시작합니다.": {
+    "en": "Starting from the generation screen's prompt.",
+    "ja": "生成画面のプロンプトから開始します。"
+  },
+  "함께 가져온 생성 조건": {
+    "en": "Imported generation settings",
+    "ja": "取り込んだ生成条件"
+  },
+  "프롬프트 표기를 맞추지 못했습니다.": {
+    "en": "Could not convert prompt notation.",
+    "ja": "プロンプト表記を変換できませんでした。"
+  },
+  "변환 중 초안이 바뀌었습니다. 다시 가져와 주세요.": {
+    "en": "The draft changed during conversion. Import again.",
+    "ja": "変換中に下書きが変わりました。再度取り込んでください。"
+  },
+  "참고 사례는 16개까지 연결할 수 있습니다. 생성 화면에서 연결을 정리해 주세요.": {
+    "en": "Up to 16 source examples can be linked. Manage links on the generation screen.",
+    "ja": "参考作例は16件まで連携できます。生成画面で整理してください。"
+  },
+  "편집 초안에 가져왔습니다. 내용을 다듬거나 가져오기를 되돌릴 수 있습니다.": {
+    "en": "Imported into the draft. Edit it or undo the import.",
+    "ja": "編集下書きに取り込みました。編集や取り消しができます。"
+  },
+  "찾은 조합으로 내 프롬프트 만들기": {
+    "en": "Build your prompt from the combinations you found",
+    "ja": "見つけた組み合わせでプロンプトを作る"
+  },
+  "탐색으로 돌아가도 초안이 유지됩니다. 생성 화면에 적용하기 전까지 원래 생성 폼은 그대로입니다.": {
+    "en": "The draft stays when you return to Explore. Generation settings remain unchanged until you apply it.",
+    "ja": "探索に戻っても下書きは保持されます。生成画面に適用するまで元の生成フォームは変わりません。"
+  },
+  "생성 화면의 프롬프트 가져오기": {
+    "en": "Import generation screen prompt",
+    "ja": "生成画面のプロンプトを取り込む"
+  },
+  "생성 화면에 적용": {
+    "en": "Apply to generation screen",
+    "ja": "生成画面に適用"
+  },
+  "초안과 최근 가져오기 기록은 이 브라우저에 저장됩니다. 새로고침 후에도 이어서 편집할 수 있습니다. 적용은 생성을 시작하지 않습니다.": {
+    "en": "Drafts and recent imports are saved in this browser and survive reloads. Applying does not start generation.",
+    "ja": "下書きと最近の取り込み記録はこのブラウザーに保存され、再読み込み後も編集できます。適用しても生成は始まりません。"
+  },
+  "사례 → 작가 조합 → 프롬프트": {
+    "en": "Example → Artists → Prompt",
+    "ja": "作例 → 作家の組み合わせ → プロンプト"
+  },
+  "이 그림과 비슷한 사례": {
+    "en": "Find similar examples",
+    "ja": "この絵に似た作例"
+  },
+  "★ 즐겨찾기 해제": {
+    "en": "★ Remove favorite",
+    "ja": "★ お気に入り解除"
+  },
+  "☆ 즐겨찾기": {
+    "en": "☆ Favorite",
+    "ja": "☆ お気に入り"
+  },
+  "평가를 저장했습니다. 닮음과 재사용 가능성을 따로 기록합니다.": {
+    "en": "Feedback saved. Similarity and reuse are recorded separately.",
+    "ja": "評価を保存しました。類似度と再利用の希望は別々に記録します。"
+  },
+  "닮았음": {
+    "en": "Similar",
+    "ja": "似ている"
+  },
+  "안 닮았음": {
+    "en": "Not similar",
+    "ja": "似ていない"
+  },
+  "조건을 다시 쓰고 싶음": {
+    "en": "Want to reuse settings",
+    "ja": "条件を再利用したい"
+  },
+  "생성 기록 선택": {
+    "en": "Select generation record",
+    "ja": "生成記録を選択"
+  },
+  "연결된 생성 기록을 찾지 못했습니다. 이 이미지의 남아 있는 기록을 표시합니다.": {
+    "en": "Linked record not found. Showing the remaining records for this image.",
+    "ja": "連携した生成記録が見つかりません。この画像の残っている記録を表示します。"
+  },
+  "생성 기록이 없습니다.": {
+    "en": "No generation records.",
+    "ja": "生成記録がありません。"
+  },
+  "기록된 작가 조합": {
+    "en": "Recorded artist combination",
+    "ja": "記録された作家の組み合わせ"
+  },
+  "분리 가능한 작가 태그 없음": {
+    "en": "No identifiable artist tags",
+    "ja": "分離可能な作家タグなし"
+  },
+  "모델 미상": {
+    "en": "Unknown model",
+    "ja": "モデル不明"
+  },
+  "미상": {
+    "en": "Unknown",
+    "ja": "不明"
+  },
+  "기록된 프롬프트": {
+    "en": "Recorded prompt",
+    "ja": "記録されたプロンプト"
+  },
+  "작가 태그만 덧붙이기": {
+    "en": "Append artist tags only",
+    "ja": "作家タグだけ追加"
+  },
+  "프롬프트 가져오기": {
+    "en": "Import prompt",
+    "ja": "プロンプトを取り込む"
+  },
+  "조건까지 가져오기": {
+    "en": "Import with settings",
+    "ja": "条件も取り込む"
+  },
+  "저장된 생성 조건 보기": {
+    "en": "View saved generation settings",
+    "ja": "保存された生成条件を見る"
+  },
+  "태그 · 컬렉션 · 메모": {
+    "en": "Tags · Collection · Notes",
+    "ja": "タグ · コレクション · メモ"
+  },
+  "태그": {
+    "en": "Tags",
+    "ja": "タグ"
+  },
+  "컬렉션": {
+    "en": "Collection",
+    "ja": "コレクション"
+  },
+  "메모": {
+    "en": "Notes",
+    "ja": "メモ"
+  },
+  "정리 내용 저장": {
+    "en": "Save organization",
+    "ja": "整理内容を保存"
+  },
+  "태그·컬렉션·메모를 저장했습니다.": {
+    "en": "Tags, collection and notes saved.",
+    "ja": "タグ・コレクション・メモを保存しました。"
+  },
+  "원본 위치 · 출처": {
+    "en": "Original location · Source",
+    "ja": "元ファイルの場所 · 出典"
+  },
+  "파일 누락 · ": {
+    "en": "File missing · ",
+    "ja": "ファイル不足 · "
+  },
+  "원본 게시물 열기": {
+    "en": "Open source post",
+    "ja": "元の投稿を開く"
+  },
+  "폴더의 전체 경로를 한 줄에 하나씩 입력": {
+    "en": "Enter one absolute folder path per line",
+    "ja": "フォルダーのフルパスを1行に1つ入力"
+  },
+  "가져올 폴더": {
+    "en": "Folders to import",
+    "ja": "取り込むフォルダー"
+  },
+  "VRS 색인 준비": {
+    "en": "Prepare VRS index",
+    "ja": "VRS索引を準備"
+  },
+  "작업 취소": {
+    "en": "Cancel job",
+    "ja": "処理をキャンセル"
+  },
+  "검색 방식 · 라이브러리 관리": {
+    "en": "Search method · Library management",
+    "ja": "検索方式 · ライブラリ管理"
+  },
+  "폴더 가져오기": {
+    "en": "Import folders",
+    "ja": "フォルダーを取り込む"
+  },
+  "가져올 폴더를 입력해 주세요.": {
+    "en": "Enter folders to import.",
+    "ja": "取り込むフォルダーを入力してください。"
+  },
+  "앱 생성 이력 연결": {
+    "en": "Link app generation history",
+    "ja": "アプリの生成履歴を連携"
+  },
+  "{0} / {1}장 · 작가 조합 {2}종 · VRS 색인 {3}장 · 평가 {4}건": {
+    "en": "{0} / {1} images · {2} artist combinations · {3} VRS indexed · {4} ratings",
+    "ja": "{0} / {1}枚 · 作家の組み合わせ{2}種類 · VRS索引{3}枚 · 評価{4}件"
+  },
+  "VRS 이미지 검색 · 준비됨": {
+    "en": "VRS image search · Ready",
+    "ja": "VRS画像検索 · 準備完了"
+  },
+  "VRS 이미지 검색 · 색인 준비 필요": {
+    "en": "VRS image search · Index needed",
+    "ja": "VRS画像検索 · 索引の準備が必要"
+  },
+  "{0} · 처리 {1} · 추가 {2} · 오류 {3} {4}": {
+    "en": "{0} · Processed {1} · Added {2} · Errors {3} {4}",
+    "ja": "{0} · 処理{1} · 追加{2} · エラー{3} {4}"
+  },
+  "유사사례로 돌아가기": {
+    "en": "Back to similar examples",
+    "ja": "類似作例に戻る"
+  },
+  "기준 그림의 검색 결과로 돌아왔습니다.": {
+    "en": "Returned to the reference image's search results.",
+    "ja": "基準画像の検索結果に戻りました。"
+  },
+  "검색": {
+    "en": "Search",
+    "ja": "検索"
+  },
+  "전체 보기": {
+    "en": "View all",
+    "ja": "すべて表示"
+  },
+  "Anima · 이미지 작업실": {
+    "en": "Anima · Image workspace",
+    "ja": "Anima · 画像ワークスペース"
+  },
+  "그림 → 사례 → 조합 → 프롬프트": {
+    "en": "Image → Example → Combination → Prompt",
+    "ja": "画像 → 作例 → 組み合わせ → プロンプト"
+  },
+  "생성 화면으로": {
+    "en": "Back to generation",
+    "ja": "生成画面へ"
+  },
+  "생성: {0}": {
+    "en": "Generation: {0}",
+    "ja": "生成: {0}"
+  },
+  "이미지 라이브러리 열기": {
+    "en": "Open image library",
+    "ja": "画像ライブラリを開く"
+  },
+  "입력 프롬프트 표기": {
+    "en": "Input prompt syntax",
+    "ja": "入力プロンプトの構文"
+  },
+  "자동 감지 → 엔진에 맞춤": {
+    "en": "Auto-detect → Match engine",
+    "ja": "自動検出 → エンジンに合わせる"
+  },
+  "Anima / ComfyUI (태그:가중치)": {
+    "en": "Anima / ComfyUI (tag:weight)",
+    "ja": "Anima / ComfyUI（タグ:重み）"
+  },
+  "NAI V4 / V5 가중치::태그::": {
+    "en": "NAI V4 / V5 weight::tag::",
+    "ja": "NAI V4 / V5 重み::タグ::"
+  },
+  "구형 NAI {태그}": {
+    "en": "Legacy NAI {tag}",
+    "ja": "旧NAI {タグ}"
+  },
+  "변환 안 함 · 입력 그대로": {
+    "en": "No conversion · Use as entered",
+    "ja": "変換なし · 入力のまま"
+  },
+  "NAI에는 가중치::와 artist:, Anima에는 (태그:가중치)와 @를 전달합니다. 작성 원문은 유지합니다.": {
+    "en": "NAI receives weight:: and artist:, while Anima receives (tag:weight) and @. Your original text is preserved.",
+    "ja": "NAIには重み::とartist:、Animaには（タグ:重み）と@を渡します。入力原文は保持します。"
+  },
+  "접두사 없는 태그만 로컬 단보루 작가 목록과 정확히 대조합니다. 일치하지 않으면 그대로 둡니다.": {
+    "en": "Only unprefixed tags are matched exactly against the local Danbooru artist list. Unmatched tags stay unchanged.",
+    "ja": "接頭辞のないタグだけをローカルのDanbooru作家一覧と完全一致で照合します。一致しないタグは変更しません。"
+  },
+  "이 브라우저에 작업 초안 자동 저장": {
+    "en": "Automatically save drafts in this browser",
+    "ja": "このブラウザーに下書きを自動保存"
+  },
+  "닫기": {
+    "en": "Close",
+    "ja": "閉じる"
+  },
+  "단계별 전달 프롬프트": {
+    "en": "Prompts sent to each stage",
+    "ja": "各段階に送るプロンプト"
+  },
+  "변환을 확인하고 있습니다…": {
+    "en": "Checking conversion…",
+    "ja": "変換を確認中…"
+  },
+  "미리보기를 불러오지 못했습니다.": {
+    "en": "Could not load preview.",
+    "ja": "プレビューを読み込めませんでした。"
+  },
+  "출력 표기: {0} · 작성 원문은 그대로 보존됩니다.": {
+    "en": "Output syntax: {0} · Original text is preserved.",
+    "ja": "出力構文: {0} · 入力原文は保持されます。"
+  },
+  "작가 목록 {0}개 · {1} · {2}": {
+    "en": "{0} artist tags · {1} · {2}",
+    "ja": "作家タグ{0}件 · {1} · {2}"
+  },
+  "활성 태그": {
+    "en": "Active tags",
+    "ja": "有効なタグ"
+  },
+  "일부 목록": {
+    "en": "Partial list",
+    "ja": "一部の一覧"
+  },
+  "저장된 작가 목록이 없어 접두사 없는 이름은 자동 인식하지 않습니다.": {
+    "en": "No local artist list is available; unprefixed names will not be auto-detected.",
+    "ja": "保存済みの作家一覧がないため、接頭辞のない名前は自動認識されません。"
+  },
+  "접두사 자동 인식: ": {
+    "en": "Auto-detected artists: ",
+    "ja": "自動認識した作家: "
+  },
+  "단계별 전달 미리보기": {
+    "en": "Preview stage prompts",
+    "ja": "各段階のプロンプトを確認"
+  },
+  "참고 사례 {0}개 · 가져온 기록이며 작가 판정이 아닙니다.": {
+    "en": "{0} source examples · These are reuse records, not artist identification.",
+    "ja": "参考作例{0}件 · 取り込みの記録であり、作家の判定ではありません。"
+  },
+  "작가 조합": {
+    "en": "Artist combination",
+    "ja": "作家の組み合わせ"
+  },
+  "생성 조건": {
+    "en": "Generation settings",
+    "ja": "生成条件"
+  },
+  "사례": {
+    "en": "Example",
+    "ja": "作例"
+  },
+  "연결 해제": {
+    "en": "Unlink",
+    "ja": "連携を解除"
+  },
+  "저장된 작업 불러오기": {
+    "en": "Load saved draft",
+    "ja": "保存済み下書きを読み込む"
+  },
+  "저장 초안 삭제": {
+    "en": "Delete saved draft",
+    "ja": "保存済み下書きを削除"
+  },
+  "저장 초안을 삭제했습니다. 다음 편집부터 다시 저장합니다.": {
+    "en": "Saved draft deleted. Autosave resumes on the next edit.",
+    "ja": "保存済み下書きを削除しました。次の編集から再び保存します。"
+  },
+  "브라우저 저장소에 접근할 수 없습니다.": {
+    "en": "Cannot access browser storage.",
+    "ja": "ブラウザーの保存領域にアクセスできません。"
+  },
+  "작업 초안 저장됨 · 새로고침 후에도 복원": {
+    "en": "Draft saved · Restored after reload",
+    "ja": "下書きを保存済み · 再読み込み後も復元"
+  },
+  "초안을 저장하지 못했습니다. 브라우저 저장 공간을 확인해 주세요.": {
+    "en": "Could not save draft. Check browser storage.",
+    "ja": "下書きを保存できません。ブラウザーの保存領域を確認してください。"
+  },
+  "이전 작업을 복원했습니다 · 실행 버튼을 눌러야 생성됩니다.": {
+    "en": "Previous work restored · Press Generate to start",
+    "ja": "前の作業を復元しました · 生成ボタンで開始します"
+  },
+  "저장된 초안을 불러오지 못했습니다.": {
+    "en": "Could not load saved draft.",
+    "ja": "保存済み下書きを読み込めませんでした。"
+  },
+  "NAI 안내 언어": {
+    "en": "NAI display language",
+    "ja": "NAI表示言語"
+  },
+  "NAI 기능·오류 원인과 공통 생성 입력의 안내 언어입니다. 로컬 기능·기록·오류 상세 원문은 기존 언어로 표시됩니다.": {
+    "en": "Language for NAI guidance and shared generation inputs. Local features, history and raw errors retain their original text.",
+    "ja": "NAI機能・エラー原因と共通の生成入力の表示言語です。ローカル機能・履歴・エラー詳細の原文は従来の言語で表示されます。"
+  },
+  "이 브라우저에서는 언어를 저장할 수 없습니다. 현재 화면에만 적용합니다.": {
+    "en": "Language cannot be saved in this browser. It applies only to this session.",
+    "ja": "このブラウザーでは言語を保存できません。現在の画面にのみ適用します。"
+  },
+  "NAI 기능 사용 안내": {
+    "en": "NovelAI help",
+    "ja": "NAI機能の使い方"
+  },
+  "생성·비용·중단": {
+    "en": "Generation, costs and stopping",
+    "ja": "生成・費用・停止"
+  },
+  "한 번에 한 장을 생성합니다. 시드 -1은 무작위, 0은 고정 시드입니다. Opus 보호는 일반 Img2Img·인페인트와 Vibe·Precise를 차단합니다. 보호를 해제하면 Anlas 비용이 발생할 수 있습니다. 작은 Focused 크롭도 전송 직전 계정·영역 조건을 확인합니다. 이미 전송한 요청은 중단 후에도 완료·과금될 수 있으며 도착한 결과는 저장합니다.": {
+    "en": "Generates one image at a time. Seed -1 is random; 0 is fixed. Opus protection blocks standard Img2Img, inpainting, Vibe and Precise Reference. Disabling protection may cost Anlas. Small Focused crops also check account and region eligibility before sending. A request already sent may finish and be charged after stopping; returned results are saved.",
+    "ja": "1回につき1枚生成します。シード -1 はランダム、0 は固定シードです。Opus保護は通常のImg2Img・インペイントとVibe・Preciseをブロックします。保護を解除するとAnlasを消費する場合があります。小さいFocusedクロップも送信直前にアカウントと領域の条件を確認します。送信済みのリクエストは停止後も完了・課金される場合があり、届いた結果は保存します。"
+  },
+  "Medium Effort: 14스텝 · Euler Ancestral · CFG Rescale 0 · Heavy 네거티브 고정. 입력한 기본/캐릭터 네거티브는 전송에 사용하지 않습니다. CFG와 시드는 유지합니다. 다른 모델용 입력값은 보존합니다.": {
+    "en": "Medium Effort fixes 14 steps, Euler Ancestral, CFG Rescale 0 and Heavy negative. Entered common and character negatives are not sent. CFG and seed are kept. Settings for other models are preserved.",
+    "ja": "Medium Effort: 14ステップ・Euler Ancestral・CFGリスケール0・Heavyネガティブに固定。入力した共通／キャラクターのネガティブは送信しません。CFGとシードは維持し、他モデル用の入力値も保持します。"
+  },
+  "V5 Curated의 인페인트는 V4.5 Curated로 전환됩니다. 현재 보정 모델: nai-diffusion-4-5-curated-inpainting.": {
+    "en": "V5 Curated inpainting routes to V4.5 Curated. Correction model: nai-diffusion-4-5-curated-inpainting.",
+    "ja": "V5 CuratedのインペイントはV4.5 Curatedに切り替わります。補正モデル: nai-diffusion-4-5-curated-inpainting。"
+  },
+  "캐릭터·접기·복원": {
+    "en": "Characters, collapsing and restoring",
+    "ja": "キャラクター・折りたたみ・復元"
+  },
+  "표시 슬롯은 0~22개입니다. 활성 캐릭터는 V5 최대 22명, V4/V4.5 최대 6명, V3는 미지원입니다. V5 Curated 인페인트는 V4.5의 6명 제한을 사용합니다. 숨김·사용 해제는 전송에서 제외하고 입력값을 보존합니다. 개별 접기만으로는 전송에서 제외되지 않습니다. X/Y는 0~1 위치 유도값입니다. 프리셋·히스토리·설정 PNG에는 숨김/비활성 입력도 저장되므로 공유 시 함께 전달됩니다.": {
+    "en": "Show 0–22 slots. V5 supports up to 22 active characters; V4/V4.5 up to 6; V3 does not support them. V5 Curated inpainting uses V4.5's 6-character limit. Hidden or disabled characters are excluded from requests but their inputs are kept. Collapsing a card alone does not exclude it. X/Y guide positions from 0 to 1. Presets, history and settings PNGs include hidden and disabled inputs, so sharing them shares those inputs too.",
+    "ja": "表示スロットは0～22件です。有効なキャラクターはV5で最大22人、V4/V4.5で最大6人、V3は非対応です。V5 CuratedのインペイントはV4.5の6人制限を使います。非表示・無効のスロットは送信せず、入力内容を保持します。折りたたむだけでは送信から除外されません。X/Yは0～1の位置の目安です。プリセット・履歴・設定PNGには非表示／無効の入力も保存され、共有時に含まれます。"
+  },
+  "입력·마스크·Focused": {
+    "en": "Input, masks and Focused Inpainting",
+    "ja": "入力・マスク・Focused"
+  },
+  "이미지 한 장을 입력하세요. Img2Img는 생성 크기로 Lanczos 리사이즈합니다. 일반/Focused 인페인트는 입력·마스크·생성 크기가 같아야 합니다. 흰색은 수정, 검정은 보존하며 비어 있지 않은 마스크를 저장해야 합니다. Focused는 마스크 주변을 크롭해 보정하고 밖의 픽셀을 보존합니다. 인페인트는 전용 모델을 사용합니다.": {
+    "en": "Use one input image. Img2Img resizes it to the generation size with Lanczos. Standard and Focused inpainting require matching input, mask and generation sizes. White modifies; black preserves. Save a nonempty mask. Focused crops around the mask and preserves pixels outside it. Inpainting uses dedicated models.",
+    "ja": "画像を1枚入力してください。Img2Imgは生成サイズにLanczosでリサイズします。通常／Focusedインペイントでは入力・マスク・生成サイズを一致させてください。白は編集、黒は保持し、空でないマスクを保存する必要があります。Focusedはマスク周辺をクロップして補正し、外側の画素を保持します。インペイントは専用モデルを使用します。"
+  },
+  "참조 카드를 추가해 여러 이미지를 지정합니다. Vibe는 V3/V4/V4.5 지원이며 V4/V4.5 인페인트에서는 사용할 수 없습니다. V4/V4.5는 이미지·정보 추출량의 첫 인코딩에 비용이 들고 같은 조건이면 캐시를 재사용합니다. 정규화는 강도 합이 1을 넘을 때 비례 축소합니다. Precise는 V4.5에서 인페인트도 지원하며 참조마다 생성 비용이 추가됩니다. 여러 캐릭터 참조는 특징이 섞이며 캐릭터 슬롯별 대응이 아닙니다. Vibe와 Precise는 함께 사용할 수 없습니다.": {
+    "en": "Add reference cards for multiple images. Vibe supports V3/V4/V4.5, except V4/V4.5 inpainting. V4/V4.5 charge for the first encoding of an image at a given information level, then reuse cached encodings. Normalization scales strengths down proportionally when their sum exceeds 1. Precise supports V4.5, including inpainting, and adds generation cost per reference. Multiple character references blend features; they do not map to character slots. Vibe and Precise cannot be combined.",
+    "ja": "参照カードを追加して複数の画像を指定します。VibeはV3/V4/V4.5に対応し、V4/V4.5のインペイントでは使えません。V4/V4.5では画像と情報抽出量の組み合わせを初めてエンコードする際に費用がかかり、同じ条件ならキャッシュを再利用します。正規化は強度の合計が1を超える場合に比例して下げます。PreciseはV4.5のインペイントにも対応し、参照ごとに生成費用が加算されます。複数のキャラクター参照は特徴が混ざり、個別スロットには対応しません。VibeとPreciseは併用できません。"
+  },
+  "디테일러·태거": {
+    "en": "Detailer and taggers",
+    "ja": "ディテーラー・タガー"
+  },
+  "얼굴·눈·손 영역을 첫 영역 또는 모두 순차 보정합니다. YOLO+SAM B 또는 SAM3를 선택하세요. WD 매칭은 선택한 태거 점수로 원본 캐릭터 프롬프트를 고르며 추론 태그를 추가하지 않습니다. 불확실한 영역은 건너뛰고 최신 점수와 이유를 기록합니다. 기존 이미지에서 미리보기는 검출·매칭만 수행합니다. 새 이미지 생성 후 미리보기는 기본 이미지 생성 요청이 먼저 발생합니다.": {
+    "en": "Correct the first region or all face, eye and hand regions sequentially. Choose YOLO+SAM B or SAM3. WD matching selects an original character prompt using tagger scores without appending inferred tags. Uncertain regions are skipped and their latest scores and reasons recorded. Preview on an existing image only detects and matches. Preview after new-image generation first sends a base generation request.",
+    "ja": "顔・目・手の領域を、最初の1領域または全領域について順番に補正します。YOLO+SAM BまたはSAM3を選択してください。WD対応付けは選択したタガーのスコアで元のキャラクタープロンプトを選び、推論したタグを追加しません。不確かな領域はスキップし、最新のスコアと理由を記録します。既存画像のプレビューは検出・対応付けのみです。新規生成後のプレビューでは、先に元画像を生成するリクエストが発生します。"
+  },
+  "태거 준비는 WD ViT / EVA02 / PixAI 중 선택 모델만 내려받아 로딩을 검사하고 파일별 진행률을 표시합니다. 생성 시에는 로컬 캐시를 사용합니다. WD는 흰 정사각 패딩·BGR, PixAI는 전용 RGB 전처리를 사용합니다. 자동 장치는 사용 가능한 CUDA 또는 CPU이며 CPU를 직접 선택할 수 있습니다. 모델별 의존성을 설치하고 메모리가 부족하면 배치 1부터 시작하세요. 모델에 따라 점수가 달라집니다.": {
+    "en": "Preparation downloads only the selected WD ViT, EVA02 or PixAI model, checks loading and shows per-file progress. Generation uses the local cache. WD uses white square padding and BGR; PixAI uses its own RGB preprocessing. Auto device uses available CUDA or CPU; CPU can be selected explicitly. Install the model's dependencies and start at batch size 1 if memory is limited. Scores vary by model.",
+    "ja": "タガー準備ではWD ViT / EVA02 / PixAIから選択したモデルだけをダウンロードして読み込みを確認し、ファイルごとの進捗を表示します。生成時はローカルキャッシュを使います。WDは白い正方形パディングとBGR、PixAIは専用のRGB前処理を使用します。自動デバイスは利用可能なCUDAまたはCPUで、CPUを直接選択することもできます。モデル別の依存パッケージを導入し、メモリが不足する場合はバッチ1から始めてください。モデルによってスコアが変わります。"
+  },
+  "기존 이미지의 생성 조건": {
+    "en": "Settings from an existing image",
+    "ja": "既存画像の生成条件"
+  },
+  "PNG/WebP를 읽고 미리보기에서 확인한 뒤 적용합니다. 모델 해시와 생성 방식으로 일반/인페인트 모델을 구분하며 알 수 없는 해시는 직접 선택합니다. 참조 이미지 원본은 메타데이터만으로 복원할 수 없습니다. 언어 선택은 브라우저에만 저장되며 프롬프트·프리셋·큐·PNG 설정을 바꾸지 않습니다.": {
+    "en": "Read PNG/WebP metadata, review the preview, then apply. Model hashes and operation identify standard versus inpainting models; select unknown hashes manually. Reference originals cannot be restored from metadata alone. Language is saved only in this browser and does not alter prompts, presets, queues or PNG settings.",
+    "ja": "PNG/WebPを読み込み、プレビューで確認してから適用します。モデルハッシュと生成方式で通常／インペイントモデルを区別し、不明なハッシュは手動で選びます。参照画像の元データはメタデータだけでは復元できません。言語設定はブラウザーにのみ保存し、プロンプト・プリセット・キュー・PNG設定は変更しません。"
+  },
+  "가중치 변환": {
+    "en": "Weight conversion",
+    "ja": "重みの変換"
+  },
+  "적용할 공통/활성 캐릭터 프롬프트와 원본·변환 문법을 고르고 미리보기 후 적용하세요. 잘못된 ComfyUI 가중치 그룹은 생략되며 경고합니다. 일반 괄호는 이스케이프하세요. NAI V4/V5의 닫는 :: 뒤 텍스트는 쉼표로 구분해야 합니다. 구형 NAI 변환은 1.05/0.95배 괄호로 근사하며 0·음수 가중치는 표현할 수 없습니다. 구형 문법에서 나오는 변환은 소수 둘째 자리 반올림을 유지하고 짝 없는 닫는 괄호가 앞 태그에 영향을 줍니다. 변환 결과와 손실 안내를 확인하세요.": {
+    "en": "Choose a common or active-character prompt, source syntax and target syntax, then preview before applying. Invalid ComfyUI weight groups are skipped with warnings. Escape literal parentheses. NAI V4/V5 text after closing :: must be comma-separated. Legacy NAI approximates weights with 1.05/0.95 brackets and cannot express zero or negative weights. Conversion from legacy syntax keeps two-decimal rounding; unmatched closing brackets affect preceding tags. Review the converted text and loss warnings.",
+    "ja": "共通／有効なキャラクタープロンプト、元の構文、変換先を選び、プレビューを確認して適用してください。不正なComfyUIの重みグループは省略して通知します。文字として使う括弧はエスケープしてください。NAI V4/V5の閉じる :: の後のテキストはカンマで区切ります。旧NAIへの変換は1.05/0.95倍の括弧で近似し、0・負の重みは表現できません。旧構文からの変換は小数点以下2桁に丸め、対応する開き括弧のない閉じ括弧は前のタグに影響します。変換結果と損失の通知を確認してください。"
+  },
+  "WD: wd-matching 선택 의존성이 필요합니다. 기존에 준비한 모델 파일은 재사용합니다.": {
+    "en": "WD requires the optional wd-matching dependencies. Previously prepared model files are reused.",
+    "ja": "WD: 追加パッケージ wd-matching が必要です。準備済みのモデルファイルは再利用します。"
+  },
+  "PixAI: pixai-matching 선택 의존성이 필요합니다. 메모리 사용량이 크므로 배치 크기 1부터 시작하세요.": {
+    "en": "PixAI requires the optional pixai-matching dependencies. Start at batch size 1 due to its memory requirements.",
+    "ja": "PixAI: 追加パッケージ pixai-matching が必要です。メモリ使用量が多いためバッチサイズ1から始めてください。"
+  },
+  "캐릭터 {number}": {
+    "en": "Character {number}",
+    "ja": "キャラクター {number}"
+  },
+  "이 캐릭터 사용": {
+    "en": "Use this character",
+    "ja": "このキャラクターを有効にする"
+  },
+  "프롬프트·네거티브·좌표 접기 / 펼치기": {
+    "en": "Collapse / expand prompt, negative and coordinates",
+    "ja": "プロンプト・ネガティブ・座標を折りたたむ／開く"
+  },
+  "캐릭터 삭제": {
+    "en": "Remove character",
+    "ja": "キャラクターを削除"
+  },
+  "공통 프롬프트": {
+    "en": "Common prompt",
+    "ja": "共通プロンプト"
+  },
+  "공통 네거티브": {
+    "en": "Common negative",
+    "ja": "共通ネガティブ"
+  },
+  "캐릭터 {number} {field}": {
+    "en": "Character {number} {field}",
+    "ja": "キャラクター {number} {field}"
+  },
+  "보관한 슬롯 수 이하의 정수를 지정해 주세요.": {
+    "en": "Enter an integer no greater than the stored slot count.",
+    "ja": "保存済みのスロット数以下の整数を指定してください。"
+  },
+  "현재 모델은 활성 캐릭터 {limit}명까지 지원합니다 ({active}명 선택됨). 슬롯 수를 줄이거나 사용을 해제하세요. 입력값은 보존됩니다.": {
+    "en": "This model supports up to {limit} active characters ({active} selected). Reduce the slot count or disable characters. Inputs are kept.",
+    "ja": "現在のモデルは有効なキャラクターを最大{limit}人までサポートします（{active}人選択中）。スロット数を減らすか無効にしてください。入力内容は保持します。"
+  },
+  "{model}: 활성 {active} / 최대 {limit}명 · 보관 {stored}슬롯 · 숨김 {hidden}슬롯{warning}": {
+    "en": "{model}: {active} active / {limit} max · {stored} stored slots · {hidden} hidden slots{warning}",
+    "ja": "{model}: 有効 {active} / 最大{limit}人・保存 {stored}スロット・非表示 {hidden}スロット{warning}"
+  },
+  "이미지를 업로드하세요.": {
+    "en": "Upload an image.",
+    "ja": "画像をアップロードしてください。"
+  },
+  "정보 추출량": {
+    "en": "Information extracted",
+    "ja": "情報抽出量"
+  },
+  "참조 삭제": {
+    "en": "Remove reference",
+    "ja": "参照を削除"
+  },
+  "참조 종류": {
+    "en": "Reference type",
+    "ja": "参照タイプ"
+  },
+  "스타일": {
+    "en": "Style",
+    "ja": "スタイル"
+  },
+  "캐릭터 + 스타일": {
+    "en": "Character + Style",
+    "ja": "キャラクター + スタイル"
+  },
+  "입력 이미지를 생성 크기로 Lanczos 리사이즈합니다. Opus 보호 모드를 직접 해제해야 합니다.": {
+    "en": "The input is resized to the generation size with Lanczos. You must explicitly disable Opus protection.",
+    "ja": "入力画像を生成サイズにLanczosでリサイズします。Opus保護を手動で解除する必要があります。"
+  },
+  "입력 이미지와 생성 크기를 같게 지정하세요. 검출 영역을 순차 보정합니다.": {
+    "en": "Match the input and generation sizes. Detected regions are corrected sequentially.",
+    "ja": "入力画像と生成サイズを一致させてください。検出した領域を順番に補正します。"
+  },
+  "입력·마스크·생성 크기는 같아야 합니다. 그린 마스크를 저장하세요. 일반 인페인트는 Opus 보호에서 차단하며 Focused는 작은 크롭만 허용합니다.": {
+    "en": "Input, mask and generation sizes must match. Save the painted mask. Opus protection blocks standard inpainting and allows only small Focused crops.",
+    "ja": "入力・マスク・生成サイズを一致させ、描いたマスクを保存してください。Opus保護は通常のインペイントをブロックし、Focusedの小さいクロップのみ許可します。"
+  },
+  "자동 디테일러": {
+    "en": "Automatic detailer",
+    "ja": "自動ディテーラー"
+  },
+  "인페인트 모델 확인 필요": {
+    "en": "Check the inpainting model",
+    "ja": "インペイントモデルを確認してください"
+  },
+  "{operation}: {model} · 원본 {width}x{height}{medium} · {cost}": {
+    "en": "{operation}: {model} · Original {width}x{height}{medium} · {cost}",
+    "ja": "{operation}: {model}・元画像 {width}x{height}{medium}・{cost}"
+  },
+  " · Medium 14스텝": {
+    "en": " · Medium 14 steps",
+    "ja": "・Medium 14ステップ"
+  },
+  "원격 요청 없는 미리보기": {
+    "en": "Preview without remote requests",
+    "ja": "リモートリクエストなしのプレビュー"
+  },
+  "작은 크롭 (각 축 1024 이하 / {steps}스텝) 자격 확인": {
+    "en": "Check eligibility for small crops (each side ≤1024 / {steps} steps)",
+    "ja": "小さいクロップ（各辺1024以下／{steps}ステップ）の条件を確認"
+  },
+  "Opus 보호로 전송 차단": {
+    "en": "Blocked by Opus protection",
+    "ja": "Opus保護で送信をブロック"
+  },
+  "Anlas 비용 가능": {
+    "en": "May cost Anlas",
+    "ja": "Anlasを消費する可能性あり"
+  },
+  "전송 설정: {width}x{height} · {steps}스텝 · {cost}": {
+    "en": "Request settings: {width}x{height} · {steps} steps · {cost}",
+    "ja": "送信設定: {width}x{height}・{steps}ステップ・{cost}"
+  },
+  "Opus 요청 한도": {
+    "en": "Opus request limit",
+    "ja": "Opusリクエスト上限"
+  },
+  "계정 비용이 발생할 수 있음": {
+    "en": "May charge your account",
+    "ja": "アカウントへの課金の可能性あり"
+  },
+  "NovelAI 드라이런 · 네트워크 요청 없음": {
+    "en": "NovelAI dry run · No network requests",
+    "ja": "NovelAIドライラン・ネットワークリクエストなし"
+  },
+  "NovelAI · 토큰 설정됨": {
+    "en": "NovelAI · Token configured",
+    "ja": "NovelAI・トークン設定済み"
+  },
+  "NAI_ACCESS_TOKEN 환경변수를 설정하고 서버를 시작하세요.": {
+    "en": "Set NAI_ACCESS_TOKEN and start the server.",
+    "ja": "環境変数 NAI_ACCESS_TOKEN を設定してサーバーを起動してください。"
+  },
+  "생성 방식": {
+    "en": "Operation",
+    "ja": "生成方式"
+  },
+  "기존 이미지 자동 디테일러": {
+    "en": "Detail an existing image",
+    "ja": "既存画像の自動ディテーラー"
+  },
+  "Focused Inpainting (작은 마스크 영역 크롭)": {
+    "en": "Focused Inpainting (crop a small masked region)",
+    "ja": "Focused Inpainting（小さいマスク領域をクロップ）"
+  },
+  "입력 이미지 변형 (Img2Img)": {
+    "en": "Transform input image (Img2Img)",
+    "ja": "入力画像の変換（Img2Img）"
+  },
+  "새 이미지 생성 (T2I)": {
+    "en": "Generate new image (T2I)",
+    "ja": "新規画像生成（T2I）"
+  },
+  "마스크 인페인트": {
+    "en": "Masked inpainting",
+    "ja": "マスクインペイント"
+  },
+  "캐릭터별 프롬프트와 위치 (최대 22명)": {
+    "en": "Character prompts and positions (up to 22)",
+    "ja": "キャラクター別プロンプトと位置（最大22人）"
+  },
+  "V4 / V5 지원 · X는 왼쪽 0 → 오른쪽 1, Y는 위 0 → 아래 1입니다.": {
+    "en": "Supported by V4 / V5 · X: left 0 → right 1; Y: top 0 → bottom 1.",
+    "ja": "V4 / V5対応・Xは左0→右1、Yは上0→下1です。"
+  },
+  "표시·사용할 슬롯 수": {
+    "en": "Slots to show and use",
+    "ja": "表示・使用するスロット数"
+  },
+  "슬롯 수를 줄이면 뒤쪽 슬롯을 숨기고 전송에서 제외합니다. 사용 해제와 숨김은 입력값을 보존하며, 개별 접기는 전송 여부를 바꾸지 않습니다.": {
+    "en": "Reducing the count hides trailing slots and excludes them from requests. Disabling or hiding preserves inputs; collapsing alone does not change inclusion.",
+    "ja": "スロット数を減らすと後ろのスロットを非表示にして送信から除外します。無効化と非表示は入力内容を保持し、折りたたみだけでは送信の有無は変わりません。"
+  },
+  "캐릭터 위치 지정": {
+    "en": "Set character positions",
+    "ja": "キャラクターの位置を指定"
+  },
+  "캐릭터 순서 사용": {
+    "en": "Use character order",
+    "ja": "キャラクターの順序を使用"
+  },
+  "캐릭터 추가": {
+    "en": "Add character",
+    "ja": "キャラクターを追加"
+  },
+  "입력 이미지": {
+    "en": "Input image",
+    "ja": "入力画像"
+  },
+  "현재 결과를 입력 이미지로 사용": {
+    "en": "Use current result as input",
+    "ja": "現在の結果を入力画像に使用"
+  },
+  "Img2Img 강도": {
+    "en": "Img2Img strength",
+    "ja": "Img2Img強度"
+  },
+  "추가 노이즈": {
+    "en": "Additional noise",
+    "ja": "追加ノイズ"
+  },
+  "입력 이미지를 생성 크기로 Lanczos 리사이즈합니다. Img2Img는 Anlas 비용이 발생할 수 있습니다.": {
+    "en": "Resizes the input to the generation size with Lanczos. Img2Img may cost Anlas.",
+    "ja": "入力画像を生成サイズにLanczosでリサイズします。Img2ImgはAnlasを消費する場合があります。"
+  },
+  "마스크 파일 (흰색 = 수정 / 검정 = 보존)": {
+    "en": "Mask file (white = modify / black = preserve)",
+    "ja": "マスクファイル（白＝編集／黒＝保持）"
+  },
+  "인페인트 입력 이미지": {
+    "en": "Inpainting input image",
+    "ja": "インペイント入力画像"
+  },
+  "인페인트 마스크 그리기": {
+    "en": "Paint inpainting mask",
+    "ja": "インペイントマスクの描画"
+  },
+  "마스크 브러시 크기 (원본 픽셀)": {
+    "en": "Mask brush size (original pixels)",
+    "ja": "マスクブラシのサイズ（元画像の画素）"
+  },
+  "마스크 브러시 모드": {
+    "en": "Mask brush mode",
+    "ja": "マスクブラシのモード"
+  },
+  "칠하기": {
+    "en": "Paint",
+    "ja": "塗る"
+  },
+  "지우기": {
+    "en": "Erase",
+    "ja": "消す"
+  },
+  "마스크 비우기": {
+    "en": "Clear mask",
+    "ja": "マスクをクリア"
+  },
+  "그린 마스크 저장": {
+    "en": "Save painted mask",
+    "ja": "描いたマスクを保存"
+  },
+  "인페인트 강도 (V3는 1)": {
+    "en": "Inpainting strength (1 for V3)",
+    "ja": "インペイント強度（V3は1）"
+  },
+  "Vibe Transfer / Precise Reference (최대 16개)": {
+    "en": "Vibe Transfer / Precise Reference (up to 16)",
+    "ja": "Vibe Transfer / Precise Reference（最大16件）"
+  },
+  "Vibe: V3/V4/V4.5 지원. V4/V4.5는 최초 인코딩에 비용이 들고 캐시를 재사용합니다. Precise: V4.5 지원, 참조마다 생성 비용이 추가됩니다. 둘은 함께 사용할 수 없습니다.": {
+    "en": "Vibe supports V3/V4/V4.5. V4/V4.5 charge for the first encoding and reuse the cache. Precise supports V4.5 and adds generation cost per reference. They cannot be combined.",
+    "ja": "Vibe: V3/V4/V4.5対応。V4/V4.5は初回エンコードに費用がかかり、キャッシュを再利用します。Precise: V4.5対応。参照ごとに生成費用が加算されます。両者は併用できません。"
+  },
+  "V4/V4.5 Vibe 강도 합을 1 이하로 정규화": {
+    "en": "Normalize V4/V4.5 Vibe strengths to a sum of 1 or less",
+    "ja": "V4/V4.5 Vibeの強度の合計を1以下に正規化"
+  },
+  "Vibe 추가": {
+    "en": "Add Vibe",
+    "ja": "Vibeを追加"
+  },
+  "Precise Reference 추가": {
+    "en": "Add Precise Reference",
+    "ja": "Precise Referenceを追加"
+  },
+  "NAI 자동 디테일러 / Focused 크롭 설정": {
+    "en": "NAI detailer / Focused crop settings",
+    "ja": "NAI自動ディテーラー／Focusedクロップ設定"
+  },
+  "생성 후 자동 디테일러": {
+    "en": "Detail automatically after generation",
+    "ja": "生成後に自動ディテーラー"
+  },
+  "영역·매칭 미리보기 (기존 이미지에서는 원격 생성 없음)": {
+    "en": "Preview regions and matching (no remote generation for existing images)",
+    "ja": "領域・対応付けのプレビュー（既存画像ではリモート生成なし）"
+  },
+  "영역": {
+    "en": "Regions",
+    "ja": "領域"
+  },
+  "모든 영역": {
+    "en": "All regions",
+    "ja": "すべての領域"
+  },
+  "첫 영역만": {
+    "en": "First region only",
+    "ja": "最初の領域のみ"
+  },
+  "캐릭터 선택": {
+    "en": "Character selection",
+    "ja": "キャラクターの選択"
+  },
+  "공통 / 캐릭터 1명": {
+    "en": "Common / Single character",
+    "ja": "共通／キャラクター1人"
+  },
+  "WD 원본 캐릭터 매칭": {
+    "en": "WD original-character matching",
+    "ja": "タガーで元のキャラクターに対応付け"
+  },
+  "마스크": {
+    "en": "Mask",
+    "ja": "マスク"
+  },
+  "SAM3 텍스트 검출": {
+    "en": "SAM3 text detection",
+    "ja": "SAM3テキスト検出"
+  },
+  "눈": {
+    "en": "Eyes",
+    "ja": "目"
+  },
+  "검출 임계값": {
+    "en": "Detection threshold",
+    "ja": "検出のしきい値"
+  },
+  "마스크 그리드 임계값": {
+    "en": "Mask grid threshold",
+    "ja": "マスクグリッドのしきい値"
+  },
+  "크롭 배율": {
+    "en": "Crop scale",
+    "ja": "クロップ倍率"
+  },
+  "패딩 (픽셀)": {
+    "en": "Padding (pixels)",
+    "ja": "パディング（画素）"
+  },
+  "마스크 팽창 / 수축": {
+    "en": "Mask dilate / erode",
+    "ja": "マスクの拡張／縮小"
+  },
+  "보정 강도": {
+    "en": "Correction strength",
+    "ja": "補正強度"
+  },
+  "최대 영역 수": {
+    "en": "Maximum regions",
+    "ja": "最大領域数"
+  },
+  "WD 최소 점수": {
+    "en": "WD minimum score",
+    "ja": "対応付けの最低スコア"
+  },
+  "WD 최소 점수 차": {
+    "en": "WD minimum score margin",
+    "ja": "候補間の最小スコア差"
+  },
+  "WD 문맥 크롭 배율": {
+    "en": "WD context crop scale",
+    "ja": "対応付け用クロップ倍率"
+  },
+  "태거 모델": {
+    "en": "Tagger model",
+    "ja": "タガーモデル"
+  },
+  "태거 장치": {
+    "en": "Tagger device",
+    "ja": "タガーのデバイス"
+  },
+  "태거 배치 크기": {
+    "en": "Tagger batch size",
+    "ja": "タガーのバッチサイズ"
+  },
+  "태거 준비는 선택 모델을 Hugging Face에서 내려받아 로딩을 검사합니다. 생성 시에는 준비된 캐시를 사용합니다. PixAI는 전용 의존성과 RGB 전처리를 사용하며 모델 변경 시 매칭 점수가 달라질 수 있습니다.": {
+    "en": "Preparation downloads the selected model from Hugging Face and checks loading. Generation uses the prepared cache. PixAI requires its own dependencies and RGB preprocessing; matching scores may change with the model.",
+    "ja": "タガー準備は選択モデルをHugging Faceからダウンロードして読み込みを確認します。生成時は準備済みキャッシュを使います。PixAIは専用の依存パッケージとRGB前処理を使い、モデルによって対応付けのスコアが変わります。"
+  },
+  "태거 준비": {
+    "en": "Prepare tagger",
+    "ja": "タガーを準備"
+  },
+  "준비 취소": {
+    "en": "Cancel preparation",
+    "ja": "準備をキャンセル"
+  },
+  "태거 파일 다운로드 진행률": {
+    "en": "Tagger file download progress",
+    "ja": "タガーファイルのダウンロード進捗"
+  },
+  "태거 준비를 눌러 모델을 확인하세요.": {
+    "en": "Click Prepare tagger to check the model.",
+    "ja": "「タガーを準備」を押してモデルを確認してください。"
+  },
+  "검출 모델은 models/detectors, WD 모델은 models/rs_wd_tagger에 준비하세요. 2명 이상은 WD 매칭이 필요합니다. 원본 캐릭터 프롬프트만 사용하며 불확실한 매칭은 건너뜁니다. Focused 모드는 원본보다 작은 크롭만 Opus 보호에서 허용합니다.": {
+    "en": "Place detectors in models/detectors and WD models in models/rs_wd_tagger. Two or more characters require WD matching. Only original character prompts are used; uncertain matches are skipped. Opus protection permits Focused crops only when smaller than the original.",
+    "ja": "検出モデルはmodels/detectors、タガーモデルはmodels/rs_wd_taggerに準備してください。2人以上はタガーの対応付けが必要です。元のキャラクタープロンプトのみ使用し、不確かな対応付けはスキップします。Opus保護はFocusedの元画像より小さいクロップのみ許可します。"
+  },
+  "스케줄러": {
+    "en": "Scheduler",
+    "ja": "スケジューラー"
+  },
+  "Brownian noise 선호": {
+    "en": "Prefer Brownian noise",
+    "ja": "ブラウン運動ノイズを優先"
+  },
+  "Opus 보호 모드 (한도·계정 확인)": {
+    "en": "Opus protection (limits and account checks)",
+    "ja": "Opus保護（上限・アカウント確認）"
+  },
+  "Opus 보호 모드: 한 번에 1장, 1,048,576픽셀 / 28스텝 이하. 매 전송 직전 활성 Opus 구독과 V5 잔여량 2% 이상을 확인하며, 확인 실패 시 생성을 차단합니다. 잔액 차감은 측정하지 않습니다.": {
+    "en": "Opus protection: one image at a time, up to 1,048,576 pixels and 28 steps. Checks active Opus and at least 2% V5 quota immediately before each request; blocks generation if checks fail. Balance deductions are not measured.",
+    "ja": "Opus保護: 1回1枚、1,048,576画素／28ステップ以下。送信直前に有効なOpus契約とV5の残量2%以上を確認し、確認できなければ生成をブロックします。残高の減少は測定しません。"
+  },
+  "NovelAI 요청은 순서대로 전송하며, 앞 요청 종료 후 최소 2초를 기다립니다.": {
+    "en": "NovelAI requests run sequentially with at least 2 seconds after the previous request ends.",
+    "ja": "NovelAIリクエストは順番に送信し、前のリクエスト終了後に最低2秒待ちます。"
+  },
+  "전송 후 정지는 다음 작업을 막습니다. 이미 전송된 요청은 완료·과금될 수 있으며, 도착한 결과는 저장합니다.": {
+    "en": "Stopping after submission prevents further jobs. Requests already sent may finish and be charged; returned results are saved.",
+    "ja": "送信後の停止は次の処理を止めます。送信済みのリクエストは完了・課金される場合があり、届いた結果は保存します。"
+  },
+  "프롬프트 가중치 문법 변환": {
+    "en": "Convert prompt weight syntax",
+    "ja": "プロンプトの重み構文を変換"
+  },
+  "적용할 프롬프트": {
+    "en": "Prompt to apply to",
+    "ja": "適用するプロンプト"
+  },
+  "원본 문법": {
+    "en": "Source syntax",
+    "ja": "元の構文"
+  },
+  "변환 문법": {
+    "en": "Target syntax",
+    "ja": "変換先の構文"
+  },
+  "변환 미리보기": {
+    "en": "Preview conversion",
+    "ja": "変換をプレビュー"
+  },
+  "선택한 프롬프트에 적용": {
+    "en": "Apply to selected prompt",
+    "ja": "選択したプロンプトに適用"
+  },
+  "기존 NAI 이미지 (PNG / WebP)": {
+    "en": "Existing NAI image (PNG / WebP)",
+    "ja": "既存のNAI画像（PNG / WebP）"
+  },
+  "복원할 모델": {
+    "en": "Model to restore",
+    "ja": "復元するモデル"
+  },
+  "메타데이터를 읽어 확인 후 적용합니다.": {
+    "en": "Read metadata, review, then apply.",
+    "ja": "メタデータを読み込み、確認してから適用します。"
+  },
+  "너비": {
+    "en": "Width",
+    "ja": "幅"
+  },
+  "높이": {
+    "en": "Height",
+    "ja": "高さ"
+  },
+  "스텝": {
+    "en": "Steps",
+    "ja": "ステップ数"
+  },
+  "생성 컨트롤": {
+    "en": "Generation controls",
+    "ja": "生成コントロール"
+  },
+  "한국어": {
+    "en": "한국어",
+    "ja": "한국어"
+  },
+  "생성 엔진": {
+    "en": "Generation engine",
+    "ja": "生成エンジン"
+  },
+  "프롬프트와 생성": {
+    "en": "Prompt and generation",
+    "ja": "プロンプトと生成"
+  },
+  "프롬프트 와일드카드와 프리셋": {
+    "en": "Prompt wildcards and presets",
+    "ja": "プロンプトのワイルドカードとプリセット"
+  },
+  "와일드카드와 프리셋": {
+    "en": "Wildcards and presets",
+    "ja": "ワイルドカードとプリセット"
+  },
+  "와일드카드 방식": {
+    "en": "Wildcard mode",
+    "ja": "ワイルドカード方式"
+  },
+  "순차": {
+    "en": "Sequential",
+    "ja": "順次"
+  },
+  "역순": {
+    "en": "Reverse",
+    "ja": "逆順"
+  },
+  "와일드카드 삽입": {
+    "en": "Insert wildcard",
+    "ja": "ワイルドカードを挿入"
+  },
+  "삽입": {
+    "en": "Insert",
+    "ja": "挿入"
+  },
+  "프리셋 삽입": {
+    "en": "Insert preset",
+    "ja": "プリセットを挿入"
+  },
+  "확장 미리보기": {
+    "en": "Preview expansion",
+    "ja": "展開をプレビュー"
+  },
+  "LLM 정리 기준": {
+    "en": "LLM refinement mode",
+    "ja": "LLM整理基準"
+  },
+  "태그 우선": {
+    "en": "Prefer tags",
+    "ja": "タグ優先"
+  },
+  "자연어 우선": {
+    "en": "Prefer natural language",
+    "ja": "自然言語優先"
+  },
+  "보정": {
+    "en": "Refine",
+    "ja": "調整"
+  },
+  "NAI 이미지에서 생성 조건 불러오기": {
+    "en": "Load settings from a NAI image",
+    "ja": "NAI画像から生成条件を読み込む"
+  },
+  "이미지에서 생성 조건 불러오기": {
+    "en": "Load settings from an image",
+    "ja": "画像から生成条件を読み込む"
+  },
+  "파일을 선택하거나 여기에 드래그하세요.": {
+    "en": "Select a file or drop it here.",
+    "ja": "ファイルを選択するか、ここにドロップしてください。"
+  },
+  "시작 설정 프리셋": {
+    "en": "Starting preset",
+    "ja": "開始設定プリセット"
+  },
+  "시작 설정": {
+    "en": "Starting settings",
+    "ja": "開始設定"
+  },
+  "시작 크기": {
+    "en": "Starting size",
+    "ja": "開始サイズ"
+  },
+  "방향": {
+    "en": "Orientation",
+    "ja": "向き"
+  },
+  "시작 방향": {
+    "en": "Starting orientation",
+    "ja": "開始時の向き"
+  },
+  "세로": {
+    "en": "Portrait",
+    "ja": "縦"
+  },
+  "가로": {
+    "en": "Landscape",
+    "ja": "横"
+  },
+  "생성하기": {
+    "en": "Generate",
+    "ja": "生成する"
+  },
+  "자동 큐": {
+    "en": "Auto queue",
+    "ja": "自動キュー"
+  },
+  "큐 횟수": {
+    "en": "Queue count",
+    "ja": "キュー回数"
+  },
+  "시드 방식": {
+    "en": "Seed mode",
+    "ja": "シード方式"
+  },
+  "고정": {
+    "en": "Fixed",
+    "ja": "固定"
+  },
+  "증가": {
+    "en": "Increment",
+    "ja": "増加"
+  },
+  "무한 모드": {
+    "en": "Unlimited mode",
+    "ja": "無制限モード"
+  },
+  "지연(초)": {
+    "en": "Delay (seconds)",
+    "ja": "遅延（秒）"
+  },
+  "큐 시작": {
+    "en": "Start queue",
+    "ja": "キューを開始"
+  },
+  "현재 작업 정지": {
+    "en": "Stop current job",
+    "ja": "現在の処理を停止"
+  },
+  "모델과 스타일": {
+    "en": "Model and style",
+    "ja": "モデルとスタイル"
+  },
+  "입력과 마스크는 생성 크기와 같아야 합니다. 그린 마스크를 저장한 뒤 생성하세요.": {
+    "en": "Input and mask must match the generation size. Save your painted mask before generating.",
+    "ja": "入力とマスクは生成サイズに合わせてください。描いたマスクを保存してから生成してください。"
+  },
+  "LoRA 스타일": {
+    "en": "LoRA style",
+    "ja": "LoRAスタイル"
+  },
+  "불러오는 중...": {
+    "en": "Loading…",
+    "ja": "読み込み中…"
+  },
+  "LoRA 스택": {
+    "en": "LoRA stack",
+    "ja": "LoRAスタック"
+  },
+  "LoRA 추가": {
+    "en": "Add LoRA",
+    "ja": "LoRAを追加"
+  },
+  "LoRA 가져오기": {
+    "en": "Import LoRA",
+    "ja": "LoRAを取り込む"
+  },
+  "LoRA 파일 선택": {
+    "en": "Select LoRA file",
+    "ja": "LoRAファイルを選択"
+  },
+  "한 개의 .safetensors 파일을 선택하거나 여기에 놓으세요. 최대 1 GiB.": {
+    "en": "Select or drop one .safetensors file, up to 1 GiB.",
+    "ja": "1 GiB以下の.safetensorsファイルを1つ選択またはドロップしてください。"
+  },
+  "선택된 파일 없음": {
+    "en": "No file selected",
+    "ja": "ファイル未選択"
+  },
+  "앱으로 LoRA 업로드": {
+    "en": "Upload LoRA to app",
+    "ja": "アプリにLoRAをアップロード"
+  },
+  "이미지 설정": {
+    "en": "Image settings",
+    "ja": "画像設定"
+  },
+  "VRAM 프로필": {
+    "en": "VRAM profile",
+    "ja": "VRAMプロファイル"
+  },
+  "균형": {
+    "en": "Balanced",
+    "ja": "バランス"
+  },
+  "저VRAM 고해상도": {
+    "en": "Low VRAM, high resolution",
+    "ja": "低VRAM・高解像度"
+  },
+  "참조 이미지와 업스케일": {
+    "en": "Reference image and upscale",
+    "ja": "参照画像とアップスケール"
+  },
+  "참조 이미지 선택": {
+    "en": "Select reference image",
+    "ja": "参照画像を選択"
+  },
+  "PNG, JPEG 또는 WebP 한 장을 선택하거나 여기에 놓으세요. 최대 64 MiB.": {
+    "en": "Select or drop one PNG, JPEG or WebP image, up to 64 MiB.",
+    "ja": "64 MiB以下のPNG・JPEG・WebP画像を1枚選択またはドロップしてください。"
+  },
+  "선택한 참조 이미지 미리보기": {
+    "en": "Selected reference preview",
+    "ja": "選択した参照画像のプレビュー"
+  },
+  "참조 이미지 제거": {
+    "en": "Remove reference image",
+    "ja": "参照画像を削除"
+  },
+  "업스케일 사용": {
+    "en": "Enable upscale",
+    "ja": "アップスケールを使用"
+  },
+  "타일 업스케일": {
+    "en": "Tiled upscale",
+    "ja": "タイルアップスケール"
+  },
+  "이미지 디노이즈": {
+    "en": "Image denoise",
+    "ja": "画像のデノイズ"
+  },
+  "업스케일 배율": {
+    "en": "Upscale factor",
+    "ja": "アップスケール倍率"
+  },
+  "업스케일 스텝": {
+    "en": "Upscale steps",
+    "ja": "アップスケールのステップ数"
+  },
+  "업스케일 디노이즈": {
+    "en": "Upscale denoise",
+    "ja": "アップスケールのデノイズ"
+  },
+  "업스케일 방식": {
+    "en": "Upscale method",
+    "ja": "アップスケール方式"
+  },
+  "바이큐빅": {
+    "en": "Bicubic",
+    "ja": "バイキュービック"
+  },
+  "바이리니어": {
+    "en": "Bilinear",
+    "ja": "バイリニア"
+  },
+  "업스케일 타일": {
+    "en": "Upscale tile",
+    "ja": "アップスケールのタイル"
+  },
+  "업스케일 겹침": {
+    "en": "Upscale overlap",
+    "ja": "アップスケールの重なり"
+  },
+  "타일": {
+    "en": "Tiled",
+    "ja": "タイル"
+  },
+  "표준": {
+    "en": "Standard",
+    "ja": "標準"
+  },
+  "VAE 타일": {
+    "en": "VAE tile",
+    "ja": "VAEタイル"
+  },
+  "VAE 겹침": {
+    "en": "VAE overlap",
+    "ja": "VAEの重なり"
+  },
+  "페이스 디테일러 사용": {
+    "en": "Enable face detailer",
+    "ja": "フェイスディテーラーを使用"
+  },
+  "얼굴 감지 모델": {
+    "en": "Face detection model",
+    "ja": "顔検出モデル"
+  },
+  "마스크 방식": {
+    "en": "Mask method",
+    "ja": "マスク方式"
+  },
+  "SAM3 보정 부위": {
+    "en": "SAM3 correction areas",
+    "ja": "SAM3の補正部位"
+  },
+  "손 디노이즈": {
+    "en": "Hand denoise",
+    "ja": "手のデノイズ"
+  },
+  "얼굴 임계값": {
+    "en": "Face threshold",
+    "ja": "顔の閾値"
+  },
+  "얼굴 디노이즈": {
+    "en": "Face denoise",
+    "ja": "顔のデノイズ"
+  },
+  "얼굴 스텝": {
+    "en": "Face steps",
+    "ja": "顔のステップ数"
+  },
+  "얼굴 크롭": {
+    "en": "Face crop",
+    "ja": "顔のクロップ"
+  },
+  "얼굴 패딩": {
+    "en": "Face padding",
+    "ja": "顔の余白"
+  },
+  "얼굴 페더": {
+    "en": "Face feather",
+    "ja": "顔のぼかし"
+  },
+  "이마 제외": {
+    "en": "Exclude forehead",
+    "ja": "額を除外"
+  },
+  "저장된 설정": {
+    "en": "Saved settings",
+    "ja": "保存済み設定"
+  },
+  "설정 이름": {
+    "en": "Settings name",
+    "ja": "設定名"
+  },
+  "세로 초안": {
+    "en": "Portrait draft",
+    "ja": "縦向きの下書き"
+  },
+  "설정 저장": {
+    "en": "Save settings",
+    "ja": "設定を保存"
+  },
+  "설정 불러오기": {
+    "en": "Load settings",
+    "ja": "設定を読み込む"
+  },
+  "설정 내보내기": {
+    "en": "Export settings",
+    "ja": "設定をエクスポート"
+  },
+  "설정 가져오기": {
+    "en": "Import settings",
+    "ja": "設定をインポート"
+  },
+  "저장된 설정을 불러오는 중": {
+    "en": "Loading saved settings",
+    "ja": "保存済み設定を読み込み中"
+  },
+  "이미지 작업 영역": {
+    "en": "Image workspace area",
+    "ja": "画像作業領域"
+  },
+  "생성 진행": {
+    "en": "Generation progress",
+    "ja": "生成の進捗"
+  },
+  "생성 단계 비교": {
+    "en": "Generation stage comparison",
+    "ja": "生成段階の比較"
+  },
+  "출력 열기": {
+    "en": "Open output",
+    "ja": "出力を開く"
+  },
+  "이 결과 설정 불러오기": {
+    "en": "Load this result's settings",
+    "ja": "この結果の設定を読み込む"
+  },
+  "SAM3 마스크": {
+    "en": "SAM3 mask",
+    "ja": "SAM3マスク"
+  },
+  "마스크 생성": {
+    "en": "Create mask",
+    "ja": "マスクを作成"
+  },
+  "SAM3 프롬프트 후보": {
+    "en": "SAM3 prompt candidates",
+    "ja": "SAM3プロンプト候補"
+  },
+  "옷 후보 비교": {
+    "en": "Compare clothing candidates",
+    "ja": "服の候補を比較"
+  },
+  "SAM3 비교 결과": {
+    "en": "SAM3 comparison results",
+    "ja": "SAM3比較結果"
+  },
+  "마스크 확장": {
+    "en": "Mask dilation",
+    "ja": "マスクの拡張"
+  },
+  "경계 부드럽게": {
+    "en": "Soften edges",
+    "ja": "境界をぼかす"
+  },
+  "마스크 조정": {
+    "en": "Adjust mask",
+    "ja": "マスクを調整"
+  },
+  "바꿀 내용": {
+    "en": "What to change",
+    "ja": "変更する内容"
+  },
+  "피할 내용": {
+    "en": "What to avoid",
+    "ja": "避けたい内容"
+  },
+  "인페인트 방식": {
+    "en": "Inpainting method",
+    "ja": "インペイント方式"
+  },
+  "디노이즈": {
+    "en": "Denoise",
+    "ja": "デノイズ"
+  },
+  "비우면 랜덤": {
+    "en": "Leave blank for random",
+    "ja": "空欄でランダム"
+  },
+  "상세 생성 정보": {
+    "en": "Detailed generation info",
+    "ja": "生成情報の詳細"
+  },
+  "준비됨.": {
+    "en": "Ready.",
+    "ja": "準備完了。"
+  },
+  "자동완성 제안": {
+    "en": "Autocomplete suggestions",
+    "ja": "自動補完の候補"
+  },
+  "생성 히스토리": {
+    "en": "Generation history",
+    "ja": "生成履歴"
+  },
+  "런타임 상태": {
+    "en": "Runtime status",
+    "ja": "ランタイム状態"
+  },
+  "업데이트 상태": {
+    "en": "Update status",
+    "ja": "更新の状態"
+  },
+  "업데이트": {
+    "en": "Updates",
+    "ja": "更新"
+  },
+  "업데이트 확인": {
+    "en": "Check for updates",
+    "ja": "更新を確認"
+  },
+  "모델 준비 상태": {
+    "en": "Model readiness",
+    "ja": "モデルの準備状態"
+  },
+  "히스토리": {
+    "en": "History",
+    "ja": "履歴"
+  },
+  "최근 생성": {
+    "en": "Recent generations",
+    "ja": "最近の生成"
+  },
+  "최근": {
+    "en": "Recent",
+    "ja": "最近"
+  },
+  "결과 0개": {
+    "en": "0 results",
+    "ja": "結果0件"
+  },
+  "프롬프트, 모델, LoRA 검색": {
+    "en": "Search prompts, models and LoRAs",
+    "ja": "プロンプト・モデル・LoRAを検索"
+  },
+  "히스토리 검색": {
+    "en": "Search history",
+    "ja": "履歴を検索"
+  },
+  "저장공간 확인 중": {
+    "en": "Checking storage",
+    "ja": "保存容量を確認中"
+  },
+  "히스토리 필터": {
+    "en": "History filter",
+    "ja": "履歴フィルター"
+  },
+  "전체": {
+    "en": "All",
+    "ja": "すべて"
+  },
+  "히스토리 카드": {
+    "en": "History cards",
+    "ja": "履歴カード"
+  },
+  "앱 언어": {
+    "en": "App language",
+    "ja": "アプリの言語"
+  },
+  "화면 언어는 이 브라우저에 저장됩니다. 프롬프트·작가 태그·파일명·기록 원문은 바꾸지 않습니다.": {
+    "en": "Display language is saved in this browser. Prompts, artist tags, file names and original records are unchanged.",
+    "ja": "表示言語をこのブラウザーに保存します。プロンプト・作家タグ・ファイル名・記録の原文は変更しません。"
+  },
+  "미리보기는 생성하지 않습니다. 와일드카드는 실행 시 펼친 뒤 변환합니다.": {
+    "en": "Preview does not generate images. Wildcards are expanded before conversion when you run the job.",
+    "ja": "プレビューでは生成しません。実行時にワイルドカードを展開してから変換します。"
+  }
+}

@@ -41,7 +41,7 @@ def test_characters_payload_and_request_roundtrip(model, coords):
     assert result["request"]["nai_use_order"] is False
 
 
-@pytest.mark.parametrize("characters", [None, {}, "x", [{}] * 6, ["x"], [{"x": True}], [{"x": -0.1}],
+@pytest.mark.parametrize("characters", [None, {}, "x", [{}] * 23, ["x"], [{"x": True}], [{"x": -0.1}],
     [{"y": 1.01}], [{"x": float("nan")}], [{"y": float("inf")}], [{"x": "0"}],
     [{"prompt": 7}], [{"negative_prompt": []}], [{"prompt": "x" * 32769}], [{"image": "ref"}]])
 def test_invalid_characters_rejected_before_provider(tmp_path, monkeypatch, characters):
@@ -81,7 +81,7 @@ def test_inpaint_composite_character_metadata(tmp_path):
 
 
 @pytest.mark.parametrize("mutator", [
-    lambda block: block["caption"].update(char_captions=[{}] * 6),
+    lambda block: block["caption"].update(char_captions=[{}] * 23),
     lambda block: block["caption"]["char_captions"][0].update(centers=[{"x": 0, "y": 0}, {"x": 1, "y": 1}]),
     lambda block: block.update(use_coords="yes"),
     lambda block: block["caption"]["char_captions"][0].update(centers=[{"x": -1, "y": 0}]),
@@ -153,6 +153,13 @@ def test_converter_http_contract_and_trusted_origin(tmp_path, monkeypatch):
         client.request("POST", "/api/prompts/convert", payload, {"Content-Type": "application/json"})
         response = client.getresponse()
         assert response.status == 200 and json.loads(response.read())["converted"] == "1.05::hair ::"
+        client.request("POST", "/api/prompts/convert", json.dumps({"source": "wrong", "target": "naiv4", "text": "private prompt"}), {"Content-Type": "application/json"})
+        response = client.getresponse()
+        failure = json.loads(response.read())
+        assert response.status == 400 and failure["error_code"] == "prompt_conversion_invalid"
+        assert failure["error_detail"]["code"] == "PROMPT_CONVERSION"
+        assert failure["error_detail"]["stage"] == "prompt_conversion"
+        assert "private prompt" not in json.dumps(failure)
         client.request("POST", "/api/prompts/convert", payload, {"Content-Type": "application/json", "Origin": "https://untrusted.invalid"})
         response = client.getresponse()
         assert response.status == 403

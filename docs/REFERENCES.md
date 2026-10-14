@@ -2,7 +2,97 @@
 
 This document keeps public source references, model layout, and release boundaries in one place. It must not contain user-specific local paths, private model locations, generated image paths, or machine-specific GPU inventory.
 
+## Documentation map
+
+- [한국어 generation tutorial](IMAGE_GENERATION_KO.md), [English](IMAGE_GENERATION_EN.md), [日本語](IMAGE_GENERATION_JA.md): install, first image, both detailer directions, stage comparison and reuse.
+- [NAI token setup](NAI_TOKEN_SETUP.md): terminal input, source precedence, restart and status checks. There is no browser token field.
+- [Application reference](APP_REFERENCE.md): workflow/prompt contracts, library routes, storage, environment and reproducible checks.
+- [Main update](MAIN_UPDATE_2026-10-14.md): implemented behavior and remaining scope at application version 0.5.0.
+- [Locale settings](LOCALES.md): English/Korean/Japanese UI with original prompt preservation.
+
 ## Public Sources
+
+The 2026-10-11 incremental NAI update is pinned to
+[ComfyUI_RS_NAI_API_Request 4de914676de8ca313b8389f4303754045a6a9cfb](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/tree/4de914676de8ca313b8389f4303754045a6a9cfb)
+(2.4.6). This is the baseline for **new** ports, not a retroactive claim about every
+file in the earlier 0.5.0 release. [The update checklist](NAI_NODE_UPDATE_2.4.6.md)
+records individual source changes, acceptance evidence and reproduction commands.
+The final upstream check found 2.5.0 at
+[`ed96a4c4394a8af8f1644218a4feae73f2dc62c9`](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/commit/ed96a4c4394a8af8f1644218a4feae73f2dc62c9),
+one commit after this fixed target. Its reference inset and portable character
+asset additions are not part of the 2.4.6 candidate. Do not call this candidate
+complete parity with moving upstream `main`.
+Medium Effort rules come from `nai_api.py`, `generators.py` and `detailer.py`, with
+GPL-3.0-only attribution retained in the new rule module.
+See [NovelAI's official Effort documentation](https://docs.novelai.net/en/image/effort/).
+The official web hash-family map was checked on 2026-10-11 in
+[`_app-b1c0ffe38c343809.js`](https://novelai.net/_next/static/chunks/pages/_app-b1c0ffe38c343809.js),
+SHA-256 `8448129283ed130ef93622db123c23adf6aeb15a77649117c1661387d7723cdd`.
+It maps `93F4BD30` and `70AB5786` to V5 Full Medium; operation metadata remains
+necessary to distinguish generation and inpainting.
+
+Input/response notices and region diagnostics follow the same pinned source's
+[`ccc9898` audit](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/commit/ccc9898c246775eec50c61cb0b6224f1078802e7):
+`diagnostics.py`, `converters.py`, `detailer.py`, `generators.py`, `image_utils.py`
+and `nai_api.py`. Request-local collection replaces the ComfyUI notice widget;
+GPL-3.0-only notices remain in the derived modules. The app retains stricter
+coordinate/mask alignment rejection and adds manifest/PNG/history diagnostics.
+WD/PixAI model selection and download progress follow `wd_tagger.py` and
+`tagger_progress.py` at the same source pin (initial change `7f435bd`). The app
+uses an explicit preparation API/UI, local-only generation preflight and a
+request-owned model rather than ComfyUI globals. Derived modules retain GPL-3.0-only.
+
+Korean/Japanese guidance is adapted from the pinned source's
+[`locales/ko/nodeDefs.json`](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/blob/4de914676de8ca313b8389f4303754045a6a9cfb/locales/ko/nodeDefs.json)
+and [`locales/ja/nodeDefs.json`](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/blob/4de914676de8ca313b8389f4303754045a6a9cfb/locales/ja/nodeDefs.json)
+(initial change `f3ac715`). Both installed files matched that commit during the
+language feature verification. At final audit the installed copy had advanced
+to 2.5.0, adding inset/asset entries; the app translations remain pinned to 2.4.6. App-specific
+guidance covers strict mask alignment, explicit tagger setup, separate collapse
+and visibility, and the base request in generate-then-preview. Browser-only
+language storage does not alter prompt text or API IDs. The derived
+`static/nai-i18n.js` retains GPL-3.0-only attribution.
+
+Cause-specific errors follow the same pin's
+[`errors.py`](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/blob/4de914676de8ca313b8389f4303754045a6a9cfb/errors.py),
+[`web/errors.js`](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/blob/4de914676de8ca313b8389f4303754045a6a9cfb/web/errors.js),
+[`web/error_messages.json`](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/blob/4de914676de8ca313b8389f4303754045a6a9cfb/web/error_messages.json)
+and `runtime_control.py`. All four installed blobs matched at the error feature
+verification. At final audit the installed catalog had the three additional
+2.5.0 inset/asset causes; the other three files still matched the 2.4.6 pin.
+The 45 original causes are adapted to app actions; seven app causes cover generic
+validation, prepared-cache/busy/save states, metadata import and prompt conversion.
+The derived provider error module, `static/nai-errors.js` and message catalog
+retain GPL-3.0-only licensing. The JSON catalog is covered by this notice rather
+than an invalid JSON comment. App adaptation preserves existing error codes,
+limited retry policy and credential masking while carrying translated guidance
+through queue results, partial-result manifests and PNG region metadata.
+
+The 22-slot/model-limit port follows `generators.py`, `nai_api.py` and
+`web/characters.js` at the same 2.4.6 pin (initial change `803fc40`). All three
+installed files match those committed blobs. ComfyUI's hidden widget bank is
+adapted into app slot state, with per-slot enable/collapse and original slot
+numbers in matching diagnostics. The app retains zero-character workflows,
+strict coordinate validation, and stores editor state separately from native
+NAI captions. Details and verification are in the incremental acceptance table.
+
+### Pinned optional taggers
+
+| Model / original source | Revision | Original model license |
+|---|---|---|
+| [SmilingWolf WD ViT v3](https://huggingface.co/SmilingWolf/wd-vit-tagger-v3) | `7f6b584d0bd3f55c4531f14ba3d4761b2bccdc0f` | Apache-2.0 |
+| [SmilingWolf WD EVA02 Large v3](https://huggingface.co/SmilingWolf/wd-eva02-large-tagger-v3/blob/b25b82a03f7282e41aa2f257a52c7583b710bd1c/README.md) | `b25b82a03f7282e41aa2f257a52c7583b710bd1c` | Apache-2.0 |
+| [PixAI Labs Tagger v1.0](https://huggingface.co/pixai-labs/pixai-tagger-v1.0/blob/9fe10addf9326e292da8a85a98ea74cd91b41771/README.md) | `9fe10addf9326e292da8a85a98ea74cd91b41771` | Apache-2.0 |
+
+Model cards are the original documentation; weights are separately downloaded,
+not redistributed in the source archive. PixAI's downloaded `tagger_pipeline.py`
+must match SHA-256 `3431279fdfff234f62664999fc1fe6bb20f1e8756f7435d0e165ebd4456f7fcd`
+before executing custom code. The processor/model mapping is validated too.
+WD uses white square padding/BGR and PixAI uses its pinned RGB processor.
+These preprocessing rules are not interchangeable. See
+[preparation and runtime instructions](NOVELAI_PROVIDER.md#wd-vit--eva02--pixai-선택과-준비).
+
+### Other public sources
 
 - Anima model source: `circlestone-labs/Anima`
 - Anima model subfolder: `split_files`
@@ -164,3 +254,20 @@ Not finalized:
 - Final wheel redistribution policy for vendored runtime assets.
 - Public tag creation and release upload; these remain owner-controlled manual actions.
 - A standalone wheel containing the root-level vendored Comfy runtime.
+
+## UI and library design references
+
+The following are feature/design comparisons, not incorporated code or bundled media. License attribution for incorporated runtime code remains in [NOTICE](../NOTICE.md).
+
+| Reference | Applied idea / boundary |
+|---|---|
+| [SD Studio 3.1.11](https://github.com/sunho/SDStudio/releases/tag/3.1.11) | Scene-oriented workflow, gallery and pairwise choice informed the design review; no runtime-parity claim |
+| [Eagle organization](https://en.eagle.cool/support/desktop/organize) | Tags, collections and approachable asset browsing |
+| [Diffusion Toolkit](https://github.com/RupertAvery/DiffusionToolkit) | Metadata/prompt-linked image retrieval |
+| [Infinite Image Browsing](https://github.com/zanllp/infinite-image-browsing) | Search, compare, then reuse generation conditions |
+| [Invoke gallery](https://invoke.ai/features/gallery/) | Selective condition reuse and visible context |
+| [digiKam similarity](https://docs.digikam.org/en/left_sidebar/similarity_view.html) | Starting retrieval with an external image |
+| [Danbooru tag API](https://danbooru.donmai.us/wiki_pages/api%3Atags) | Category-1 public artist tags for optional exact offline lookup; downloaded data is not bundled |
+| [NovelAI account settings](https://docs.novelai.net/en/text/usersettings/account/) | Persistent API token issuance and replacement behavior |
+
+VRS-INT is an optional external encoder integration; the adapter does not bundle model weights or claim native VRS decision-core behavior. [Library setup](IMAGE_LIBRARY_EN.md) describes configuration, ranking inputs and limits. Public guides use generic examples; private images, metadata, vectors and evaluation outputs stay outside the distribution.

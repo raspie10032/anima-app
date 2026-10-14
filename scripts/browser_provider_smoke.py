@@ -106,13 +106,14 @@ def main() -> None:
                 page.goto(address, wait_until="networkidle")
                 expect(page.locator("#generate-button")).to_be_enabled()
                 page.locator("#provider-select").select_option("novelai")
+                page.locator('[data-control-group="model-style"] > summary').click()
                 expect(page.locator("#novelai-settings")).to_be_visible()
                 expect(page.locator("#local-model-settings")).to_be_hidden()
                 page.locator("#nai-characters-panel").evaluate("node => {node.open = true}")
-                for _ in range(5):
+                for _ in range(22):
                     page.locator("#nai-add-character").click()
                 expect(page.locator("#nai-add-character")).to_be_disabled()
-                for _ in range(3):
+                for _ in range(20):
                     page.locator("#nai-characters .nai-character").last.locator("button").click()
                 expect(page.locator("#nai-characters .nai-character")).to_have_count(2)
                 rows = page.locator("#nai-characters .nai-character")
@@ -125,6 +126,7 @@ def main() -> None:
                 rows.nth(1).locator(".character-y").fill("0")
                 page.locator("#nai-use-coords").uncheck()
                 page.locator("#nai-use-order").uncheck()
+                page.locator("#generation-prompt-tools").evaluate("node => {node.open = true}")
                 page.locator("#prompt-converter").evaluate("node => {node.open = true}")
                 for source, target, text in [
                     ("comfyui", "naiv4", "(hair:1.05)"), ("comfyui", "oldnai", "(hair:1.05)"),
@@ -196,6 +198,7 @@ def main() -> None:
                 assert not page.locator("#nai-use-coords").is_checked()
                 assert not page.locator("#nai-use-order").is_checked()
                 # Remote synthetic PNG carries the exact submitted character metadata.
+                page.locator("#generation-import").evaluate("node => {node.open = true}")
                 page.locator("#nai-metadata-file").set_input_files(next(paths.image_root.glob("*.png")))
                 expect(page.locator("#apply-nai-metadata")).to_be_enabled()
                 page.locator("#apply-nai-metadata").click()
@@ -214,6 +217,7 @@ def main() -> None:
                 expect(page.locator("#provider-select")).to_have_value("novelai")
                 expect(page.locator("#cfg")).to_have_value("0")
                 page.locator("#provider-select").select_option("local")
+                page.locator('[data-control-group="model-style"]').evaluate("node => {node.open = true}")
                 expect(page.locator("#local-model-settings")).to_be_visible()
                 assert page.locator("#steps").get_attribute("max") == "100"
                 os.environ.pop("NAI_ACCESS_TOKEN", None)
@@ -247,7 +251,7 @@ def main() -> None:
                       "queue refresh recovery", "running remote cancellation", "received PNG retained",
                       "zero seed and CFG restore", "history settings restore", "local without token", "token absence gate",
                       "V5 1 percent blocked before generation", "V5 2 percent accepted under request lock",
-                      "five character limit and removal", "all six conversion previews and apply",
+                      "22 saved character slots and removal", "all six conversion previews and apply",
                       "V3 and out-of-range coordinate blocked in browser before account lookup",
                       "character conversion and stale preview invalidation", "character payload under Opus guard",
                       "character preset and manifest restore", "synthetic PNG character metadata import"]}

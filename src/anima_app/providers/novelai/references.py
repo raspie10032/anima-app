@@ -14,7 +14,7 @@ from pathlib import Path
 from PIL import Image, ImageOps
 
 from anima_app.providers.novelai import client
-from anima_app.providers.novelai.errors import NovelAIError
+from anima_app.providers.novelai.errors import NovelAIError, invalid, diagnosed, mark_stage
 from anima_app.providers.novelai.inpaint import encode_png
 from anima_app.runtime.comfy_t2i import resolve_managed_reference_path
 
@@ -29,21 +29,21 @@ _cache_lock = threading.Lock()
 
 def validate_entries(value, kind):
     if not isinstance(value, (list, tuple)) or len(value) > MAX_REFERENCES:
-        raise ValueError("NovelAI accepts at most 16 references")
+        raise invalid("REFERENCE_INPUT", "NovelAI accepts at most 16 references")
     allowed = {"image", "strength", "information_extracted"} if kind == "vibe" else {"image", "strength", "fidelity", "reference_type"}
     defaults = {"strength": .6, "information_extracted": 1.0} if kind == "vibe" else {"strength": 1.0, "fidelity": 1.0, "reference_type": "character"}
     result = []
     for entry in value:
         if not isinstance(entry, dict) or entry.keys() - allowed:
-            raise ValueError("Unknown NovelAI reference field")
+            raise invalid("REFERENCE_INPUT", "Unknown NovelAI reference field")
         item = {**defaults, **entry}
         if not isinstance(item.get("image"), str) or not item["image"] or len(item["image"]) > 4096:
-            raise ValueError("Reference image must be a managed image path")
+            raise invalid("REFERENCE_INPUT", "Reference image must be a managed image path")
         for key in ("strength", "information_extracted" if kind == "vibe" else "fidelity"):
             if type(item[key]) not in (int, float) or not 0 <= item[key] <= 1:
-                raise ValueError("Reference strength, information and fidelity must be finite numbers between 0 and 1")
+                raise invalid("REFERENCE_INPUT", "Reference strength, information and fidelity must be finite numbers between 0 and 1")
         if kind != "vibe" and (not isinstance(item["reference_type"], str) or item["reference_type"] not in REFERENCE_TYPES):
-            raise ValueError("Unknown Precise Reference type")
+            raise invalid("REFERENCE_INPUT", "Unknown Precise Reference type")
         result.append(item)
     return tuple(result)
 
@@ -51,14 +51,14 @@ def validate_entries(value, kind):
 def validate_compatibility(model, operation, vibes, precise, limit_opus_free):
     # Even a zero-strength reference cannot evade the explicit paid-mode gate.
     if limit_opus_free and (vibes or precise):
-        raise ValueError("Vibe와 Precise Reference는 Anlas 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요.")
+        raise invalid("PAID_BLOCKED", "Vibe와 Precise Reference는 Anlas 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요.")
     if vibes and precise:
-        raise ValueError("Vibe Transfer and Precise Reference cannot be combined")
+        raise invalid("REFERENCE_BOTH", "Vibe Transfer and Precise Reference cannot be combined")
     base_model = model.removesuffix("-inpainting")
     if vibes and (base_model not in VIBE_MODELS or operation in {"infill", "focused_infill", "detail"} and base_model.startswith("nai-diffusion-4")):
-        raise ValueError("Vibe requires V3/V4/V4.5; V4/V4.5 inpainting is unsupported")
+        raise invalid("VIBE_MODEL", "Vibe requires V3/V4/V4.5; V4/V4.5 inpainting is unsupported")
     if precise and base_model not in PRECISE_MODELS:
-        raise ValueError("Precise Reference requires V4.5 Curated or Full")
+        raise invalid("PRECISE_MODEL", "Precise Reference requires V4.5 Curated or Full")
 
 
 def read_reference_image(path, paths):
@@ -66,7 +66,7 @@ def read_reference_image(path, paths):
     for part in Path(path).parts:
         current /= part
         if current.is_symlink():
-            raise ValueError("Reference images cannot be symlinks")
+            raise invalid("REFERENCE_INPUT", "Reference images cannot be symlinks")
     source = resolve_managed_reference_path(path, paths)
     raw = source.read_bytes()
     with Image.open(io.BytesIO(raw)) as opened:
@@ -90,7 +90,7 @@ def _encoding(image, model, information, paths, token, transport, sleep, cancell
     try:
         client._check_cancelled(cancelled)
         if path.is_symlink() or root.is_symlink():
-            raise ValueError("Vibe cache cannot be a symlink")
+            raise invalid("VIBE_CACHE", "Vibe cache cannot be a symlink")
         if path.exists():
             try:
                 stored = json.loads(path.read_text())
@@ -99,18 +99,20 @@ def _encoding(image, model, information, paths, token, transport, sleep, cancell
                     raise ValueError("checksum")
                 return stored["encoding"], {"key": key, "status": "cached"}
             except (ValueError, KeyError, TypeError):
-                raise ValueError("Vibe cache is invalid. Restore it or explicitly remove it before paid re-encoding.") from None
+                raise invalid("VIBE_CACHE", "Vibe cache is invalid. Restore it or explicitly remove it before paid re-encoding.") from None
         root.mkdir(parents=True, exist_ok=True)
         # Confirm writable storage before any encoding charge. Replace atomically only after validation.
         with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=root, delete=False) as handle:
             temporary = Path(handle.name)
             try:
+                mark_stage("vibe_encoding", unknown=True)
                 raw = client.post_json(ENCODE_VIBE_URL, token=token,
                                        payload={"image": image, "information_extracted": information, "model": model},
                                        transport=transport, sleep=sleep, cancelled=cancelled)
                 if not raw:
                     raise NovelAIError("nai_vibe_encoding_invalid", "NovelAI가 빈 Vibe 인코딩을 반환했습니다.", unknown=True)
                 encoding = base64.b64encode(raw).decode("ascii")
+                mark_stage("vibe_cache_save")
                 json.dump({"encoding": encoding, "sha256": hashlib.sha256(raw).hexdigest()}, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
@@ -123,6 +125,7 @@ def _encoding(image, model, information, paths, token, transport, sleep, cancell
         _cache_lock.release()
 
 
+@diagnosed("reference_prepare")
 def reference_parameters(request, paths, *, token, transport, sleep, cancelled):
     validate_compatibility(request.model, request.operation, request.vibes, request.references, request.limit_opus_free)
     parameters, audit = {}, []

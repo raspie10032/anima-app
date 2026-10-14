@@ -8,7 +8,8 @@ from anima_app.providers.novelai.models import (
     OPUS_FREE_MAX_STEPS,
     default_skip_cfg_above_sigma,
 )
-from anima_app.providers.novelai.requests import NovelAIRequest
+from anima_app.providers.novelai.requests import NovelAIRequest, replace_characters
+from anima_app.providers.novelai.medium import MEDIUM_SAMPLER, MEDIUM_STEPS, is_medium, medium_negative
 
 
 def build_payload(request: NovelAIRequest) -> tuple[NovelAIRequest, dict[str, object]]:
@@ -54,6 +55,13 @@ def _effective_request(request: NovelAIRequest) -> NovelAIRequest:
     if request.limit_opus_free and request.operation == "generate":
         width, height, steps = apply_opus_free_limits(width, height, steps)
     seed = request.seed if request.seed is not None else random.randint(0, 0x7FFFFFFF)
+    overrides = {}
+    if is_medium(request.model):
+        request = replace_characters(request, [{**c, "negative_prompt": ""} for c in request.characters])
+        overrides = {
+            "steps": MEDIUM_STEPS, "sampler": MEDIUM_SAMPLER, "cfg_rescale": 0.0,
+            "negative_prompt": medium_negative(request.prompt),
+        }
     return NovelAIRequest(
         **{
             **asdict(request),
@@ -61,6 +69,7 @@ def _effective_request(request: NovelAIRequest) -> NovelAIRequest:
             "height": height,
             "steps": steps,
             "seed": seed,
+            **overrides,
         }
     )
 

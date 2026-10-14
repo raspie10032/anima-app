@@ -1,4 +1,6 @@
-# Remaining NAI ports: candidate acceptance
+# Initial 0.5.0 NAI ports: historical acceptance
+
+The implementation below was subsequently published in app commit `b3635050980518242923eb486847b7bfe90b744a`. Its dated output paths and counts are historical development evidence, not files available in a GitHub checkout. For the newer 2.4.6 candidate, current requirements, commands and package verification, use [NAI_NODE_UPDATE_2.4.6.md](NAI_NODE_UPDATE_2.4.6.md).
 
 This records the requested 0.5.0 source-candidate implementation and local verification scope. It is not live NovelAI or billing acceptance. Original ComfyUI graph interfaces are expressed through managed app inputs, native detectors, browser controls and the common queue. The reference is the integrated RS_NAI implementation (`generators.py`, `references.py`, `detailer.py`, `detailer_matching.py`, `wd_tagger.py`).
 
@@ -28,7 +30,7 @@ Development-only evidence under `outputs/all-nai-port-20261009` is excluded from
 - `final-package/report.json`: archive/worktree byte equality, repeated deterministic ZIP hash, current original/model hashes, source/evidence hashes and isolated wheel smoke.
 - `HANDOFF.md`: current Git state, commands, boundaries and next independent work.
 
-The final local candidate is `outputs/release/all-nai-port-final-20261009/anima-app-0.5.0-source.zip`, accompanied by a SHA-256 file. It packages the dirty working tree, not a clean committed public release. Older archives remain available.
+The historical local candidate is `outputs/release/all-nai-port-final-20261009/anima-app-0.5.0-source.zip`, accompanied by a SHA-256 file. It captured the pre-commit working tree; publication of the source later followed at `b363505`. Older archives remain available in the development checkout.
 
 ## Verification limits
 
@@ -36,4 +38,4 @@ No new live NovelAI generation, account or Vibe encoding request is authorized b
 
 Native checks used existing ComfyUI or isolated temporary CPU runtimes. App-environment optional dependencies, model weights, wide-image detection accuracy, GPU execution and Windows GUI were not validated by these checks. Optional extras and setup are documented in `NOVELAI_PROVIDER.md`; weights and tokens are excluded from distribution.
 
-No merge, commit, push, tag, public upload, resident restart or automatic generation is part of this candidate handoff.
+The 2026-10-09 local candidate handoff itself did not merge, commit, push, tag, upload or restart services. The subsequent source commit/push is recorded above; it does not upgrade local/mock evidence into live NAI acceptance.

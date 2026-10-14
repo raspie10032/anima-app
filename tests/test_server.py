@@ -28,6 +28,8 @@ from anima_app.runtime.pipeline import ModelsNotReadyError, T2IRenderOutput
 from anima_app.server import (
     APP_JS,
     INDEX_HTML as INDEX_DOCUMENT,
+    NAI_I18N_JS,
+    NAI_ERRORS_JS,
     ProgressStore,
     create_http_server,
     handle_checkpoints,
@@ -790,6 +792,16 @@ def test_http_server_serves_index_and_dry_run_generate(tmp_path):
         index_body = urllib.request.urlopen(base_url, timeout=5).read().decode("utf-8")
         assert "Anima APP" in index_body
         assert '<script src="/app.js"></script>' in index_body
+        assert index_body.index('src="/nai-i18n.js"') < index_body.index('src="/app.js"')
+        assert index_body.index('src="/nai-i18n.js"') < index_body.index('src="/nai-errors.js"') < index_body.index('src="/app.js"')
+        with urllib.request.urlopen(f"{base_url}/nai-errors.js", timeout=5) as response:
+            assert response.status == 200
+            assert response.headers.get_content_type() == "text/javascript"
+            assert response.read().decode("utf-8") == NAI_ERRORS_JS
+        with urllib.request.urlopen(f"{base_url}/nai-i18n.js", timeout=5) as response:
+            assert response.status == 200
+            assert response.headers.get_content_type() == "text/javascript"
+            assert response.read().decode("utf-8") == NAI_I18N_JS
         with urllib.request.urlopen(f"{base_url}/app.js", timeout=5) as response:
             assert response.status == 200
             assert response.headers.get_content_type() == "text/javascript"
@@ -4949,8 +4961,8 @@ def test_index_html_loads_history_panel():
     assert "sam3_face_eyes: Boolean(data.face_sam3_face_eyes)" in INDEX_HTML
     assert "sam3_hands: Boolean(data.face_sam3_hands)" in INDEX_HTML
     assert "hand_denoise: Number(data.hand_denoise || 0.35)" in INDEX_HTML
-    assert '{key: "face_eye_detailer", label: "얼굴 + 눈 보정"' in INDEX_HTML
-    assert '{key: "hand_detailer", label: "손 보정"' in INDEX_HTML
+    assert '{key: "face_eye_detailer", label: tr("얼굴 + 눈 보정")' in INDEX_HTML
+    assert '{key: "hand_detailer", label: tr("손 보정")' in INDEX_HTML
     assert "threshold: Number(data.face_threshold || 0.5)" in INDEX_HTML
     assert "denoise: Number(data.face_denoise || 0.28)" in INDEX_HTML
     assert "exclude_forehead_ratio: Number(data.face_exclude_forehead || 0)" in INDEX_HTML
@@ -4966,11 +4978,11 @@ def test_index_html_loads_history_panel():
     assert "data-profile" in INDEX_HTML
     assert "Copy Detectors" not in INDEX_HTML
     assert "로컬에서 복사" in INDEX_HTML
-    assert 'return profile.prepare_source === "local" ? "로컬에서 복사" : "다운로드";' in INDEX_HTML
+    assert 'return profile.prepare_source === "local" ? tr("로컬에서 복사") : tr("다운로드");' in INDEX_HTML
     assert 'fetch("/api/loras")' in INDEX_HTML
     assert 'fetch("/api/checkpoints")' in INDEX_HTML
     assert "function renderCheckpointOptions" in INDEX_HTML
-    assert "statusCard(\"체크포인트\"" in INDEX_HTML
+    assert 'statusCard(tr("체크포인트")' in INDEX_HTML
     assert ".status-item" in INDEX_HTML
     assert "overflow-wrap: anywhere" in INDEX_HTML
     assert "showOutputPreview(payload.output_url)" in INDEX_HTML
@@ -4998,7 +5010,7 @@ def test_index_html_loads_history_panel():
     assert "function renderResultSummary" in INDEX_HTML
     assert "function setResultPayload" in INDEX_HTML
     assert "function setResultMessage" in INDEX_HTML
-    assert "summaryItem(\"상태\", resultMode(payload))" in INDEX_HTML
+    assert 'summaryItem(tr("상태"), resultMode(payload))' in INDEX_HTML
     assert "summaryItem(\"Output\", payload.output_url || payload.output_path || \"manifest only\")" not in INDEX_HTML
     assert "function variantEntries" in INDEX_HTML
     assert "variants.face_detailer && !variants.face_eye_detailer && !variants.hand_detailer" in INDEX_HTML
@@ -5091,7 +5103,7 @@ def test_history_ui_searches_server_and_uses_accessible_lazy_thumbnails():
     assert "item.thumbnail_url" in card
     assert 'image.loading = "lazy"' in card
     assert 'image.decoding = "async"' in card
-    assert 'historyThumbnailPlaceholder("미리보기 없음")' in card
+    assert 'historyThumbnailPlaceholder(tr("미리보기 없음"))' in card
     assert card.index('image.addEventListener("error"') < card.index("image.src = item.thumbnail_url")
     assert 'button.setAttribute("aria-pressed", String(active))' in APP_JS
     assert "renderHistoryStorage(health.outputs)" in APP_JS
@@ -5248,7 +5260,7 @@ def test_selected_checkpoint_readiness_controls_generate_and_queue_actions():
     assert "파일 업로드가 끝날 때까지 기다려 주세요." in controls
     assert 'checkpointSelect.addEventListener("change"' in APP_JS
     assert "generationReadinessCard(payload.generation)" in APP_JS
-    assert 'required: "필수", recommended: "권장", optional: "선택"' in APP_JS
+    assert 'required: tr("필수"), recommended: tr("권장"), optional: tr("선택")' in APP_JS
 
 
 def test_result_summary_surfaces_generation_warnings():
@@ -5257,7 +5269,7 @@ def test_result_summary_surfaces_generation_warnings():
     renderer = APP_JS[start:end]
 
     assert "payload.warnings" in renderer
-    assert 'summaryItem("경고"' in renderer
+    assert 'summaryItem(tr("경고")' in renderer
     assert "warnings.length" in renderer
 
 
@@ -5402,8 +5414,8 @@ def test_accessibility_contract_covers_results_presets_motion_and_selected_state
     assert 'startingOrientation = width > height ? "landscape" : "portrait";' in selection
     assert "syncStartingPointSelectionFromInputs();" in APP_JS
     assert '["width", "height"].forEach' in APP_JS
-    assert 'preview.alt = "생성 결과 이미지"' in APP_JS
-    assert 'preview.alt = "선택 영역이 표시된 생성 결과 이미지"' in APP_JS
+    assert 'window.AppI18n.setProperty(preview, "alt", () => tr("생성 결과 이미지"))' in APP_JS
+    assert 'window.AppI18n.setProperty(preview, "alt", () => tr("선택 영역이 표시된 생성 결과 이미지"))' in APP_JS
 
 
 def test_lora_controls_preserve_validation_and_keyboard_focus_during_refresh():
@@ -5475,18 +5487,19 @@ def test_history_card_keeps_native_actions_as_its_keyboard_path():
 
     assert "card.tabIndex" not in card
     assert 'card.addEventListener("keydown"' not in card
-    assert 'manifestButton.textContent = "상세"' in card
+    assert 'window.AppI18n.setText(manifestButton, () => tr("상세"))' in card
     assert 'manifestButton.addEventListener("click"' in card
 
 
-def test_app_js_has_valid_syntax():
+@pytest.mark.parametrize("script", [APP_JS, NAI_I18N_JS, NAI_ERRORS_JS], ids=["app", "nai-i18n", "nai-errors"])
+def test_app_js_has_valid_syntax(script):
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node.js is not installed")
 
     subprocess.run(
         [node, "--check", "-"],
-        input=APP_JS,
+        input=script,
         text=True,
         capture_output=True,
         check=True,
@@ -5549,8 +5562,8 @@ def test_index_html_exposes_generation_stage_progress():
     assert 'pending: ""' in INDEX_HTML
     assert 'completed: ""' in INDEX_HTML
     assert 'skipped: ""' in INDEX_HTML
-    assert 'status.textContent = stageVisibleStateLabels[state] ?? stageStateLabels[state] ?? state' in INDEX_HTML
-    assert 'row.setAttribute("aria-label", `${item.label}: ${stageStateLabels[state] || state}`)' in INDEX_HTML
+    assert 'window.AppI18n.setText(status, () => stageVisibleStateLabels[state] ?? stageStateLabels[state] ?? state)' in INDEX_HTML
+    assert 'window.AppI18n.setAttribute(row, "aria-label", () => `${item.label}: ${stageStateLabels[state] || state}`)' in INDEX_HTML
     assert "기본 렌더" in INDEX_HTML
     assert "고해상도 / 업스케일" in INDEX_HTML
     assert "VAE 디코드" in INDEX_HTML
@@ -5559,9 +5572,9 @@ def test_index_html_exposes_generation_stage_progress():
     assert "generationStages.scrollIntoView" in INDEX_HTML
     assert "data-stage-key" in INDEX_HTML
     assert "payload.stages || {}" in INDEX_HTML
-    assert 'message ? `실패: ${message}` : "실패"' in INDEX_HTML
+    assert 'message ? tr`실패: ${message}` : tr("실패")' in INDEX_HTML
     assert 'finalState === "cancelled"' in INDEX_HTML
-    assert 'message || "취소됨"' in INDEX_HTML
+    assert 'message || tr("취소됨")' in INDEX_HTML
 
 
 def test_index_html_exposes_auto_queue_controls():
@@ -5606,7 +5619,7 @@ def test_app_restores_live_server_queue_on_startup():
     assert "setQueueControlsRunning(true);" in restore_handler
     assert "renderServerQueueStatus(payload);" in restore_handler
     assert "startServerQueuePolling();" in restore_handler
-    assert 'restoreServerQueue().catch((error) => setQueueStatus(`큐 상태 복구 실패: ${String(error)}`));' in APP_JS
+    assert 'restoreServerQueue().catch((error) => setQueueStatus(tr`큐 상태 복구 실패: ${String(error)}`));' in APP_JS
 
 
 def test_single_generation_uses_cancelable_server_queue():
@@ -5632,7 +5645,7 @@ def test_stop_queue_recovers_after_cancel_request_failure():
     stop_handler = APP_JS[stop_start:stop_end]
 
     assert "if (!response.ok || payload.error)" in cancel_handler
-    assert "throw new Error(payload.error || \"작업 취소 실패\");" in cancel_handler
+    assert 'throw new Error(payload.error || tr("작업 취소 실패"));' in cancel_handler
     assert "stopQueueButton.disabled = false;" in stop_handler
     assert stop_handler.index("stopQueueButton.disabled = false;") > stop_handler.index("} catch (error) {")
 

@@ -4,6 +4,7 @@ SUBSCRIPTION_URL = "https://image.novelai.net/user/subscription"
 MODEL_IDS = {
     "nai-diffusion-5-curated",
     "nai-diffusion-5-full",
+    "nai-diffusion-5-full-medium",
     "nai-diffusion-4-5-curated",
     "nai-diffusion-4-5-full",
     "nai-diffusion-4-full",
@@ -34,6 +35,16 @@ SCHEDULERS = {"native", "karras", "exponential", "polyexponential"}
 
 OPUS_FREE_MAX_PIXELS = 1024 * 1024
 OPUS_FREE_MAX_STEPS = 28
+MAX_CHARACTER_SLOTS = 22
+
+
+def character_limit(model: str) -> int:
+    """RS NAI 2.4.6 nai_api.py; use the actual routed model for infill."""
+    if model.startswith("nai-diffusion-5"):
+        return MAX_CHARACTER_SLOTS
+    if model.startswith("nai-diffusion-4"):
+        return 6
+    return 0
 
 
 def default_skip_cfg_above_sigma(model: str) -> int | None:

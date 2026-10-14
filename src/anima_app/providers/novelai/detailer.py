@@ -18,7 +18,8 @@ from PIL import Image, ImageDraw, ImageFilter
 from anima_app.providers.novelai.client import _check_cancelled, post_json
 from anima_app.providers.novelai.detailer_matching import Match, match_characters, selected_prompts
 from anima_app.providers.novelai.eligibility import FocusedContext, validate_opus_free_payload
-from anima_app.providers.novelai.errors import NovelAIError
+from anima_app.providers.novelai.errors import NovelAIError, invalid, diagnosed, mark_stage, failure
+from anima_app.providers.novelai.wd_tagger import DEFAULT_MODEL, MODELS, WDTagger
 from anima_app.providers.novelai.images import first_png_from_zip, verify_png_bytes, write_verified_png
 from anima_app.providers.novelai.inpaint import encode_png
 from anima_app.providers.novelai.models import GENERATE_IMAGE_URL, INPAINT_ROUTING, SUPPORTED_INPAINT_MODEL_IDS
@@ -29,32 +30,34 @@ DEFAULTS = {"enabled": False, "preview_only": False, "mode": "all", "matching": 
             "backend": "sam_b", "concepts": ["face", "eyes"], "threshold": .5, "mask_threshold": .3,
             "crop_factor": 2.0, "padding": 32, "dilation": 0, "strength": .55, "steps": 28,
             "max_regions": 16, "match_min_score": .25, "match_min_margin": .08, "match_crop_factor": 2.0,
-            "wd_device": "auto", "wd_batch_size": 4}
+            "wd_device": "auto", "wd_batch_size": 4, "wd_model": DEFAULT_MODEL}
 
 
 def validate_settings(value):
     if not isinstance(value, dict) or value.keys() - DEFAULTS.keys():
-        raise ValueError("Unknown NAI detailer setting")
+        raise invalid("DETAIL_MODE", "Unknown NAI detailer setting")
     result = {**DEFAULTS, **value}
+    if not isinstance(result["wd_model"], str) or result["wd_model"] not in MODELS:
+        raise invalid("DETAIL_MODE", "Unknown NAI detailer tagger model")
     for key in ("enabled", "preview_only"):
         if type(result[key]) is not bool:
-            raise ValueError("Detailer flags must be boolean")
+            raise invalid("DETAIL_MODE", "Detailer flags must be boolean")
     for key, options in (("mode", ("first", "all")), ("matching", ("shared", "wd14")), ("backend", ("sam_b", "sam3")), ("wd_device", ("auto", "cpu"))):
         if result[key] not in options:
-            raise ValueError("Unsupported NAI detailer mode")
+            raise invalid("DETAIL_MODE", "Unsupported NAI detailer mode")
     concepts = result["concepts"]
     if not isinstance(concepts, (list, tuple)) or not concepts or len(concepts) > 3 or any(not isinstance(x, str) or x not in {"face", "eyes", "hands"} for x in concepts):
-        raise ValueError("Detailer concepts must be face, eyes or hands")
+        raise invalid("DETAIL_MODE", "Detailer concepts must be face, eyes or hands")
     result["concepts"] = list(dict.fromkeys(concepts))
     for key, maximum in (("threshold", 1), ("mask_threshold", 1), ("strength", 1), ("crop_factor", 8),
                          ("match_min_score", 1), ("match_min_margin", 1), ("match_crop_factor", 8)):
         if type(result[key]) not in (int, float) or not 0 <= result[key] <= maximum:
-            raise ValueError("Detailer numeric setting out of range")
+            raise invalid("DETAIL_MODE", "Detailer numeric setting out of range")
     if result["crop_factor"] < 1 or result["match_crop_factor"] < 1:
-        raise ValueError("Detailer crop factors must be at least 1")
+        raise invalid("DETAIL_MODE", "Detailer crop factors must be at least 1")
     for key, low, high in (("steps", 1, 50), ("max_regions", 1, 16), ("padding", 0, 256), ("dilation", -64, 128), ("wd_batch_size", 1, 16)):
         if type(result[key]) is not int or not low <= result[key] <= high:
-            raise ValueError("Detailer integer setting out of range")
+            raise invalid("DETAIL_MODE", "Detailer integer setting out of range")
     return result
 
 
@@ -203,15 +206,16 @@ def group_regions(regions):
     return [r for r in regions if r.concept != "eyes"]
 
 
-def preflight(request, paths):
+def preflight(request, paths, *, cancelled=lambda: False, progress=None):
     settings = request.detailer
     if not settings["enabled"] or request.operation == "focused_infill":
         return
     Detector(paths, settings).preflight()
     if settings["matching"] == "wd14":
-        from anima_app.providers.novelai.wd_tagger import WDTagger
-        tagger = WDTagger(paths.wd_tagger_root, device=settings["wd_device"], batch_size=settings["wd_batch_size"])
-        tagger._load()
+        tagger = WDTagger(paths.wd_tagger_root, device=settings["wd_device"], batch_size=settings["wd_batch_size"],
+                          model_name=settings["wd_model"])
+        tagger.cancelled, tagger.progress = cancelled, progress
+        return tagger.prepare()
 
 
 def _crop(source, box, factor):
@@ -235,32 +239,54 @@ def plan(source, regions, request, tagger=None, cancelled=lambda: False):
     count = min(len(regions), 1 if settings["mode"] == "first" else settings["max_regions"])
     characters = [SimpleNamespace(prompt=c["prompt"], uc=c["negative_prompt"]) for c in request.characters]
     matches = [Match(0 if len(characters) == 1 else None, 1, 1, "shared") for _ in regions]
+    retried = set()
     if settings["matching"] == "wd14" and count:
         if tagger is None:
-            raise ValueError("WD matching requires a loaded tagger")
+            raise invalid("MATCHING_INPUT", "WD matching requires a loaded tagger")
         tagger.cancelled = cancelled
         scores = tagger.score([_crop(source, r.box, settings["match_crop_factor"]) for r in regions[:count]])
         if len(scores) != count:
-            raise ValueError("WD returned the wrong number of regions")
+            raise invalid("MATCHING_INPUT", "WD returned the wrong number of regions")
         for i, scores_i in enumerate(scores):
             matches[i] = match_characters(scores_i, characters, settings["match_min_score"], settings["match_min_margin"])
         uncertain = [i for i in range(count) if matches[i].character_index is None]
         if uncertain and settings["match_crop_factor"] > 1.25:
+            retried.update(uncertain)
             scores = tagger.score([_crop(source, regions[i].box, 1.25) for i in uncertain])
             if len(scores) != len(uncertain):
-                raise ValueError("WD returned the wrong number of retry regions")
+                raise invalid("MATCHING_INPUT", "WD returned the wrong number of retry regions")
             for i, scores_i in zip(uncertain, scores):
                 match = match_characters(scores_i, characters, settings["match_min_score"], settings["match_min_margin"])
                 if match.character_index is not None:
                     matches[i] = replace(match, reason="tag_match_tight")
+                else:
+                    matches[i] = match
     report = []
     for i, (region, match) in enumerate(zip(regions, matches)):
         crop = expand_box(region.box, image_size=source.size, crop_scale=settings["crop_factor"], padding=settings["padding"])
         eligible = i < count and (settings["matching"] == "shared" or match.character_index is not None)
+        if i >= count:
+            diagnostic = "region_limit"
+            explanation = "첫 영역 모드 또는 최대 영역 수 제한으로 건너뛰었습니다."
+        elif settings["matching"] == "wd14" and match.character_index is None:
+            if match.score < settings["match_min_score"]:
+                diagnostic = "score_below_minimum"
+                explanation = f"점수 {match.score:.3f} < 최소 {settings['match_min_score']:.3f}: 캐릭터 근거가 부족합니다."
+            else:
+                diagnostic = "margin_below_minimum"
+                explanation = f"점수 차이 {match.margin:.3f} < 최소 {settings['match_min_margin']:.3f}: 후보가 비슷합니다."
+        else:
+            diagnostic = "shared_prompt" if settings["matching"] == "shared" else "character_selected"
+            explanation = "공통 프롬프트를 사용합니다." if diagnostic == "shared_prompt" else "선택된 원래 캐릭터 프롬프트를 사용합니다."
         report.append({"region": i + 1, "bbox": list(region.box), "crop": list(crop), "concept": region.concept,
                        "character": None if match.character_index is None else match.character_index + 1,
+                       "character_slot": None if match.character_index is None else request.active_character_slots[match.character_index],
                        "score": match.score, "margin": match.margin, "reason": match.reason,
-                       "status": "planned" if eligible else "skipped"})
+                       "status": "planned" if eligible else "skipped", "diagnostic": diagnostic,
+                       "explanation": explanation, "tight_crop_retried": i in retried})
+        if settings["matching"] == "wd14":
+            repo, revision = MODELS[settings["wd_model"]]
+            report[-1]["tagger"] = {"model_name": settings["wd_model"], "repo": repo, "revision": revision}
     return regions, matches, characters, report
 
 
@@ -275,6 +301,7 @@ def _owned(x, y, centers, index):
     return owned
 
 
+@diagnosed("detailer_prepare", "detailer_failed")
 def repaint(source, request, paths, *, token, reference_params=None, transport=None, subscription_transport=None,
             sleep, cancelled=lambda: False, detector=None, tagger=None, manual_mask=None, audit=None):
     settings = request.detailer
@@ -284,17 +311,24 @@ def repaint(source, request, paths, *, token, reference_params=None, transport=N
     else:
         regions = (detector or Detector(paths, settings)).detect(source, cancelled)
     if tagger is None and settings["matching"] == "wd14":
-        from anima_app.providers.novelai.wd_tagger import WDTagger
-        tagger = WDTagger(paths.wd_tagger_root, device=settings["wd_device"], batch_size=settings["wd_batch_size"])
+        tagger = WDTagger(paths.wd_tagger_root, device=settings["wd_device"], batch_size=settings["wd_batch_size"],
+                          model_name=settings["wd_model"])
     regions, matches, characters, report = plan(source, regions, request, tagger, cancelled)
+    if audit is not None:
+        audit["detailer"] = report
     out, total_mask = source.copy(), Image.new("L", source.size)
     if settings["preview_only"]:
         for item in report:
-            ImageDraw.Draw(out).rectangle(item["bbox"], outline="lime" if item["status"] == "planned" else "orange", width=2)
+            draw = ImageDraw.Draw(out)
+            color = "lime" if item["status"] == "planned" else "orange"
+            draw.rectangle(item["bbox"], outline=color, width=2)
+            draw.text(tuple(item["bbox"][:2]),
+                      f"{item['region']} -> {item['character_slot'] or '?'} {item['status']} "
+                      f"score={item['score']:.2f} margin={item['margin']:.2f}", fill=color)
         return out, total_mask, report
     model = request.model if request.model in SUPPORTED_INPAINT_MODEL_IDS else INPAINT_ROUTING.get(request.model)
     if not model:
-        raise ValueError("No supported NAI inpainting model for detailer")
+        raise invalid("MODEL", "No supported NAI inpainting model for detailer")
     prepared = []
     centers = [center(r.box) for r in regions]
     for i, item in enumerate(report):
@@ -302,7 +336,7 @@ def repaint(source, request, paths, *, token, reference_params=None, transport=N
             continue
         crop_box = tuple(item["crop"])
         if request.limit_opus_free and crop_box == (0, 0, *source.size):
-            raise ValueError("Opus focused inpainting requires a crop smaller than the source")
+            raise invalid("FOCUSED_CROP", "Opus focused inpainting requires a crop smaller than the source")
         crop = source.crop(crop_box)
         cw, ch = crop.size
         scale = 1024 / max(cw, ch)
@@ -323,7 +357,8 @@ def repaint(source, request, paths, *, token, reference_params=None, transport=N
         if manual_mask is not None:
             local_mask = Image.fromarray(np.minimum(np.array(local_mask), np.array(manual_mask.crop(crop_box).convert("L"))))
         if not request_mask.getbbox() or not local_mask.getbbox():
-            item["status"] = "empty_mask"
+            item.update(status="empty_mask", diagnostic="empty_mask",
+                        explanation="마스크 정렬·침식·영역 분리 후 수정할 픽셀이 없어 전송하지 않았습니다.")
             continue
         prompt, negative = selected_prompts(request.prompt, request.negative_prompt, characters, matches[i])
         from anima_app.providers.novelai.requests import NovelAIRequest
@@ -332,7 +367,9 @@ def repaint(source, request, paths, *, token, reference_params=None, transport=N
                                          "width": nw, "height": nh, "steps": min(settings["steps"], 28) if request.limit_opus_free else settings["steps"],
                                          "seed": (request.seed + i) % 2**32, "prompt": prompt, "negative_prompt": negative,
                                          "input_image": "internal-crop", "mask_image": "internal-mask", "characters": (),
-                                         "detailer": {"enabled": False}, "inpaint_strength": 1})
+                                         "character_slots": None, "character_count": None,
+                                         "detailer": {"enabled": False},
+                                         "inpaint_strength": settings["strength"] if model.startswith(("nai-diffusion-4", "nai-diffusion-5")) else 1})
         _, payload = build_payload(crop_request)
         payload["parameters"].update(image=encode_png(crop.resize((nw, nh), Image.Resampling.LANCZOS)),
                                      mask=encode_png(request_mask), inpaintImg2ImgStrength=settings["strength"], noise=0,
@@ -351,17 +388,19 @@ def repaint(source, request, paths, *, token, reference_params=None, transport=N
         entry_audit = {}
         try:
             _check_cancelled(cancelled)
+            mark_stage("detailer", unknown=True)
             raw = post_json(GENERATE_IMAGE_URL, token=token, payload=payload, transport=transport,
                             subscription_transport=subscription_transport, sleep=sleep, cancelled=cancelled,
-                            limit_opus_free=request.limit_opus_free, focused_context=context, audit=entry_audit)
+                            limit_opus_free=request.limit_opus_free, focused_context=context, audit=entry_audit, stage="detailer")
             png = first_png_from_zip(raw)
             verify_png_bytes(png, expected_size=(params["width"], params["height"]))
         except Exception as exc:
             code = exc.code if isinstance(exc, NovelAIError) else "detailer_failed"
             item.update(status="cancelled" if code == "generation_cancelled" else "failed",
-                        failure={"code": code, "remote_outcome_unknown": isinstance(exc, NovelAIError) and exc.unknown},
+                        failure=failure(exc, stage="detailer", unknown=True),
                         **entry_audit)
             raise
+        mark_stage("detailer_save")
         crop_size = (crop_box[2] - crop_box[0], crop_box[3] - crop_box[1])
         paths.image_root.mkdir(parents=True, exist_ok=True)
         import uuid
@@ -388,8 +427,11 @@ def repaint(source, request, paths, *, token, reference_params=None, transport=N
             total_mask.save(mask_bytes, format="PNG")
             write_verified_png(mask_checkpoint, mask_bytes.getvalue())
             write_verified_png(checkpoint, _detail_png(out, request, checkpoint_report))
-        except OSError:
-            item["failure"] = {"code": "nai_checkpoint_failed", "remote_outcome_unknown": False}
-            raise NovelAIError("nai_checkpoint_failed", "보정 응답은 저장했지만 합성 결과 저장에 실패했습니다. 자동 재전송하지 않습니다.") from None
+        except OSError as exc:
+            from anima_app.providers.novelai.errors import explain
+            error = explain(exc, stage="detailer_save", fallback="nai_checkpoint_failed",
+                            message="보정 응답은 저장했지만 합성 결과 저장에 실패했습니다. 자동 재전송하지 않습니다.")
+            item["failure"] = failure(error, stage="detailer_save")
+            raise error from None
         item.update(complete_item)
     return out, total_mask, report

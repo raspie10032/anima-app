@@ -62,9 +62,10 @@ from anima_app.memory_profiles import resolve_auto_memory_profile
 from anima_app.openapi import build_openapi_document
 from anima_app.path_safety import path_is_link as _path_is_link
 from anima_app.providers import novelai
-from anima_app.providers.novelai.errors import NovelAIError
+from anima_app.providers.novelai.errors import NovelAIError, explain as explain_nai_error
 from anima_app.providers.novelai.metadata import read_image_metadata
 from anima_app.providers.novelai.converters import convert_prompt
+from anima_app.providers.novelai.tagger_setup import TaggerSetup
 from anima_app.providers.novelai.requests import MAX_NAI_SEED, reject_credentials
 from anima_app.requests import (
     DEFAULT_FACE_DETAILER_STEPS,
@@ -1213,12 +1214,21 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
         text-decoration: none;
       }
     }
+    __GENERATION_WORKSPACE_CSS__
   </style>
 </head>
 <body>
   <div class="app-shell">
     <aside class="control-frame" aria-label="생성 컨트롤">
       <h1>Anima APP</h1>
+      <section id="nai-language-panel" aria-label="App language">
+        <label for="nai-language" data-nai-i18n="language">앱 언어</label>
+        <select data-app-locale id="nai-language" aria-describedby="nai-language-scope nai-language-status">
+          <option value="en">English</option><option value="ko">한국어</option><option value="ja">日本語</option>
+        </select>
+        <p id="nai-language-scope" class="muted" data-nai-i18n="scope"></p>
+        <p id="nai-language-status" class="muted" role="status"></p>
+      </section>
       <form id="generate-form"></form>
       <label for="provider-select">생성 엔진</label>
       <select id="provider-select" name="provider" form="generate-form" aria-describedby="provider-status">
@@ -1238,6 +1248,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               <input id="negative" name="negative_prompt" maxlength="__MAX_PROMPT_CHARACTERS__" value="low quality" form="generate-form">
               <details id="prompt-converter">
                 <summary>프롬프트 가중치 문법 변환</summary>
+                <p data-nai-i18n="converterHelp"></p>
                 <label for="convert-field">적용할 프롬프트</label>
                 <select id="convert-field"><option value="prompt">공통 프롬프트</option><option value="negative_prompt">공통 네거티브</option></select>
                 <label for="convert-source">원본 문법</label>
@@ -1247,6 +1258,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 <button id="convert-preview" type="button" class="secondary-button">변환 미리보기</button>
                 <pre id="convert-result" class="wildcard-preview"></pre>
                 <p id="convert-status" class="upload-status" aria-live="polite"></p>
+                <section id="nai-convert-error-guide" class="nai-error-guide" role="alert" hidden></section>
                 <button id="convert-apply" type="button" class="secondary-button" disabled>선택한 프롬프트에 적용</button>
               </details>
               <div class="prompt-tools-block" aria-label="프롬프트 와일드카드와 프리셋">
@@ -1292,6 +1304,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 <p>파일을 선택하거나 여기에 드래그하세요.</p>
               </div>
               <p id="nai-metadata-status" class="upload-status" aria-live="polite">메타데이터를 읽어 확인 후 적용합니다.</p>
+              <section id="nai-metadata-error-guide" class="nai-error-guide" role="alert" hidden></section>
               <div id="nai-metadata-preview" hidden>
                 <pre id="nai-metadata-summary" class="wildcard-preview"></pre>
                 <label for="nai-metadata-model">복원할 모델</label>
@@ -1357,6 +1370,16 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           <div class="control-group-body">
             <section id="novelai-settings" class="form-section" hidden>
               <h2>NovelAI</h2>
+              <details id="nai-feature-guide">
+                <summary data-nai-i18n="help">NAI 기능 사용 안내</summary>
+                <h3 data-nai-i18n="generationTitle"></h3><p data-nai-i18n="generationHelp"></p>
+                <p data-nai-i18n="medium"></p>
+                <h3 data-nai-i18n="charactersTitle"></h3><p data-nai-i18n="charactersHelp"></p>
+                <h3 data-nai-i18n="inputTitle"></h3><p data-nai-i18n="inputHelp"></p>
+                <h3 data-nai-i18n="referencesTitle"></h3><p data-nai-i18n="referencesHelp"></p>
+                <h3 data-nai-i18n="detailerTitle"></h3><p data-nai-i18n="detailerHelp"></p><p data-nai-i18n="taggerHelp"></p>
+                <h3 data-nai-i18n="metadataTitle"></h3><p data-nai-i18n="metadataHelp"></p>
+              </details>
               <label for="nai-operation">생성 방식</label>
               <select id="nai-operation" name="operation" form="generate-form">
                 <option value="detail">기존 이미지 자동 디테일러</option>
@@ -1367,9 +1390,15 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
               </select>
               <label for="nai-model">모델</label>
               <select id="nai-model" name="nai_model" form="generate-form"></select>
+              <p id="nai-medium-notice" hidden></p>
+              <p id="nai-routing-notice" hidden aria-live="polite"></p>
               <details id="nai-characters-panel">
-                <summary>캐릭터별 프롬프트와 위치 (최대 5명)</summary>
+                <summary>캐릭터별 프롬프트와 위치 (최대 22명)</summary>
                 <p>V4 / V5 지원 · X는 왼쪽 0 → 오른쪽 1, Y는 위 0 → 아래 1입니다.</p>
+                <label for="nai-character-count">표시·사용할 슬롯 수</label>
+                <input id="nai-character-count" type="number" min="0" max="22" step="1" value="0" required>
+                <p>슬롯 수를 줄이면 뒤쪽 슬롯을 숨기고 전송에서 제외합니다. 사용 해제와 숨김은 입력값을 보존하며, 개별 접기는 전송 여부를 바꾸지 않습니다.</p>
+                <p id="nai-character-status" aria-live="polite"></p>
                 <label><input id="nai-use-coords" type="checkbox" checked> 캐릭터 위치 지정</label>
                 <label><input id="nai-use-order" type="checkbox" checked> 캐릭터 순서 사용</label>
                 <div id="nai-characters"></div>
@@ -1436,8 +1465,15 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 <label>WD 최소 점수 <input id="nai-detailer-match_min_score" type="number" min="0" max="1" step="0.01" value="0.25"></label>
                 <label>WD 최소 점수 차 <input id="nai-detailer-match_min_margin" type="number" min="0" max="1" step="0.01" value="0.08"></label>
                 <label>WD 문맥 크롭 배율 <input id="nai-detailer-match_crop_factor" type="number" min="1" max="8" step="0.1" value="2"></label>
-                <label>WD 장치 <select id="nai-detailer-wd_device"><option value="auto">자동</option><option value="cpu">CPU</option></select></label>
-                <label>WD 배치 크기 <input id="nai-detailer-wd_batch_size" type="number" min="1" max="16" value="4"></label>
+                <label>태거 모델 <select id="nai-detailer-wd_model"><option>WD ViT v3</option><option>WD EVA02 Large v3</option><option>PixAI Tagger v1.0</option></select></label>
+                <label>태거 장치 <select id="nai-detailer-wd_device"><option value="auto">자동</option><option value="cpu">CPU</option></select></label>
+                <label>태거 배치 크기 <input id="nai-detailer-wd_batch_size" type="number" min="1" max="16" value="4"></label>
+                <p id="nai-tagger-hint" class="muted"></p>
+                <p class="muted">태거 준비는 선택 모델을 Hugging Face에서 내려받아 로딩을 검사합니다. 생성 시에는 준비된 캐시를 사용합니다. PixAI는 전용 의존성과 RGB 전처리를 사용하며 모델 변경 시 매칭 점수가 달라질 수 있습니다.</p>
+                <div class="button-row"><button type="button" id="nai-tagger-prepare">태거 준비</button><button type="button" id="nai-tagger-cancel" disabled>준비 취소</button></div>
+                <progress id="nai-tagger-progress" max="1" value="0" hidden aria-label="태거 파일 다운로드 진행률"></progress>
+                <p id="nai-tagger-status" role="status" aria-live="polite">태거 준비를 눌러 모델을 확인하세요.</p>
+                <section id="nai-tagger-error-guide" hidden role="alert" aria-live="polite"></section>
                 <p>검출 모델은 models/detectors, WD 모델은 models/rs_wd_tagger에 준비하세요. 2명 이상은 WD 매칭이 필요합니다.
                 원본 캐릭터 프롬프트만 사용하며 불확실한 매칭은 건너뜁니다. Focused 모드는 원본보다 작은 크롭만 Opus 보호에서 허용합니다.</p>
               </details>
@@ -1822,6 +1858,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
           </div>
           <span id="sam3-status" class="sam3-status" role="status" aria-live="polite" aria-atomic="true">결과 이미지를 선택하면 마스크를 만들 수 있습니다.</span>
         </section>
+        <section id="nai-error-guide" hidden role="alert" aria-live="polite"></section>
         <details class="result-json">
           <summary>상세 생성 정보</summary>
           <pre id="result">준비됨.</pre>
@@ -1865,6 +1902,8 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
     </aside>
   </div>
   <script id="anima-defaults" type="application/json">{"width": __DEFAULT_T2I_WIDTH__, "height": __DEFAULT_T2I_HEIGHT__, "steps": __DEFAULT_T2I_STEPS__, "cfg": __DEFAULT_T2I_CFG__, "sampler": "__DEFAULT_T2I_SAMPLER__", "scheduler": "__DEFAULT_T2I_SCHEDULER__", "checkpoint": "__DEFAULT_T2I_CHECKPOINT__", "limits": {"max_loras": __MAX_LORA_COUNT__, "max_lora_strength": __MAX_LORA_STRENGTH__, "max_seed_safe": __MAX_BROWSER_SAFE_SEED__, "max_base_image_pixels": __MAX_BASE_IMAGE_PIXELS__, "max_output_image_pixels": __MAX_OUTPUT_IMAGE_PIXELS__, "max_reference_upload_bytes": __MAX_REFERENCE_UPLOAD_BYTES__, "max_lora_upload_bytes": __MAX_LORA_UPLOAD_BYTES__}}</script>
+  <script src="/nai-i18n.js"></script>
+  <script src="/nai-errors.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
@@ -1904,7 +1943,20 @@ INDEX_HTML = (
     .replace("__MAX_REFERENCE_UPLOAD_MIB__", str(MAX_REFERENCE_UPLOAD_BYTES // (1024 * 1024)))
     .replace("__MAX_LORA_UPLOAD_GIB__", str(MAX_LORA_UPLOAD_BYTES // (1024 * 1024 * 1024)))
 )
+INDEX_HTML = INDEX_HTML.replace(
+    "__GENERATION_WORKSPACE_CSS__",
+    (Path(__file__).with_name("static") / "generation.css").read_text(encoding="utf-8"),
+)
 APP_JS = (Path(__file__).with_name("static") / "app.js").read_text(encoding="utf-8")
+APP_JS += "\n" + (Path(__file__).with_name("static") / "library.js").read_text(encoding="utf-8")
+APP_JS += "\n" + (Path(__file__).with_name("static") / "generation.js").read_text(encoding="utf-8")
+APP_JS += "\n" + (Path(__file__).with_name("static") / "workflow.js").read_text(encoding="utf-8")
+APP_JS += "\n" + (Path(__file__).with_name("static") / "authoring.js").read_text(encoding="utf-8")
+UI_MESSAGES = json.loads((Path(__file__).with_name("static") / "ui-messages.json").read_text(encoding="utf-8"))
+NAI_I18N_JS = "window.AnimaMessages = " + json.dumps(UI_MESSAGES, ensure_ascii=False) + ";\n"
+NAI_I18N_JS += (Path(__file__).with_name("static") / "i18n.js").read_text(encoding="utf-8") + "\n"
+NAI_I18N_JS += (Path(__file__).with_name("static") / "nai-i18n.js").read_text(encoding="utf-8")
+NAI_ERRORS_JS = (Path(__file__).with_name("static") / "nai-errors.js").read_text(encoding="utf-8")
 
 
 _PROGRESS_ID_RE = re.compile(r"^[A-Za-z0-9_.-]{1,96}$")
@@ -2079,7 +2131,18 @@ class JobQueue:
             count = _bounded_job_count(payload.get("count", 1))
             delay_seconds = _bounded_queue_delay(payload.get("delay_seconds", payload.get("delay", 0)))
             dry_run = _boolean_value(request.get("dry_run", self._default_dry_run), "dry_run")
+            if "workflow" in request:
+                from anima_app.workflows import preflight
+                _, request["workflow"], _ = preflight(request, self._paths, dry_run=dry_run)
+            else:
+                from anima_app.prompt_routing import route_request
+                route_request(request, paths=self._paths)
+        except NovelAIError as exc:
+            return exc.status, exc.payload()
         except (AttributeError, FileNotFoundError, OverflowError, TypeError, ValueError) as exc:
+            if request.get("provider") == "novelai":
+                error = explain_nai_error(exc, stage="validation", fallback="generation_invalid_request")
+                return error.status, error.payload()
             return HTTPStatus.BAD_REQUEST, {
                 "error_code": "generation_invalid_request",
                 "error": str(exc),
@@ -2195,7 +2258,8 @@ class JobQueue:
             elif job["status"] == "running":
                 job["cancel_requested"] = True
                 job["updated_at"] = time.time()
-                if job["request"].get("provider") != "novelai":
+                from anima_app.workflows import has_local_step
+                if has_local_step(job["request"]):
                     interrupt_requested = _set_runtime_interrupt(True)
             response = self._public_job_locked(job)
             response["interrupt_requested"] = interrupt_requested
@@ -2277,7 +2341,8 @@ class JobQueue:
         payload = copy.deepcopy(job["request"])
         payload["progress_id"] = str(job.get("progress_id", job_id))
         with self._generation_lock:
-            is_local = payload.get("provider", "local") == "local"
+            from anima_app.workflows import has_local_step
+            is_local = has_local_step(payload)
             if is_local:
                 _set_runtime_interrupt(False)
             try:
@@ -2291,7 +2356,7 @@ class JobQueue:
                         default_dry_run=self._default_dry_run,
                         progress_store=self._progress_store,
                         enforce_managed_inputs=True,
-                        cancelled=(lambda: self._cancel_requested(job_id)) if not is_local else None,
+                        cancelled=lambda: self._cancel_requested(job_id),
                     )
                 except BaseException as exc:
                     if exc.__class__.__name__ == "InterruptProcessingException" and self._cancel_requested(job_id):
@@ -2579,6 +2644,7 @@ def request_from_payload(payload: dict[str, Any]) -> T2IRequest:
         upscale=_upscale_from_payload(payload.get("upscale", {})),
         face_detailer=_face_detailer_from_payload(payload.get("face_detailer", {})),
         vae_decode=_vae_decode_from_payload(payload.get("vae_decode", {})),
+        operation=str(payload.get("operation", "generate")),
     )
 
 
@@ -2598,7 +2664,7 @@ def _generation_provider(payload: dict[str, Any]) -> str:
 
 def _provider_capabilities(*, default_dry_run: bool) -> dict[str, Any]:
     from anima_app.providers.novelai.models import (
-        INPAINT_ROUTING, MODEL_IDS, SAMPLERS, SCHEDULERS, SUPPORTED_INPAINT_MODEL_IDS,
+        INPAINT_ROUTING, MAX_CHARACTER_SLOTS, MODEL_IDS, SAMPLERS, SCHEDULERS, SUPPORTED_INPAINT_MODEL_IDS, character_limit,
     )
 
     return {
@@ -2607,7 +2673,8 @@ def _provider_capabilities(*, default_dry_run: bool) -> dict[str, Any]:
             {"id": "local", "label": "로컬 Anima", "operations": ["generate", "img2img", "masked_inpaint"]},
             {"id": "novelai", "label": "NovelAI", "operations": ["generate", "img2img", "infill", "detail", "focused_infill"],
              "inpaint_models": sorted(SUPPORTED_INPAINT_MODEL_IDS), "inpaint_routing": INPAINT_ROUTING,
-             "characters": {"max_count": 5, "models": "V4/V5", "centers_per_character": 1},
+             "characters": {"max_count": MAX_CHARACTER_SLOTS, "models": "V4/V5", "centers_per_character": 1,
+                            "model_limits": {model: character_limit(model) for model in sorted(MODEL_IDS | SUPPORTED_INPAINT_MODEL_IDS)}},
              "references": {"max_count": 16, "vibe_models": ["V3", "V4", "V4.5"],
                             "precise_models": ["V4.5"], "mutually_exclusive": True},
              "models": sorted(MODEL_IDS), "samplers": sorted(SAMPLERS), "schedulers": sorted(SCHEDULERS),
@@ -2669,14 +2736,21 @@ def handle_novelai_generate(
                                          "negative_prompt": uc.text, "selections": [*cp.selections, *uc.selections]})
         wildcard_expansion["characters"] = character_expansions
         wildcard_expansion["enabled"] |= any(item["selections"] for item in character_expansions)
-        request = replace(request, characters=tuple(characters))
+        from anima_app.providers.novelai.requests import replace_characters
+        request = replace_characters(request, characters)
+        from anima_app.prompt_routing import route_request, save_context, context_fields
+        routed, prompt_receipt = route_request({**request.to_payload(), **context_fields(payload)}, paths=paths)
+        request = novelai.request_from_payload(routed)
         if progress_store is not None and progress_id:
             progress_store.update_stage(progress_id, "request", "completed")
             progress_store.update_stage(progress_id, "wildcards", "completed")
             progress_store.update_stage(progress_id, "base_t2i", "active")
             progress_store.update_summary(progress_id, "NovelAI 응답 대기 중" if not dry_run else "NovelAI 드라이런")
         result = novelai.generate(request, paths=paths, dry_run=dry_run, wildcards=wildcard_expansion,
-                                 cancelled=cancelled or (lambda: False))
+                                 cancelled=cancelled or (lambda: False),
+                                 tagger_progress=(lambda event: progress_store.update_summary(progress_id, event["text"]))
+                                 if progress_store is not None and progress_id else None)
+        save_context(result.manifest_path, payload, prompt_receipt)
         manifest = read_manifest(result.manifest_path)
         stages = {key: {"status": "completed" if key in {"request", "wildcards", "metadata"} or (key == "base_t2i" and result.output_path) else "skipped"}
                   for key in _PROGRESS_STAGE_ORDER}
@@ -2691,6 +2765,7 @@ def handle_novelai_generate(
                          for name, value in manifest["variants"].items()}, "warnings": warnings,
             "stages": stages, "wildcards": wildcard_expansion, "checkpoint": result.request.model,
             "detailer_regions": manifest["novelai"].get("detailer", []),
+            "detailer_failure": manifest["novelai"].get("detailer_failure"),
             "stop_scheduling": "detailer_failure" in manifest["novelai"],
             "remote_outcome_unknown": manifest["novelai"].get("detailer_failure", {}).get("remote_outcome_unknown", False),
             "width": result.request.width, "height": result.request.height, "seed": result.request.seed,
@@ -2706,17 +2781,16 @@ def handle_novelai_generate(
             else:
                 progress_store.fail(progress_id, str(exc))
         return exc.status, exc.payload()
-    except (AttributeError, FileNotFoundError, OverflowError, TypeError, ValueError):
-        error = "NovelAI 생성 설정이 올바르지 않습니다. 모델, 크기, 스텝, 시드와 지원 기능을 확인해 주세요."
+    except (AttributeError, FileNotFoundError, OverflowError, TypeError, ValueError) as exc:
+        failure = explain_nai_error(exc, stage="validation", fallback="generation_invalid_request")
         if progress_store is not None and progress_id:
-            progress_store.fail(progress_id, error)
-        return HTTPStatus.BAD_REQUEST, {"error_code": "generation_invalid_request", "error": error, "provider": "novelai"}
-    except Exception:
-        error = "NovelAI 생성에 실패했습니다. 결과가 불확실하므로 자동 재전송하지 않습니다."
+            progress_store.fail(progress_id, str(failure))
+        return failure.status, failure.payload()
+    except Exception as exc:
+        failure = explain_nai_error(exc, stage="generation", unknown=True)
         if progress_store is not None and progress_id:
-            progress_store.fail(progress_id, error)
-        return HTTPStatus.BAD_GATEWAY, {"error_code": "nai_generation_failed", "error": error,
-                                       "provider": "novelai", "remote_outcome_unknown": True}
+            progress_store.fail(progress_id, str(failure))
+        return failure.status, failure.payload()
 
 
 def handle_generate(
@@ -2729,6 +2803,10 @@ def handle_generate(
     enforce_managed_inputs: bool = False,
     cancelled: Any = None,
 ) -> tuple[int, dict[str, Any]]:
+    if "workflow" in payload:
+        from anima_app.workflows import run_workflow
+        return run_workflow(payload, paths=paths, renderer=renderer, default_dry_run=default_dry_run,
+                            progress_store=progress_store, cancelled=cancelled)
     try:
         provider = _generation_provider(payload)
         reject_credentials(payload)
@@ -2756,6 +2834,9 @@ def handle_generate(
             progress_store.update_summary(progress_id, "프롬프트 준비 중")
         wildcard_mode = str(payload.get("wildcard_mode", payload.get("wildcards", "random")))
         request, wildcard_expansion = expand_request_wildcards(request, paths=paths, mode=wildcard_mode)
+        from anima_app.prompt_routing import route_request, save_context, context_fields
+        routed, prompt_receipt = route_request({**asdict(request), **context_fields(payload)}, paths=paths)
+        request = request_from_payload(routed)
         if progress_store is not None and progress_id is not None:
             progress_store.update_stage(progress_id, "wildcards", "completed", mode=wildcard_expansion.get("mode", "random"))
             progress_store.update_stage(progress_id, "text_encode", "completed")
@@ -2763,6 +2844,7 @@ def handle_generate(
             progress_store.update_summary(progress_id, "렌더링 중")
         dry_run = _boolean_value(payload.get("dry_run", default_dry_run), "dry_run")
         result = run_t2i(request, paths=paths, dry_run=dry_run, renderer=None if dry_run else renderer, wildcards=wildcard_expansion)
+        save_context(result.manifest_path, payload, prompt_receipt)
         manifest = read_manifest(result.manifest_path)
         output_path = str(result.output_path) if result.output_path else None
         response = {
@@ -2772,7 +2854,7 @@ def handle_generate(
             "output_path": output_path,
             "output_url": _output_url(result.output_path, paths) if result.output_path else None,
             "variants": _variants_with_urls(manifest, paths),
-            "warnings": list(result.warnings),
+            "warnings": manifest.get("warnings", list(result.warnings)),
             "stages": manifest.get("stages", {}),
             "wildcards": manifest.get("wildcards", {}),
             "checkpoint": manifest.get("checkpoint", request.checkpoint),
@@ -3679,6 +3761,9 @@ def create_http_server(
     warm_autocomplete_index(paths)
     progress_store = ProgressStore()
     generation_lock = threading.Lock()
+    from anima_app.library_http import LibraryHTTP
+    library_http = LibraryHTTP(paths, generation_lock)
+    tagger_setup = TaggerSetup(paths.wd_tagger_root, generation_lock)
     thumbnail_semaphore = threading.BoundedSemaphore(MAX_CONCURRENT_HISTORY_THUMBNAILS)
     llm_client = default_llm_client() if llm_client is None else llm_client
     openapi_document = build_openapi_document(
@@ -3702,11 +3787,20 @@ def create_http_server(
             if not self._require_trusted_request():
                 return
             parsed = urlparse(self.path)
+            if parsed.path.startswith("/api/library/"):
+                library_http.handle(self, parsed, "GET")
+                return
             if parsed.path == "/":
                 self._send_bytes(HTTPStatus.OK, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
                 return
             if parsed.path == "/app.js":
                 self._send_bytes(HTTPStatus.OK, APP_JS.encode("utf-8"), "text/javascript; charset=utf-8")
+                return
+            if parsed.path == "/nai-i18n.js":
+                self._send_bytes(HTTPStatus.OK, NAI_I18N_JS.encode("utf-8"), "text/javascript; charset=utf-8")
+                return
+            if parsed.path == "/nai-errors.js":
+                self._send_bytes(HTTPStatus.OK, NAI_ERRORS_JS.encode("utf-8"), "text/javascript; charset=utf-8")
                 return
             if parsed.path == "/favicon.ico":
                 self._send_bytes(HTTPStatus.NO_CONTENT, b"", "image/x-icon")
@@ -3736,6 +3830,9 @@ def create_http_server(
                 return
             if parsed.path == "/api/nai/status":
                 self._send_json(HTTPStatus.OK, novelai.token_status())
+                return
+            if parsed.path == "/api/nai/tagger":
+                self._send_json(HTTPStatus.OK, tagger_setup.snapshot())
                 return
             if parsed.path == "/api/providers":
                 self._send_json(HTTPStatus.OK, _provider_capabilities(default_dry_run=default_dry_run))
@@ -3825,18 +3922,24 @@ def create_http_server(
             if not self._require_trusted_request(mutation=True):
                 return
             parsed = urlparse(self.path)
+            if parsed.path.startswith("/api/library/"):
+                library_http.handle(self, parsed, "POST")
+                return
             if parsed.path not in {
                 "/api/generate",
                 "/api/jobs",
                 "/api/inputs/reference",
                 "/api/metadata/novelai",
                 "/api/prompts/convert",
+                "/api/prompts/plan",
                 "/api/loras/import",
                 "/api/loras/upload",
                 "/api/presets",
                 "/api/presets/import",
                 "/api/wildcards/preview",
                 "/api/models/prepare",
+                "/api/nai/tagger/prepare",
+                "/api/nai/tagger/cancel",
                 "/api/llm/generate",
                 "/api/sam3/segment",
                 "/api/sam3/compare",
@@ -3854,14 +3957,27 @@ def create_http_server(
             payload = self._read_json_object()
             if payload is None:
                 return
-            if parsed.path == "/api/loras/import":
+            if parsed.path in {"/api/nai/tagger/prepare", "/api/nai/tagger/cancel"}:
+                try:
+                    response = tagger_setup.start(payload) if parsed.path.endswith("/prepare") else tagger_setup.cancel(payload.get("job_id"))
+                    status = HTTPStatus.ACCEPTED
+                except NovelAIError as exc:
+                    status, response = exc.status, exc.payload()
+            elif parsed.path == "/api/loras/import":
                 status, response = handle_lora_import(payload, paths=paths)
+            elif parsed.path == "/api/prompts/plan":
+                from anima_app.prompt_routing import preview_plan
+                try:
+                    status, response = HTTPStatus.OK, preview_plan(payload, paths=paths)
+                except (ValueError, TypeError, AttributeError, OverflowError, RecursionError) as exc:
+                    status, response = HTTPStatus.BAD_REQUEST, {"error": str(exc)}
             elif parsed.path == "/api/prompts/convert":
                 try:
                     status, response = HTTPStatus.OK, convert_prompt(payload)
                 except (ValueError, OverflowError, RecursionError):
-                    status, response = HTTPStatus.BAD_REQUEST, {"error_code": "prompt_conversion_invalid",
-                        "error": "문법·길이·중첩·가중치를 확인해 주세요. 변환할 수 없는 프롬프트입니다."}
+                    status = HTTPStatus.BAD_REQUEST
+                    response = NovelAIError("prompt_conversion_invalid", "문법·길이·중첩·가중치를 확인해 주세요. 변환할 수 없는 프롬프트입니다.",
+                                            400, cause="PROMPT_CONVERSION", stage="prompt_conversion").payload()
             elif parsed.path == "/api/presets/import":
                 status, response = handle_preset_import(payload, paths=paths)
             elif parsed.path == "/api/presets":
@@ -4018,10 +4134,9 @@ def create_http_server(
             try:
                 response = read_image_metadata(temporary)
             except (ValueError, RecursionError):
-                self._send_json(HTTPStatus.BAD_REQUEST, {
-                    "error_code": "nai_metadata_invalid",
-                    "error": "NAI 메타데이터를 읽을 수 없습니다. 메타데이터가 보존된 원본 PNG 또는 WebP를 사용해 주세요.",
-                })
+                self._send_json(HTTPStatus.BAD_REQUEST, NovelAIError("nai_metadata_invalid",
+                    "NAI 메타데이터를 읽을 수 없습니다. 메타데이터가 보존된 원본 PNG 또는 WebP를 사용해 주세요.",
+                    400, cause="METADATA_INPUT", stage="metadata_import").payload())
                 return
             finally:
                 temporary.unlink(missing_ok=True)
@@ -4350,6 +4465,7 @@ def create_http_server(
 
     class AnimaThreadingHTTPServer(ThreadingHTTPServer):
         def server_close(self) -> None:
+            tagger_setup.close()
             job_queue.close()
             super().server_close()
 
@@ -4742,6 +4858,11 @@ def _normalized_preset_request(value: Any) -> dict[str, Any]:
     if mode not in WILDCARD_MODES:
         raise ValueError(f"wildcard mode must be one of: {', '.join(sorted(WILDCARD_MODES))}")
     normalized["wildcard_mode"] = mode
+    from anima_app.prompt_routing import context_fields
+    normalized.update(context_fields(value))
+    if "workflow" in value:
+        from anima_app.workflows import normalize_workflow
+        normalized["workflow"] = normalize_workflow(value["workflow"], normalized)
     return normalized
 
 

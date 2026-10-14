@@ -1,0 +1,177 @@
+/* Main generation workspace. Scoped so the library retains its own layout. */
+body.generation-body {font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:#101722;color:#e6edf8;overflow:hidden}
+.generation-app {--border:#334157;--muted:#aabbd2;--accent:#a1c6ff;height:100dvh;min-height:0;grid-template-columns:390px minmax(0,1fr) 265px;grid-template-rows:64px minmax(0,1fr) auto;background:#101722}
+.generation-app * {box-sizing:border-box;min-width:0}
+.generation-app :focus-visible {outline:3px solid var(--accent);outline-offset:2px}
+.generation-app button,.generation-app input,.generation-app select,.generation-app textarea {font-family:inherit;border-radius:8px;font-size:13px}
+.generation-app input,.generation-app select,.generation-app textarea {border-color:#40516a;background:#0f1826;color:#e6edf8;max-width:100%}
+.generation-app input:not([type=checkbox]):not([type=radio]),.generation-app select {min-height:37px}
+.generation-app button,.generation-app .secondary-button {background:#223249;color:#dce8f9;border:1px solid #405574;min-height:34px;padding:7px 10px;line-height:1.35}
+.generation-app button:hover:not(:disabled) {background:#2b415e;border-color:#89aee2}
+.generation-app button:disabled {cursor:default;opacity:.45}
+.generation-app label {font-size:12px;color:#bdcce0;margin:10px 0 6px}
+.generation-app summary {cursor:pointer}
+.generation-app p {line-height:1.55;overflow-wrap:anywhere}
+.generation-header {grid-column:1/-1;display:flex;align-items:center;gap:32px;padding:0 22px;border-bottom:1px solid var(--border);background:#182233;z-index:3}
+.generation-brand {display:flex;align-items:center;gap:10px}
+.generation-brand h1 {margin:0;font-size:17px;letter-spacing:-.3px;white-space:nowrap}
+.generation-mark {display:grid;place-items:center;width:28px;height:30px;border:1px solid #88ade0;border-radius:8px;color:#c0d8ff;font-weight:750}
+.generation-nav {display:flex;align-items:center;gap:8px;flex:1;height:100%}
+.generation-nav button,.generation-header>button {width:auto;margin:0;background:transparent;border-color:transparent;font-size:13px}
+.generation-current {padding:10px 18px;border:1px solid #4f6c94;border-radius:8px;background:#253a56;color:#d8e8ff;font-size:13px;font-weight:650}
+.generation-header>button {color:#aabbd2}
+.generation-app .control-frame,.generation-app .history-frame,.generation-app .workspace-frame {height:100%;max-height:none;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:#40516a transparent}
+.generation-app .control-frame {padding:0;border-right:1px solid var(--border);background:#151f2e}
+.generation-controls-scroll {padding:18px 18px 28px}
+.generation-app .control-groups {gap:12px}
+.generation-app .control-group {border:1px solid var(--border);border-radius:10px;background:#172334;overflow:visible}
+.generation-app .control-group>summary {padding:13px 12px;font-size:13px;color:#dfebfb;flex-wrap:wrap;gap:4px 8px}
+.generation-app .control-group>summary::after {color:#91b7ec;margin-left:auto}
+.generation-app .control-group-body {padding:0 12px 14px;border-color:var(--border)}
+.generation-app [data-control-group="prompt-generate"] {background:transparent;border:0}
+.generation-app [data-control-group="prompt-generate"]>summary {padding:4px 0 10px}
+.generation-app [data-control-group="prompt-generate"] .control-group-body {border:0;padding:0}
+.generation-app #prompt {min-height:180px;line-height:1.65;font-size:14px;padding:12px}
+.generation-app #negative {font-size:13px}
+.generation-app .generation-fold {border-top:1px solid var(--border);margin-top:12px}
+.generation-app .generation-fold>summary {padding:12px 0;font-size:12px;color:#b9cde8;min-height:42px}
+.generation-app .generation-fold>section,.generation-app .generation-fold>form {border:0;margin:0;padding:0}
+.generation-app .prompt-tools-block {border:0;margin:0;padding:0}
+.generation-app .prompt-tools-block .row {align-items:end}
+.generation-app .prompt-tools-block button {margin:0}
+.generation-app #prompt-converter {margin-top:16px;font-size:12px}
+.generation-app #prompt-converter>summary {padding:8px 0}
+.generation-app #provider-status {font-size:11px;margin:8px 0 18px;color:var(--muted)}
+.generation-app .generation-model-name {width:100%;order:2;color:#9bb9df;font-size:11px;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.generation-app .preset-strip {margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+.generation-app .control-frame button.is-selected,.generation-app .history-filter.active {background:#304d76;border-color:#8bb6f6;color:#fff}
+.generation-app .auto-queue-panel {background:transparent}
+.generation-app #nai-language-panel {margin-top:18px;font-size:12px}
+.generation-app .side-status-panel {margin-top:18px}
+.generation-app .row {grid-template-columns:repeat(2,minmax(0,1fr))}
+.generation-app .workspace-frame {padding:20px;display:flex;flex-direction:column;gap:12px;background:#101722}
+.generation-app .result-panel {display:flex;flex-direction:column;flex:1;border:0;padding:0;background:transparent;border-radius:0;min-height:min-content}
+.generation-app .result-header {gap:12px;min-height:28px;flex-shrink:0;margin-bottom:12px}
+.generation-app .result-header h2 {font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.8;max-width:80%;color:#c3d2e8}
+.generation-app .result-header span {white-space:nowrap;font-size:11px}
+.generation-app #preview {display:block;width:100%;max-width:100%;height:clamp(260px,calc(100dvh - 340px),850px);min-height:260px;object-fit:contain;background:#0b121d;border:1px solid #26354b;border-radius:12px;margin:0}
+.generation-empty {flex:1;min-height:360px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;border:1px dashed #33445e;border-radius:14px;background:radial-gradient(ellipse at 50% 45%,#1c2b41 0%,#101925 65%);padding:38px 22px}
+.generation-empty h2 {font-size:20px;font-weight:600;margin:0;letter-spacing:-.6px}
+.generation-empty p {font-size:13px;color:var(--muted);max-width:350px;margin:0}
+.generation-empty-actions {display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:8px}
+.generation-empty-actions button {width:auto;margin:0}
+.generation-empty-art {position:relative;width:116px;height:100px;margin-bottom:14px}
+.generation-empty-art span {position:absolute;inset:15px 18px;border:1px solid #6684ad;background:linear-gradient(145deg,#385376,#17283d);border-radius:10px;transform:rotate(-16deg)}
+.generation-empty-art span:nth-child(2) {transform:translateX(12px) rotate(8deg);background:linear-gradient(145deg,#587094,#203249)}
+.generation-empty-art span:nth-child(3) {transform:translate(24px,6px) rotate(22deg);background:linear-gradient(145deg,#87a6cf,#334b70)}
+.generation-app .result-actions {display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.generation-app .result-actions button,.generation-app .result-actions a {width:auto;margin:0;padding:8px 12px;font-size:12px;border-radius:8px;min-height:36px}
+.generation-app .result-actions a {background:#304d76;color:#e6edf8}
+.generation-app .result-summary {grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:8px;margin:0 0 12px}
+.generation-app .summary-item {padding:8px 10px;background:#162132;border-color:#2c3c52}
+.generation-app .summary-item strong {font-size:10px;font-weight:500;color:#96abc7}
+.generation-app .summary-item span {font-size:12px}
+.generation-app .result-json {margin-top:2px;font-size:12px;color:#9eb5d4}
+.generation-app .result-json summary {padding:8px 0}
+.generation-app .generation-stages {position:static;flex-shrink:0;background:#19283b;border-color:#405574}
+.generation-app .history-frame {border-left:1px solid var(--border);background:#151f2e;padding:20px 14px}
+.generation-app .history-panel {padding:0;border:0;background:transparent}
+.generation-app .history-header {margin-bottom:16px}
+.generation-app .history-header h2 {font-size:14px}
+.generation-app .history-header span {font-size:10px}
+.generation-app .history-search input {font-size:11px}
+.generation-app .history-tabs {gap:4px;margin:12px 0}
+.generation-app .history-tabs button {font-size:11px;min-height:32px;padding:6px 4px;margin:0}
+.generation-app .history {grid-template-columns:minmax(0,1fr);gap:12px}
+.generation-app .history-item {border-color:#3a4a62;background:#192638;border-radius:10px;overflow:hidden}
+.generation-app .history-thumb {height:180px;object-fit:contain;background:#0d1521}
+.generation-app .history-item strong {font-size:12px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.generation-app .history-action {font-size:11px;min-height:30px;margin:0}
+.generation-app .history-storage {font-size:11px}
+.generation-dock {grid-column:1/-1;display:flex;align-items:center;gap:24px;padding:12px 22px;border-top:1px solid #40516a;background:#182536;z-index:4;box-shadow:0 -8px 24px #080f181f}
+.generation-dock-info {flex:1}
+.generation-request-summary {font-size:12px;color:#cee0f7;line-height:1.5}
+.generation-app .generation-dock #queue-status {font-size:11px;color:#abc0de;margin:3px 0 0;line-height:1.4;max-height:3em;overflow:auto}
+.generation-blocked {margin:3px 0 0;font-size:11px;color:#e4c898}
+.generation-dock-actions {display:flex;gap:8px;align-items:center}
+.generation-app .generation-dock-actions button {margin:0;width:auto;min-height:44px;padding:10px 16px;font-size:12px}
+.generation-app .generation-dock #generate-button {background:#9fc4fa;color:#10203a;border-color:#b1d1ff;font-size:14px;font-weight:750;min-width:160px}
+.generation-app .generation-dock #generate-button:hover:not(:disabled) {background:#bed8ff}
+.generation-app .generation-dock #stop-queue {border-color:#6c5263;color:#f0bfc8;background:#302739}
+.generation-app.history-collapsed {grid-template-columns:390px minmax(0,1fr)}
+@media(min-width:1800px) {.generation-app {grid-template-columns:430px minmax(0,1fr) 300px}.generation-app.history-collapsed {grid-template-columns:430px minmax(0,1fr)}}
+@media(max-width:1250px) and (min-width:781px) {
+  .generation-app {grid-template-columns:340px minmax(0,1fr);grid-template-rows:64px minmax(0,1fr) auto}
+  .generation-app.history-collapsed {grid-template-columns:340px minmax(0,1fr)}
+  .generation-app .history-frame {grid-column:auto;grid-row:2;grid-column:2;z-index:2;justify-self:end;width:265px;box-shadow:-16px 0 32px #0005;border-top:0}
+  .generation-app .workspace-frame {grid-row:2;grid-column:2;padding:16px}
+  .generation-app .control-frame {grid-row:2;grid-column:1}
+  .generation-app .generation-dock {grid-row:3;gap:12px;padding:10px 16px}
+  .generation-app .generation-dock-actions button {padding:8px 10px}
+  .generation-app .generation-dock #generate-button {min-width:120px}
+}
+@media(max-width:780px) {
+  body.generation-body {overflow:auto}
+  .generation-app {height:auto;min-height:100dvh;display:flex;flex-direction:column;padding-bottom:170px}
+  .generation-header {position:sticky;top:0;padding:10px 12px;gap:10px;flex-wrap:wrap;min-height:60px}
+  .generation-brand h1 {font-size:14px}.generation-mark {display:none}
+  .generation-nav {gap:2px;justify-content:flex-end}.generation-current {padding:8px 10px}
+  .generation-header>button {margin-left:auto;padding:6px 10px;font-size:11px}
+  .generation-app .control-frame,.generation-app .workspace-frame,.generation-app .history-frame {height:auto;overflow:visible;border:0;max-height:none}
+  .generation-controls-scroll {padding:16px}
+  .generation-app .workspace-frame {padding:16px;border-top:1px solid var(--border)}
+  .generation-app .history-frame {padding:16px;border-top:1px solid var(--border)}
+  .generation-app .history {grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .generation-app #preview {height:60dvh}
+  .generation-empty {min-height:330px;padding:24px 18px}
+  .generation-app .generation-dock {position:fixed;bottom:0;left:0;right:0;flex-direction:column;gap:8px;align-items:stretch;padding:10px 12px max(10px,env(safe-area-inset-bottom));max-height:40dvh;overflow:auto}
+  .generation-dock-info {max-height:72px;overflow:auto}
+  .generation-dock-actions {gap:6px}
+  .generation-app .generation-dock-actions button {flex:1;padding:8px 6px;font-size:11px}
+  .generation-app .generation-dock #generate-button {min-width:0;flex:1.3;font-size:13px}
+  .generation-request-summary {font-size:11px}
+  .generation-app .control-frame button,.generation-app input:not([type=checkbox]):not([type=radio]),.generation-app select {min-height:44px}
+}
+/* Ordered generation and post-processing, with settings kept inside each step. */
+.generation-app .workflow-body {padding:12px}
+.generation-app .workflow-presets,.generation-app .workflow-add {display:flex;gap:6px;flex-wrap:wrap}
+.generation-app .workflow-presets button {flex:1;padding:8px 5px;font-size:12px}
+.generation-app .workflow-list {padding:0;margin:12px 0;list-style:none;display:grid;gap:8px}
+.generation-app .workflow-first,.generation-app .workflow-step {border:1px solid var(--line,#394454);border-radius:9px;background:#152031;padding:10px;min-width:0}
+.generation-app .workflow-first {border-color:#5277a1;color:#c4dbf5;font-size:13px}
+.generation-app .workflow-step-head {display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:13px}
+.generation-app .workflow-step-actions {display:flex;gap:4px}
+.generation-app .workflow-step-actions button {padding:4px 8px;min-width:0}
+.generation-app .workflow-step summary {padding:8px 0 2px;font-size:12px;color:var(--muted,#a7b6cc);cursor:pointer}
+.generation-app .workflow-fields {display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 0}
+.generation-app .workflow-fields label,.generation-app .workflow-prompts label {font-size:11px;display:grid;gap:5px;min-width:0}
+.generation-app .workflow-fields input,.generation-app .workflow-fields select,.generation-app .workflow-prompts textarea {box-sizing:border-box;max-width:100%;min-width:0;width:100%}
+.generation-app .workflow-check {display:flex;gap:8px;align-items:center;font-size:12px;padding:5px 0}
+.generation-app .workflow-check input {width:auto;order:-1}
+.generation-app .workflow-prompts {display:grid;gap:8px;margin:8px 0}
+.generation-app .workflow-prompts[hidden] {display:none}
+.generation-app .workflow-add select {flex:1;min-width:100px;width:0}
+.generation-app .workflow-error {font-size:12px;color:#edbf8c;margin:8px 0 0}
+/* Prompt adaptation and durable case links share the existing compact controls. */
+.authoring-panel {display:grid; gap:8px; margin:10px 0; padding:12px; border:1px solid var(--border, #374151); border-radius:10px; min-width:0;}
+.authoring-panel p, #authoring-status, .authoring-result-sources p {font-size:12px; line-height:1.5; color:var(--muted, #a9b6c6); margin:0;}
+.authoring-panel label {display:grid; gap:6px; font-size:12px;}
+.authoring-actions, .authoring-source {display:flex; gap:6px; flex-wrap:wrap;}
+.authoring-source {margin-top:6px;}
+.authoring-source button {overflow-wrap:anywhere; min-width:0;}
+.authoring-result-sources {margin:10px 16px;}
+#prompt-plan-dialog {background:#17202c; color:#e8eef5; border:1px solid #42526a; border-radius:16px; padding:24px; width:min(1000px, calc(100vw - 32px)); max-width:100%; max-height:88vh; overflow:auto; box-sizing:border-box;}
+#prompt-plan-dialog::backdrop {background:#05090ec7;}
+#prompt-plan-content {display:grid; gap:12px; min-width:0;}
+.prompt-plan-stage {min-width:0; border-top:1px solid #42526a;}
+.prompt-plan-stage pre {white-space:pre-wrap; overflow-wrap:anywhere; background:#0c1420; padding:14px; border-radius:8px; font-size:13px; min-height:0; max-height:260px; overflow:auto;}
+.prompt-plan-stage p {color:#bdcadd; font-size:13px;}
+
+/* The app-wide locale remains reachable from every generation layout. */
+.generation-header #nai-language-panel{display:flex;align-items:center;gap:8px;margin:0;position:relative}
+.generation-header #nai-language-panel label{margin:0;font-size:12px;white-space:nowrap}
+.generation-header #nai-language{width:auto;min-width:110px;margin:0;padding:7px 10px}
+.generation-header #nai-language-scope{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.generation-header #nai-language-status:empty{display:none}
+.generation-header #nai-language-status{max-width:200px;font-size:11px;margin:0}
+@media(max-width:780px){.generation-header #nai-language-panel label{display:none}.generation-header #nai-language{min-width:90px}}

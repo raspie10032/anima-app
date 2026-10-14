@@ -10,7 +10,7 @@ from email.utils import parsedate_to_datetime
 
 import requests
 
-from anima_app.providers.novelai.errors import NovelAIError
+from anima_app.providers.novelai.errors import NovelAIError, redact
 from anima_app.providers.novelai.eligibility import FocusedContext, validate_opus_free_payload, verify_opus_state
 from anima_app.providers.novelai.models import GENERATE_IMAGE_URL, SUBSCRIPTION_URL
 
@@ -63,7 +63,9 @@ def post_json(
     limit_opus_free: bool = False,
     subscription_transport: SubscriptionTransport | None = None,
     focused_context: FocusedContext | None = None,
+    stage: str | None = None,
 ) -> bytes:
+    stage = stage or ("generation" if url == GENERATE_IMAGE_URL else "vibe_encoding")
     if limit_opus_free:
         if url != GENERATE_IMAGE_URL:
             raise NovelAIError("nai_opus_request_blocked", "Opus 보호 모드에서 확인할 수 없는 요청을 차단했습니다.", 400)
@@ -79,13 +81,13 @@ def post_json(
         _check_cancelled(cancelled)
     try:
         return _post_locked(url, headers, body, payload, active_transport, subscription_transport,
-                            sleep, cancelled, audit, limit_opus_free, coordinator)
+                            sleep, cancelled, audit, limit_opus_free, coordinator, stage)
     finally:
         coordinator.lock.release()
 
 
 def _post_locked(url, headers, body, payload, transport, subscription_transport,
-                 sleep, cancelled, audit, limit_opus_free, coordinator) -> bytes:
+                 sleep, cancelled, audit, limit_opus_free, coordinator, stage) -> bytes:
     for attempt in range(MAX_429_RETRIES + 1):
         coordinator.wait(sleep, cancelled)
         if limit_opus_free:
@@ -107,16 +109,34 @@ def _post_locked(url, headers, body, payload, transport, subscription_transport,
         except (requests.HTTPError, urllib.error.HTTPError) as exc:
             status_code = _status_code(exc)
             if status_code == 429:
-                coordinator.next_request_at = max(coordinator.next_request_at, coordinator.clock() + _retry_delay(exc))
+                delay = _retry_delay(exc)
+                coordinator.next_request_at = max(coordinator.next_request_at, coordinator.clock() + delay)
+                if audit is not None:
+                    audit.setdefault("rate_limit_events", []).append({"attempt": attempt + 1, "status": 429,
+                        "wait_seconds": delay, "retry_scheduled": attempt < MAX_429_RETRIES})
             if status_code != 429 or attempt == MAX_429_RETRIES:
                 code = "nai_auth_failed" if status_code in {401, 403} else "nai_balance_required" if status_code == 402 else "nai_rate_limited" if status_code == 429 else "nai_http_error"
                 public_status = status_code if status_code in {401, 402, 403, 429} else 502
+                cause = {401: "NAI_AUTH", 402: "VIBE_PAYMENT" if stage == "vibe_encoding" else "NAI_PAYMENT",
+                         403: "NAI_FORBIDDEN", 400: "NAI_REQUEST", 422: "NAI_REQUEST", 429: "NAI_RATE_LIMIT"}.get(
+                             status_code, "NAI_SERVER" if status_code >= 500 else "NAI_HTTP")
                 raise NovelAIError(code, f"NovelAI request failed with HTTP {status_code}", public_status,
-                                   unknown=status_code >= 500 or status_code == 0) from None
-        except (TimeoutError, requests.Timeout):
-            raise NovelAIError("nai_timeout", "NovelAI 응답 시간이 초과되었습니다. 결과가 불확실하므로 자동 재전송하지 않습니다.", 504, unknown=True) from None
-        except (urllib.error.URLError, requests.RequestException):
-            raise NovelAIError("nai_network_error", "NovelAI 연결에 실패했습니다. 결과가 불확실하므로 자동 재전송하지 않습니다.", unknown=True) from None
+                                   unknown=status_code >= 500 or status_code == 0, cause=cause, stage=stage,
+                                   http_status=status_code, exception_type=type(exc).__name__,
+                                   details=_http_details(exc, headers) + f"\nAutomatic retries used: {attempt}") from None
+        except requests.exceptions.SSLError as exc:
+            raise NovelAIError("nai_tls_error", "NovelAI TLS verification failed.", unknown=True, stage=stage,
+                               exception_type=type(exc).__name__) from None
+        except (TimeoutError, requests.Timeout) as exc:
+            raise NovelAIError("nai_timeout", "NovelAI 응답 시간이 초과되었습니다. 결과가 불확실하므로 자동 재전송하지 않습니다.", 504,
+                               unknown=True, stage=stage, exception_type=type(exc).__name__) from None
+        except (urllib.error.URLError, requests.RequestException) as exc:
+            raise NovelAIError("nai_network_error", "NovelAI 연결에 실패했습니다. 결과가 불확실하므로 자동 재전송하지 않습니다.",
+                               unknown=True, stage=stage, exception_type=type(exc).__name__) from None
+        except NovelAIError as exc:
+            if exc.stage == "validation":
+                exc.stage = stage
+            raise
     raise AssertionError("unreachable")
 
 
@@ -129,10 +149,32 @@ def _verify_subscription(headers: dict[str, str], model: str,
         if not isinstance(response, bytes) or len(response) > MAX_SUBSCRIPTION_BYTES:
             raise ValueError("invalid subscription response")
         state = json.loads(response)
-    except (requests.RequestException, urllib.error.URLError, TimeoutError, ValueError, RecursionError):
+    except (requests.RequestException, urllib.error.URLError, TimeoutError, ValueError, RecursionError) as exc:
         # A failed GET never submitted a generation, so its outcome is known.
-        raise NovelAIError("nai_opus_check_failed", "Opus 자격 조회에 실패하여 생성 요청을 차단했습니다. 계정 상태와 연결을 확인해 주세요.", 503) from None
-    return verify_opus_state(state, model)
+        status = _status_code(exc) if isinstance(exc, (requests.HTTPError, urllib.error.HTTPError)) else None
+        raise NovelAIError("nai_opus_check_failed", "Opus 자격 조회에 실패하여 생성 요청을 차단했습니다. 계정 상태와 연결을 확인해 주세요.", 503,
+                           cause="NAI_AUTH" if status == 401 else "SUBSCRIPTION_CHECK", stage="subscription",
+                           http_status=status, exception_type=type(exc).__name__,
+                           details=_http_details(exc, headers) if status is not None else "Account check failed before image submission.") from None
+    try:
+        return verify_opus_state(state, model)
+    except NovelAIError as exc:
+        exc.stage = "subscription"
+        raise
+
+
+def _http_details(error, headers) -> str:
+    """Only bounded JSON message/error strings; never headers, HTML or request bodies."""
+    token = headers.get("Authorization", "").removeprefix("Bearer ")
+    try:
+        raw = error.read(16385) if isinstance(error, urllib.error.HTTPError) else error.response.content
+        body = json.loads(raw) if len(raw) <= 16384 else None
+    except (AttributeError, OSError, TypeError, ValueError, RecursionError):
+        body = None
+    if not isinstance(body, dict):
+        return "No bounded JSON server message available."
+    return "\n".join(f"Server {key}: {redact(body[key], (token,))}" for key in ("message", "error")
+                     if isinstance(body.get(key), str))
 
 
 def _requests_subscription_transport(url: str, headers: dict[str, str], timeout: float) -> bytes:

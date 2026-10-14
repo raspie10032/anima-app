@@ -1,13 +1,52 @@
 # Anima APP
 
-Lightweight local Anima image-generation app with a browser GUI.
+Generate with local **Anima** or **NovelAI**, arrange detailing/upscaling stages, and find reusable prompts from similar images in a local browser workspace. The interface supports **English / 한국어 / 日本語**.
 
-The optional NovelAI provider supports T2I, Img2Img, masked and focused inpainting, Vibe Transfer, Precise Reference and sequential automatic detailing through the browser queue, presets, history and manifests. It includes five-character prompts, six weight-syntax conversions and optional native WD matching of original character prompts. Configure `NAI_ACCESS_TOKEN` in the server environment; local Anima remains the default. References and Img2Img require explicit removal of Opus protection. Focused crops have their own strict preflight. See [docs/NOVELAI_PROVIDER.md](docs/NOVELAI_PROVIDER.md) for setup, model dependencies, costs and the local/mock versus live validation boundary.
+## Start here
+
+| Task | Documentation |
+|---|---|
+| Install, connect NAI, and generate a first image | **[한국어](docs/IMAGE_GENERATION_KO.md) · [English](docs/IMAGE_GENERATION_EN.md) · [日本語](docs/IMAGE_GENERATION_JA.md)** |
+| Find the NAI token setting | **[NAI token setup](docs/NAI_TOKEN_SETUP.md)** — entered in the server's terminal environment, not a web form |
+| Connect NAI → Anima or Anima → NAI | [한국어](docs/GENERATION_WORKSPACE_KO.md) · [English](docs/GENERATION_WORKSPACE_EN.md) |
+| Search images, compare cases, reuse artist combinations | [한국어](docs/IMAGE_LIBRARY_KO.md) · [English](docs/IMAGE_LIBRARY_EN.md) |
+| CLI, API, troubleshooting | [Full Korean manual](docs/USER_GUIDE_KO.md) · [Technical reference](docs/APP_REFERENCE.md) |
+| Sources, attribution, models | [References](docs/REFERENCES.md) · [Third-party notices](NOTICE.md) |
+
+The first-image guides explain each screen, settings to check before generation, ordered post-processing, intermediate outputs, selective prompt reuse, and recovery after an error. [The main update notes](docs/MAIN_UPDATE_2026-10-14.md) distinguish implemented features from remaining work.
+
+## NAI token: where to enter it
+
+There is **no token input box in the browser**. Obtain your Persistent API Token from NovelAI **Settings → Account → Get Persistent API Token**, then set `NAI_ACCESS_TOKEN` in the terminal that starts Anima APP. See [NovelAI's official account documentation](https://docs.novelai.net/en/text/usersettings/account/).
+
+Linux / Bash, from an installed checkout with its environment activated:
+
+```bash
+read -rsp 'NAI token: ' NAI_ACCESS_TOKEN; printf '\n'
+export NAI_ACCESS_TOKEN
+python -m anima_app.cli serve --host 127.0.0.1 --port 8768 --open
+```
+
+Windows PowerShell: follow the [hidden-input token command](docs/NAI_TOKEN_SETUP.md#windows-powershell). After launch, select **NovelAI** under **Generation engine**; `/api/nai/status` reports whether a token was configured without exposing it. A configured token is not proof that it is valid. Changing the token requires restarting the server from the environment containing the new value. Use a stable port to retain browser drafts and language preferences at the same origin.
+
+## Capabilities
+
+The optional NovelAI provider supports T2I, Img2Img, masked and focused inpainting, Vibe Transfer, Precise Reference and sequential automatic detailing through the browser queue, presets, history and manifests. It includes up to 22 saved character slots (V5: 22 active; V4/V4.5: 6), six weight-syntax conversions and optional native WD matching of original character prompts. Hide or disable slots without losing text and positions; presets, history and app PNGs restore the full slot bank. Configure `NAI_ACCESS_TOKEN` in the server environment; local Anima remains the default. References and Img2Img require explicit removal of Opus protection. Focused crops have their own strict preflight. See [docs/NOVELAI_PROVIDER.md](docs/NOVELAI_PROVIDER.md) for setup, model dependencies, costs and the local/mock versus live validation boundary.
+
+This source update adds V5 Full **Medium Effort** to generation, Img2Img, inpainting and detailing: 14 steps, Euler Ancestral, zero CFG rescale and fixed negative conditioning. English/Korean/Japanese interface text, NAI guidance and cause-specific error explanations follow the saved browser language without changing generation settings. Errors retain their code, execution stage, upstream HTTP status and sanitized details across queue results and partial-result history; prompts, records and raw technical details retain their original text. See the [2.4.6 node update checklist](docs/NAI_NODE_UPDATE_2.4.6.md) for source commits, per-requirement verification, reproduction commands and package boundaries.
+
+The update also adds WD ViT v3 / WD EVA02 Large v3 / PixAI Tagger v1.0 selection for original-character matching. Prepare the selected model in the detailer panel to see per-file download progress and cancellation; generation uses the prepared cache. Install `.[wd-matching]` or `.[pixai-matching]` in the app environment first. Model choice is preserved in presets, history and PNG metadata; [setup and validation limits](docs/NOVELAI_PROVIDER.md#wd-vit--eva02--pixai-선택과-준비) describe the optional dependencies and local CPU evidence.
+
+This update targets RS NAI **2.4.6, commit `4de9146`**. Upstream 2.5.0 (`ed96a4c`) adds reference inset generation and portable character assets after that pin; those additions are not included here. The app version remains 0.5.0 for this main source update. Use the source-checkout ZIP for the bundled local runtime; the wheel alone omits that runtime. Actual NAI acceptance/billing, GPU operation and Windows GUI verification remain separate from the local/mock acceptance.
 
 Anima APP packages a focused Anima text-to-image workflow around a local, project-owned `models` folder. It does not require launching a ComfyUI server for normal generation.
 
 ## Reference Map
 
+- [App language / 앱 언어 / アプリの言語](docs/LOCALES.md): English, Korean and Japanese across generation, workflow and image workspace, with saved preference and original prompt preservation.
+
+- [Generation workspace (한국어)](docs/GENERATION_WORKSPACE_KO.md) / [English](docs/GENERATION_WORKSPACE_EN.md): main-screen layout, ordered NAI/Anima detailing and upscaling, per-stage settings, intermediate results and live acceptance scope.
+- [Image library guide (한국어)](docs/IMAGE_LIBRARY_KO.md) / [English](docs/IMAGE_LIBRARY_EN.md): image workspace, reference-based comparison, undoable prompt drafts, recorded artist combinations, optional VRS-INT indexing, and evaluation limits.
 - [docs/USER_GUIDE_KO.md](docs/USER_GUIDE_KO.md): 설치, GUI, CLI, AI 에이전트 API, 오류 해결을 포함한 한국어 상세 사용 가이드.
 - [docs/REFERENCES.md](docs/REFERENCES.md): public source references, model asset layout, wildcard attribution, and release boundaries.
 - [NOTICE.md](NOTICE.md): third-party runtime, optional detector runtime, LoRA redistribution, and wildcard notices.
@@ -168,7 +207,7 @@ CLI, API, and GUI generation defaults:
 - Scheduler: `sgm_uniform`
 - LoRA default strength: `1.0`
 
-The browser GUI uses Korean labels by default while keeping API field names and request values stable.
+The browser GUI supports English, Korean and Japanese through the **App language** setting. It uses a supported browser language on first visit, with English as the fallback, and saves the selection without changing API fields or request values.
 
 Generated PNG files embed A1111-style `parameters` metadata, and app-managed outputs share a searchable filename stem with their generation-info JSON files.
 

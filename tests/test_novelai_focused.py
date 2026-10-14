@@ -110,7 +110,11 @@ def test_model_routing_and_per_crop_contract(tmp_path, monkeypatch, assets, mode
         params = call["parameters"]
         assert call["model"] == infill == item["transmitted_model"]
         assert call["action"] == "infill"
-        assert params["steps"] == 28 == item["transmitted_steps"]
+        assert params["steps"] == (14 if "-medium" in model else 28) == item["transmitted_steps"]
+        if model.startswith(("nai-diffusion-4", "nai-diffusion-5")):
+            assert params["img2img"] == {"strength": 0, "color_correct": True}
+        else:
+            assert "img2img" not in params
         assert params["inpaintImg2ImgStrength"] == 0 and params["noise"] == 0
         assert params["n_samples"] == 1 and max(params["width"], params["height"]) <= 1024
         assert item["opus_preflight"]["status"] == "verified"

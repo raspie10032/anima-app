@@ -91,7 +91,7 @@ def main():
         try:
             with sync_playwright() as pw:
                 browser = pw.chromium.launch(headless=True)
-                page = browser.new_page(viewport={"width": 1440, "height": 1100})
+                page = browser.new_page(locale="ko-KR", viewport={"width": 1440, "height": 1100})
                 page.on("pageerror", lambda e: errors.append(str(e)))
                 page.route("**/*", lambda r: r.continue_() if urlparse(r.request.url).hostname in {"127.0.0.1", "localhost", None} else r.abort())
                 page.goto(address)

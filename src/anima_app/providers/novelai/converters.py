@@ -4,6 +4,7 @@
 import math
 import re
 
+from anima_app.providers.novelai.diagnostics import collect_notices, notice
 from anima_app.providers.novelai.requests import reject_credentials
 from anima_app.requests import MAX_PROMPT_CHARACTERS
 
@@ -143,6 +144,7 @@ def _eval_comfy_segment(segment):
             if parsed is None:
                 level_weight, child_text = _DEFAULT_WEIGHT, inner
             elif not (_WEIGHT_MIN <= parsed <= _WEIGHT_MAX):
+                notice(f"가중치 {str(parsed)[:32]}는 -5~5 범위 밖이므로 1.1로 대체했습니다: {_restore_artist(body[:160])}")
                 level_weight, child_text = _DEFAULT_WEIGHT, body
             else:
                 level_weight, child_text = parsed, body
@@ -157,6 +159,8 @@ def _eval_comfy_segment(segment):
         # should have been "\(tag:o\)"). artist: is already guarded, so any
         # remaining colon is a malformed group -> drop it entirely.
         if not inner_text or (":" in inner_text and not has_valid_explicit_weight):
+            if inner_text:
+                notice(f"잘못된 가중치 그룹을 제외했습니다: {_restore_artist(segment[:160])}. 문자 괄호는 \\( 및 \\)로 이스케이프하세요.")
             return None
         return (inner_text, level_weight * inner_weight)
 
@@ -220,6 +224,8 @@ def parse_naiv4(text):
                 chunk = chunk[open_match.end():]
 
         if "::" in chunk:
+            if chunk.split("::", 1)[1].strip():
+                notice(f"닫는 :: 뒤의 문구를 제외했습니다: {_restore_artist(chunk[:160])}. 닫는 :: 뒤에 쉼표를 넣으세요.")
             content = chunk.split("::", 1)[0].strip()
             weight = current_weight if scope_active else 1.0
             if content:
@@ -337,6 +343,7 @@ def _oldnai_encoding(weight, text):
     Power math and the negative/zero fallback are unchanged.
     """
     if weight <= 0:
+        notice(f"구형 NAI에서 가중치 {weight}를 표현할 수 없어 [태그] (0.95)로 대체했습니다: {_restore_artist(text[:160])}. 0·음수 보존에는 V4 형식을 사용하세요.")
         return ("neg", "[", "]")
     if weight < 1:
         n = _closest_power(weight, 0.95)
@@ -386,17 +393,15 @@ def convert_prompt(payload: dict[str, object]) -> dict[str, object]:
                 raise ValueError("Prompt conversion supports at most 64 nested scopes")
         elif char in ")}]":
             depth = max(0, depth - 1)
-    tags = parsers[source](text)
-    if any(not math.isfinite(weight) for _, weight in tags):
-        raise ValueError("Prompt weight must be finite")
-    converted = serializers[target](tags)
+    with collect_notices() as notices:
+        tags = parsers[source](text)
+        if any(not math.isfinite(weight) for _, weight in tags):
+            raise ValueError("Prompt weight must be finite")
+        converted = serializers[target](tags)
     if len(converted) > MAX_PROMPT_CHARACTERS:
         raise ValueError("Converted prompt exceeds the supported text length")
-    notices = []
     if target == "oldnai":
         notices.append("구형 NAI는 1.05/0.95 배수로 근사합니다. 0·음수 가중치는 [태그]로 대체됩니다.")
     if source == "oldnai":
         notices.append("구형 NAI 가중치는 기존 노드와 같이 소수 둘째 자리로 반올림합니다.")
-    if source == "comfyui":
-        notices.append("기존 노드 규칙: 명시 가중치 범위는 -5~5이며 범위 밖은 1.1로 대체합니다. 잘못된 그룹은 제외될 수 있으니 미리보기를 확인하세요.")
     return {"source": source, "target": target, "original": text, "converted": converted, "warnings": notices}

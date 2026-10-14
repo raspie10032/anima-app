@@ -29,7 +29,15 @@ jobs:
       - name: Lint Python
         run: python -m ruff check src tests scripts
       - name: Check browser JavaScript
-        run: node --check src/anima_app/static/app.js
+        run: |
+          node --check src/anima_app/static/app.js
+          node --check src/anima_app/static/library.js
+          node --check src/anima_app/static/i18n.js
+          node --check src/anima_app/static/authoring.js
+          node --check src/anima_app/static/generation.js
+          node --check src/anima_app/static/workflow.js
+          node --check src/anima_app/static/nai-i18n.js
+          node --check src/anima_app/static/nai-errors.js
       - name: Run CPU-safe tests
         run: python -m pytest -q
       - name: Verify vendored package integrity

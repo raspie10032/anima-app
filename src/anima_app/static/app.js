@@ -1,3 +1,5 @@
+const tr = window.AppI18n.msg;
+    const {text: naiText, bind: naiBind} = window.NaiI18n;
     const animaDefaults = JSON.parse(document.getElementById("anima-defaults").textContent);
     const form = document.getElementById("generate-form");
     const sam3DetailerControls = document.getElementById("sam3-detailer-controls");
@@ -48,6 +50,7 @@
     let providerCapabilities = null;
     let naiTokenConfigured = false;
     const naiCharacters = document.getElementById("nai-characters");
+    const naiCharacterCount = document.getElementById("nai-character-count");
     const naiAddCharacter = document.getElementById("nai-add-character");
     const naiUseCoords = document.getElementById("nai-use-coords");
     const naiUseOrder = document.getElementById("nai-use-order");
@@ -172,6 +175,9 @@
     let stageTimer = null;
     let stageHideTimer = null;
     let progressPollTimer = null;
+    let taggerJob = null;
+    let taggerPollTimer = null;
+    let taggerSubmitting = false;
     let activeProgressId = "";
     let activeStageItems = [];
     let activeStageIndex = 0;
@@ -188,20 +194,20 @@
     let autocompleteIndex = -1;
     let autocompleteFragment = null;
     const stageStateLabels = {
-      pending: "대기",
-      active: "진행 중",
-      completed: "완료",
-      skipped: "건너뜀",
-      failed: "실패",
-      cancelled: "취소됨"
+      pending: tr("대기"),
+      active: tr("진행 중"),
+      completed: tr("완료"),
+      skipped: tr("건너뜀"),
+      failed: tr("실패"),
+      cancelled: tr("취소됨")
     };
     const stageVisibleStateLabels = {
       pending: "",
-      active: "진행 중",
+      active: tr("진행 중"),
       completed: "",
       skipped: "",
-      failed: "실패",
-      cancelled: "취소"
+      failed: tr("실패"),
+      cancelled: tr("취소")
     };
     const startingSizePresets = {
       square: {width: 1024, height: 1024},
@@ -214,41 +220,41 @@
       const card = document.createElement("div");
       card.className = "status-item";
       const title = document.createElement("strong");
-      title.textContent = label;
+      window.AppI18n.setText(title, () => label);
       const body = document.createElement("span");
-      body.textContent = value;
+      window.AppI18n.setText(body, () => value);
       card.append(title, body);
       return card;
     }
     function updateStatusText(payload) {
       if (!payload) {
-        return "확인 전";
+        return tr("확인 전");
       }
       if (payload.status === "update_available") {
-        return `새 버전 있음: ${payload.latest_version}`;
+        return tr`새 버전 있음: ${payload.latest_version}`;
       }
       if (payload.status === "up_to_date") {
-        return `최신 상태: ${payload.current_version}`;
+        return tr`최신 상태: ${payload.current_version}`;
       }
       if (payload.status === "update_check_failed") {
-        return "업데이트 확인 실패";
+        return tr("업데이트 확인 실패");
       }
       if (payload.version) {
-        return `현재: ${payload.version}`;
+        return tr`현재: ${payload.version}`;
       }
-      return payload.error || "알 수 없음";
+      return payload.error || tr("알 수 없음");
     }
     function renderUpdateStatus(payload) {
-      updateStatus.textContent = updateStatusText(payload);
+      window.AppI18n.setText(updateStatus, () => updateStatusText(payload));
       const href = payload?.latest_url || payload?.repository_url || "https://github.com/raspie10032/anima-app";
       updateLink.href = href;
-      updateLink.textContent = payload?.status === "update_available" ? "릴리스" : "GitHub";
+      window.AppI18n.setText(updateLink, () => payload?.status === "update_available" ? tr("릴리스") : "GitHub");
     }
     async function checkForUpdates() {
       const previousText = checkUpdateButton.textContent;
       checkUpdateButton.disabled = true;
-      checkUpdateButton.textContent = "확인 중...";
-      updateStatus.textContent = "GitHub 확인 중...";
+      window.AppI18n.setText(checkUpdateButton, () => tr("확인 중..."));
+      window.AppI18n.setText(updateStatus, () => tr("GitHub 확인 중..."));
       try {
         const response = await fetch("/api/update-check");
         const payload = await response.json();
@@ -256,25 +262,25 @@
         setResultPayload(payload);
       } catch (error) {
         renderUpdateStatus({status: "update_check_failed", error: String(error)});
-        setResultPayload({error: String(error)});
+        setResultPayload(error.payload || {error: String(error)});
       } finally {
-        checkUpdateButton.textContent = previousText;
+        window.AppI18n.setText(checkUpdateButton, () => previousText);
         checkUpdateButton.disabled = false;
       }
     }
     function readinessActionLabel(profile) {
       if (profile.ready) {
-        return "준비됨";
+        return tr("준비됨");
       }
-      return profile.prepare_source === "local" ? "로컬에서 복사" : "다운로드";
+      return profile.prepare_source === "local" ? tr("로컬에서 복사") : tr("다운로드");
     }
     function formatByteSize(value) {
       if (value === null || value === undefined || value === "") {
-        return "용량 미확인";
+        return tr("용량 미확인");
       }
       const bytes = Number(value);
       if (!Number.isFinite(bytes) || bytes < 0) {
-        return "용량 미확인";
+        return tr("용량 미확인");
       }
       if (bytes >= 1024 ** 3) {
         return `${(bytes / (1024 ** 3)).toFixed(2)} GB`;
@@ -291,44 +297,44 @@
       const imageCount = Number(outputs.image_count) || 0;
       const manifestCount = Number(outputs.manifest_count) || 0;
       const managedBytes = outputs.managed_bytes ?? ((Number(outputs.image_bytes) || 0) + (Number(outputs.manifest_bytes) || 0));
-      historyStorage.textContent = `이미지 ${imageCount.toLocaleString("ko-KR")}개 · ${formatByteSize(outputs.image_bytes)} / 기록 ${manifestCount.toLocaleString("ko-KR")}개 · ${formatByteSize(outputs.manifest_bytes)} / 관리 합계 ${formatByteSize(managedBytes)} / 디스크 여유 ${formatByteSize(outputs.disk_free_bytes)}`;
+      window.AppI18n.setText(historyStorage, () => tr`이미지 ${imageCount.toLocaleString(window.AppI18n.locale)}개 · ${formatByteSize(outputs.image_bytes)} / 기록 ${manifestCount.toLocaleString(window.AppI18n.locale)}개 · ${formatByteSize(outputs.manifest_bytes)} / 관리 합계 ${formatByteSize(managedBytes)} / 디스크 여유 ${formatByteSize(outputs.disk_free_bytes)}`);
     }
     function readinessSourceLabel(profile) {
       const size = formatByteSize(profile.prepare_size_bytes);
       if (profile.prepare_source === "local") {
-        return `로컬 복사 · ${size}`;
+        return tr`로컬 복사 · ${size}`;
       }
       if (profile.prepare_source === "huggingface") {
-        return `Hugging Face 다운로드 · ${size}`;
+        return tr`Hugging Face 다운로드 · ${size}`;
       }
-      return `원격 다운로드 · ${size}`;
+      return tr`원격 다운로드 · ${size}`;
     }
     function readinessRequirementLabel(requirement) {
-      return {required: "필수", recommended: "권장", optional: "선택"}[requirement] || "선택";
+      return {required: tr("필수"), recommended: tr("권장"), optional: tr("선택")}[requirement] || tr("선택");
     }
     function generationReadinessCard(generation = {}) {
       const card = document.createElement("article");
       card.className = "readiness-card generation-readiness-card";
       card.dataset.ready = String(Boolean(generation.ready));
       const title = document.createElement("strong");
-      title.textContent = "현재 생성 요청";
+      window.AppI18n.setText(title, () => tr("현재 생성 요청"));
       const summary = document.createElement("span");
       const problemCount = (generation.missing_files || []).length + (generation.invalid_files || []).length;
-      summary.textContent = generation.dry_run
-        ? `드라이런 · 모델 검사 생략 · ${generation.checkpoint || "체크포인트 미선택"}`
+      window.AppI18n.setText(summary, () => generation.dry_run
+        ? tr`드라이런 · 모델 검사 생략 · ${generation.checkpoint || tr("체크포인트 미선택")}`
         : generation.ready
-          ? `실행 가능 · ${generation.checkpoint}`
-          : `실행 불가 · ${problemCount}개 파일 미준비 · ${generation.checkpoint || "체크포인트 미선택"}`;
+          ? tr`실행 가능 · ${generation.checkpoint}`
+          : tr`실행 불가 · ${problemCount}개 파일 미준비 · ${generation.checkpoint || tr("체크포인트 미선택")}`);
       const files = document.createElement("ul");
       files.className = "readiness-files";
       for (const path of generation.missing_files || []) {
         const file = document.createElement("li");
-        file.textContent = `누락 ${path}`;
+        window.AppI18n.setText(file, () => tr`누락 ${path}`);
         files.append(file);
       }
       for (const path of generation.invalid_files || []) {
         const file = document.createElement("li");
-        file.textContent = `손상 ${path}`;
+        window.AppI18n.setText(file, () => tr`손상 ${path}`);
         files.append(file);
       }
       card.append(title, summary, files);
@@ -343,10 +349,10 @@
       generateButton.disabled = queueRunning || blocked || uploadBlocked;
       startQueueButton.disabled = queueRunning || blocked || uploadBlocked;
       const explanation = uploadBlocked
-        ? "파일 업로드가 끝날 때까지 기다려 주세요."
-        : (blocked ? (providerSelect.value === "novelai" ? "NAI_ACCESS_TOKEN 환경변수와 엔진 상태를 확인하세요." : "선택한 체크포인트의 필수 모델 파일을 먼저 준비하세요.") : "");
-      generateButton.title = explanation;
-      startQueueButton.title = explanation;
+        ? tr("파일 업로드가 끝날 때까지 기다려 주세요.")
+        : (blocked ? (providerSelect.value === "novelai" ? tr("NAI_ACCESS_TOKEN 환경변수와 엔진 상태를 확인하세요.") : tr("선택한 체크포인트의 필수 모델 파일을 먼저 준비하세요.")) : "");
+      window.AppI18n.setProperty(generateButton, "title", () => explanation);
+      window.AppI18n.setProperty(startQueueButton, "title", () => explanation);
       providerSelect.disabled = queueRunning || uploadBlocked;
       applyNaiMetadataButton.disabled = queueRunning || uploadBlocked || !naiMetadata || !naiMetadataModel.value;
       naiOperation.disabled = providerSelect.value !== "novelai" || queueRunning || uploadBlocked;
@@ -359,6 +365,7 @@
       document.getElementById("nai-detailer-panel").querySelectorAll("input, select, button").forEach((input) => {
         input.disabled = providerSelect.value !== "novelai" || queueRunning || uploadBlocked;
       });
+      syncTaggerControls();
     }
     function renderReadiness(payload) {
       const profiles = payload.profiles || [];
@@ -368,18 +375,18 @@
         card.className = "readiness-card";
         card.dataset.ready = String(Boolean(profile.ready));
         const title = document.createElement("strong");
-        title.textContent = `${profile.label || profile.name} · ${readinessRequirementLabel(profile.requirement)}`;
+        window.AppI18n.setText(title, () => `${profile.label || profile.name} · ${readinessRequirementLabel(profile.requirement)}`);
         const summary = document.createElement("span");
         const problems = [];
-        if (profile.missing_count) problems.push(`${profile.missing_count}개 누락`);
-        if (profile.invalid_count) problems.push(`${profile.invalid_count}개 손상`);
-        summary.textContent = profile.ready ? "준비됨" : `${problems.join(" · ")} · ${readinessSourceLabel(profile)}`;
+        if (profile.missing_count) problems.push(tr`${profile.missing_count}개 누락`);
+        if (profile.invalid_count) problems.push(tr`${profile.invalid_count}개 손상`);
+        window.AppI18n.setText(summary, () => profile.ready ? tr("준비됨") : `${problems.join(" · ")} · ${readinessSourceLabel(profile)}`);
         const files = document.createElement("ul");
         files.className = "readiness-files";
         for (const item of profile.files || []) {
           const file = document.createElement("li");
-          const fileStatus = item.valid ? "확인됨" : (item.exists ? "손상" : "누락");
-          file.textContent = `${fileStatus} ${item.relative_path}`;
+          const fileStatus = item.valid ? tr("확인됨") : (item.exists ? tr("손상") : tr("누락"));
+          window.AppI18n.setText(file, () => `${fileStatus} ${item.relative_path}`);
           files.append(file);
         }
         const action = document.createElement("button");
@@ -388,7 +395,7 @@
         action.dataset.profile = profile.name;
         action.dataset.source = profile.prepare_source || "auto";
         action.dataset.sizeBytes = profile.prepare_size_bytes ?? "";
-        action.textContent = readinessActionLabel(profile);
+        window.AppI18n.setText(action, () => readinessActionLabel(profile));
         action.disabled = Boolean(profile.ready);
         card.append(title, summary, files, action);
         return card;
@@ -400,13 +407,13 @@
       const previousText = button.textContent;
       const source = button.dataset.source || "auto";
       const sourceDescription = source === "local"
-        ? `로컬 원본에서 ${formatByteSize(button.dataset.sizeBytes)}를 복사합니다.`
-        : `${source === "huggingface" ? "Hugging Face" : "원격 저장소"}에서 다운로드합니다. 다운로드 용량은 아직 확인되지 않았습니다.`;
-      if (!window.confirm(`${sourceDescription}\n계속할까요?`)) {
+        ? tr`로컬 원본에서 ${formatByteSize(button.dataset.sizeBytes)}를 복사합니다.`
+        : tr`${source === "huggingface" ? "Hugging Face" : tr("원격 저장소")}에서 다운로드합니다. 다운로드 용량은 아직 확인되지 않았습니다.`;
+      if (!window.confirm(tr`${sourceDescription}\n계속할까요?`)) {
         return;
       }
       button.disabled = true;
-      button.textContent = "준비 중...";
+      window.AppI18n.setText(button, () => tr("준비 중..."));
       try {
         const response = await fetch("/api/models/prepare", {
           method: "POST",
@@ -417,9 +424,9 @@
         setResultPayload({status: response.ok ? "profile_prepared" : "profile_prepare_failed", ...payload});
         await loadStatus();
       } catch (error) {
-        setResultPayload({error: String(error)});
+        setResultPayload(error.payload || {error: String(error)});
       } finally {
-        button.textContent = previousText;
+        window.AppI18n.setText(button, () => previousText);
         button.disabled = false;
       }
     }
@@ -427,97 +434,102 @@
       const item = document.createElement("div");
       item.className = "summary-item";
       const title = document.createElement("strong");
-      title.textContent = label;
+      window.AppI18n.setText(title, () => label);
       const body = document.createElement("span");
-      body.textContent = value;
+      window.AppI18n.setText(body, () => value);
       item.append(title, body);
       return item;
     }
     function resultMode(payload) {
       if (payload?.error) {
-        return "실패";
+        return tr("실패");
       }
       if (payload?.dry_run || payload?.status === "dry_run") {
-        return "드라이런";
+        return tr("드라이런");
       }
       if (payload?.status) {
         return statusLabel(payload.status);
       }
-      return "준비됨";
+      return tr("준비됨");
     }
     function statusLabel(status) {
       const labels = {
-        generated: "생성됨",
-        previewed: "디테일러 미리보기",
-        dry_run: "드라이런",
-        manifest_exported: "생성 정보 내보냄",
-        settings_exported: "설정 내보냄",
-        settings_saved: "설정 저장됨",
-        profile_prepared: "모델 준비 완료",
-        profile_prepare_failed: "모델 준비 실패",
-        lora_imported: "LoRA 가져오기 완료",
-        lora_import_failed: "LoRA 가져오기 실패",
-        deleted: "삭제됨",
-        unknown: "알 수 없음"
+        generated: tr("생성됨"),
+        previewed: tr("디테일러 미리보기"),
+        dry_run: tr("드라이런"),
+        manifest_exported: tr("생성 정보 내보냄"),
+        settings_exported: tr("설정 내보냄"),
+        settings_saved: tr("설정 저장됨"),
+        profile_prepared: tr("모델 준비 완료"),
+        profile_prepare_failed: tr("모델 준비 실패"),
+        lora_imported: tr("LoRA 가져오기 완료"),
+        lora_import_failed: tr("LoRA 가져오기 실패"),
+        deleted: tr("삭제됨"),
+        unknown: tr("알 수 없음")
       };
       return labels[status] || status;
     }
     function renderResultSummary(payload = null) {
       if (!payload) {
-        resultTitle.textContent = "현재 결과";
-        resultStatus.textContent = "준비됨";
-        resultSummary.replaceChildren(summaryItem("상태", "준비됨"));
+        window.AppI18n.setText(resultTitle, () => tr("현재 결과"));
+        window.AppI18n.setText(resultStatus, () => tr("준비됨"));
+        resultSummary.replaceChildren(summaryItem(tr("상태"), tr("준비됨")));
         return;
       }
       if (payload.error) {
         const modelsNotReady = payload.error_code === "models_not_ready";
-        resultTitle.textContent = modelsNotReady ? "모델 준비 필요" : "요청 실패";
-        resultStatus.textContent = modelsNotReady ? "준비 필요" : "실패";
-        resultSummary.replaceChildren(summaryItem("오류", payload.error));
+        window.AppI18n.setText(resultTitle, () => modelsNotReady ? tr("모델 준비 필요") : tr("요청 실패"));
+        window.AppI18n.setText(resultStatus, () => modelsNotReady ? tr("준비 필요") : tr("실패"));
+        resultSummary.replaceChildren(summaryItem(tr("오류"), payload.error));
         return;
       }
-      const size = payload.width && payload.height ? `${payload.width}x${payload.height}` : "알 수 없음";
-      const seed = payload.seed ?? "랜덤";
+      const size = payload.width && payload.height ? `${payload.width}x${payload.height}` : tr("알 수 없음");
+      const seed = payload.seed ?? tr("랜덤");
       const warnings = Array.isArray(payload.warnings) ? payload.warnings.filter(Boolean) : [];
-      const upscale = payload.upscale?.enabled ? `${payload.upscale.scale || 1}x${payload.upscale.tiled ? " 타일" : ""}` : "꺼짐";
+      const upscale = payload.upscale?.enabled ? `${payload.upscale.scale || 1}x${payload.upscale.tiled ? tr(" 타일") : ""}` : tr("꺼짐");
       const faceTargets = payload.face_detailer?.mask_backend === "sam3"
-        ? [payload.face_detailer?.sam3_face_eyes !== false ? "얼굴+눈" : "", payload.face_detailer?.sam3_hands ? "손" : ""].filter(Boolean).join(" / ")
-        : "얼굴";
-      const face = payload.face_detailer?.enabled ? `${faceTargets || "선택 없음"} · ${payload.face_detailer.steps || "자동"} 스텝` : "꺼짐";
-      resultTitle.textContent = payload.prompt || "현재 결과";
-      resultStatus.textContent = warnings.length ? `${resultMode(payload)} · 경고 ${warnings.length}` : resultMode(payload);
+        ? [payload.face_detailer?.sam3_face_eyes !== false ? tr("얼굴+눈") : "", payload.face_detailer?.sam3_hands ? tr("손") : ""].filter(Boolean).join(" / ")
+        : tr("얼굴");
+      const face = payload.face_detailer?.enabled ? tr`${faceTargets || tr("선택 없음")} · ${payload.face_detailer.steps || tr("자동")} 스텝` : tr("꺼짐");
+      window.AppI18n.setText(resultTitle, () => payload.prompt || tr("현재 결과"));
+      window.AppI18n.setText(resultStatus, () => warnings.length ? tr`${resultMode(payload)} · 경고 ${warnings.length}` : resultMode(payload));
       const items = [
-        summaryItem("엔진", payload.provider === "novelai" ? "NovelAI" : "로컬 Anima"),
-        summaryItem("상태", resultMode(payload)),
-        summaryItem("크기", size),
-        summaryItem("스텝 / CFG", `${payload.steps ?? "?"} / ${payload.cfg ?? "?"}`),
-        summaryItem("샘플러", payload.sampler || "?"),
-        summaryItem("시드", seed)
+        summaryItem(tr("엔진"), payload.provider === "novelai" ? "NovelAI" : tr("로컬 Anima")),
+        summaryItem(tr("상태"), resultMode(payload)),
+        summaryItem(tr("크기"), size),
+        summaryItem(tr("스텝 / CFG"), `${payload.steps ?? "?"} / ${payload.cfg ?? "?"}`),
+        summaryItem(tr("샘플러"), payload.sampler || "?"),
+        summaryItem(tr("시드"), seed)
       ];
       if (payload.upscale?.enabled) {
-        items.push(summaryItem("업스케일", upscale));
+        items.push(summaryItem(tr("업스케일"), upscale));
       }
       if (payload.face_detailer?.enabled) {
-        items.push(summaryItem("페이스 디테일러", face));
+        items.push(summaryItem(tr("페이스 디테일러"), face));
       }
       const regions = payload.detailer_regions || payload.novelai?.detailer || [];
-      if (regions.length) items.push(summaryItem("NAI 보정 영역", regions.map((r) =>
-        `${r.region}: ${r.concept} → ${r.character ? `캐릭터 ${r.character}` : "공통 / 미확정"} · ${r.status} (${r.reason})`).join(" / ")));
+      if (regions.length) items.push(summaryItem(tr("NAI 보정 영역"), regions.map((r) =>
+        `${r.region}: ${r.concept} → ${r.character ? tr`캐릭터 ${r.character_slot ?? r.character}` : tr("공통 / 미확정")} · ${r.status} (${r.reason})` +
+        `${Number.isFinite(r.score) && Number.isFinite(r.margin) ? tr` · 점수 ${r.score.toFixed(3)} / 차이 ${r.margin.toFixed(3)}` : ""}` +
+        `${r.tight_crop_retried ? tr(" · 좁은 크롭 재확인") : ""}${r.tagger ? ` · ${r.tagger.model_name}` : ""}${r.explanation ? ` · ${r.explanation}` : ""}`).join(" / ")));
       if (warnings.length) {
-        items.push(summaryItem("경고", warnings.join(" · ")));
+        items.push(summaryItem(tr("경고"), warnings.join(" · ")));
       }
       resultSummary.replaceChildren(...items);
     }
     function variantEntries(payload = currentManifest) {
       const variants = payload?.variants || {};
       const slots = [
-        {key: "original", label: "원본"},
-        {key: "upscale", label: "업스케일"},
-        {key: "face_eye_detailer", label: "얼굴 + 눈"},
-        {key: "hand_detailer", label: "손"}
+        {key: "original", label: tr("원본")},
+        {key: "upscale", label: tr("업스케일")},
+        {key: "face_eye_detailer", label: tr("얼굴 + 눈")},
+        {key: "hand_detailer", label: tr("손")}
       ];
       if (variants.face_detailer && !variants.face_eye_detailer && !variants.hand_detailer) {
-        slots.push({key: "face_detailer", label: "페이스 디테일러"});
+        slots.push({key: "face_detailer", label: tr("페이스 디테일러")});
+      }
+      for (const [key, variant] of Object.entries(variants)) {
+        if (key.startsWith("workflow_")) slots.push({key, label: variant.label || key});
       }
       return slots.map((slot) => {
         const variant = variants[slot.key] || {};
@@ -544,17 +556,17 @@
         const cell = document.createElement("div");
         cell.className = "compare-cell";
         const title = document.createElement("strong");
-        title.textContent = entry.label;
+        window.AppI18n.setText(title, () => entry.label);
         cell.append(title);
         if (entry.output_url) {
           const image = document.createElement("img");
           image.src = entry.output_url + "?t=" + Date.now();
-          image.alt = entry.label;
+          window.AppI18n.setProperty(image, "alt", () => entry.label);
           cell.append(image);
         } else {
           const empty = document.createElement("div");
           empty.className = "compare-empty";
-          empty.textContent = "생성 안 됨";
+          window.AppI18n.setText(empty, () => tr("생성 안 됨"));
           cell.append(empty);
         }
         return cell;
@@ -567,11 +579,12 @@
       if (!canCompare) {
         compareVisible = false;
       }
-      toggleCompareButton.textContent = compareVisible ? "비교 숨기기" : "단계 비교";
+      window.AppI18n.setText(toggleCompareButton, () => compareVisible ? tr("비교 숨기기") : tr("단계 비교"));
       renderCompareGrid(payload);
     }
     function setResultPayload(payload) {
-      result.textContent = JSON.stringify(payload, null, 2);
+      window.NaiErrors.render("nai-error-guide", payload);
+      window.AppI18n.setText(result, () => JSON.stringify(payload, null, 2));
       renderResultSummary(payload);
       syncCompareControls(payload);
       if (payload?.error_code === "models_not_ready") {
@@ -581,32 +594,33 @@
       }
     }
     function setResultMessage(message) {
-      result.textContent = message;
-      resultTitle.textContent = "현재 결과";
-      resultStatus.textContent = message;
-      resultSummary.replaceChildren(summaryItem("상태", message));
+      window.NaiErrors.render("nai-error-guide", null);
+      window.AppI18n.setText(result, () => message);
+      window.AppI18n.setText(resultTitle, () => tr("현재 결과"));
+      window.AppI18n.setText(resultStatus, () => message);
+      resultSummary.replaceChildren(summaryItem(tr("상태"), message));
       compareVisible = false;
       syncCompareControls(null);
     }
     function buildGenerationStages(data) {
       if (data.provider === "novelai") {
-        return [{key: "request", label: "요청"}, {key: "wildcards", label: "프롬프트 / 와일드카드"},
-                {key: "base_t2i", label: "NovelAI 응답 대기"}, {key: "metadata", label: "결과 저장"}];
+        return [{key: "request", label: tr("요청")}, {key: "wildcards", label: tr("프롬프트 / 와일드카드")},
+                {key: "base_t2i", label: tr("NovelAI 응답 대기")}, {key: "metadata", label: tr("결과 저장")}];
       }
       return [
-        {key: "request", label: "요청"},
-        {key: "wildcards", label: "프롬프트 / 와일드카드"},
-        {key: "text_encode", label: "텍스트 인코드"},
-        {key: "base_t2i", label: "기본 렌더"},
-        {key: "high_res_fix", label: "고해상도 / 업스케일", optional: !data.upscale?.enabled},
-        {key: "vae_decode", label: "VAE 디코드"},
+        {key: "request", label: tr("요청")},
+        {key: "wildcards", label: tr("프롬프트 / 와일드카드")},
+        {key: "text_encode", label: tr("텍스트 인코드")},
+        {key: "base_t2i", label: tr("기본 렌더")},
+        {key: "high_res_fix", label: tr("고해상도 / 업스케일"), optional: !data.upscale?.enabled},
+        {key: "vae_decode", label: tr("VAE 디코드")},
         ...(data.face_detailer?.mask_backend === "sam3"
           ? [
-              {key: "face_eye_detailer", label: "얼굴 + 눈 보정", optional: !data.face_detailer?.enabled || data.face_detailer?.sam3_face_eyes === false},
-              {key: "hand_detailer", label: "손 보정", optional: !data.face_detailer?.enabled || !data.face_detailer?.sam3_hands}
+              {key: "face_eye_detailer", label: tr("얼굴 + 눈 보정"), optional: !data.face_detailer?.enabled || data.face_detailer?.sam3_face_eyes === false},
+              {key: "hand_detailer", label: tr("손 보정"), optional: !data.face_detailer?.enabled || !data.face_detailer?.sam3_hands}
             ]
-          : [{key: "face_detailer", label: "페이스 디테일러", optional: !data.face_detailer?.enabled}]),
-        {key: "metadata", label: "메타데이터 저장"}
+          : [{key: "face_detailer", label: tr("페이스 디테일러"), optional: !data.face_detailer?.enabled}]),
+        {key: "metadata", label: tr("메타데이터 저장")}
       ];
     }
     function nextRunnableStageIndex(items, index) {
@@ -645,11 +659,11 @@
       }
       generationStages.hidden = false;
       generationStages.setAttribute("aria-busy", finalState === "running" ? "true" : "false");
-      generationStageSummary.textContent = finalState === "running"
-        ? "작업 중"
+      window.AppI18n.setText(generationStageSummary, () => finalState === "running"
+        ? tr("작업 중")
         : (finalState === "failed"
-          ? (message ? `실패: ${message}` : "실패")
-          : (finalState === "cancelled" ? (message || "취소됨") : ""));
+          ? (message ? tr`실패: ${message}` : tr("실패"))
+          : (finalState === "cancelled" ? (message || tr("취소됨")) : "")));
       generationStageList.replaceChildren(...items.map((item, index) => {
         let state = "pending";
         if (manifestStages) {
@@ -665,15 +679,15 @@
         row.className = "stage-item";
         row.setAttribute("data-stage-key", item.key);
         row.setAttribute("data-state", state);
-        row.setAttribute("aria-label", `${item.label}: ${stageStateLabels[state] || state}`);
+        window.AppI18n.setAttribute(row, "aria-label", () => `${item.label}: ${stageStateLabels[state] || state}`);
         const marker = document.createElement("span");
         marker.className = "stage-marker";
         marker.setAttribute("aria-hidden", "true");
         const label = document.createElement("span");
-        label.textContent = item.label;
+        window.AppI18n.setText(label, () => item.label);
         const status = document.createElement("span");
         status.className = "stage-state";
-        status.textContent = stageVisibleStateLabels[state] ?? stageStateLabels[state] ?? state;
+        window.AppI18n.setText(status, () => stageVisibleStateLabels[state] ?? stageStateLabels[state] ?? state);
         row.append(marker, label, status);
         return row;
       }));
@@ -754,44 +768,44 @@
       currentOutputUrl = "";
       currentMaskUrl = "";
       preview.removeAttribute("src");
-      preview.alt = "생성 결과 이미지";
+      window.AppI18n.setProperty(preview, "alt", () => tr("생성 결과 이미지"));
       preview.hidden = true;
       outputLink.removeAttribute("href");
       outputLink.hidden = true;
       sam3Tools.hidden = true;
-      sam3Status.textContent = "결과 이미지를 선택하면 마스크를 만들 수 있습니다.";
+      window.AppI18n.setText(sam3Status, () => tr("결과 이미지를 선택하면 마스크를 만들 수 있습니다."));
     }
     function showOutputPreview(url) {
       currentOutputUrl = url;
       currentMaskUrl = "";
       preview.src = url + "?t=" + Date.now();
-      preview.alt = "생성 결과 이미지";
+      window.AppI18n.setProperty(preview, "alt", () => tr("생성 결과 이미지"));
       preview.hidden = false;
       outputLink.href = url;
       outputLink.hidden = false;
       sam3Tools.hidden = providerSelect.value === "novelai" || currentManifest?.provider === "novelai";
-      sam3Status.textContent = "SAM3 마스크를 만들 수 있습니다.";
+      window.AppI18n.setText(sam3Status, () => tr("SAM3 마스크를 만들 수 있습니다."));
     }
     function setCurrentMaskFromPayload(payload) {
       currentMaskUrl = payload.mask_url || currentMaskUrl;
       if (payload.overlay_url) {
         preview.src = payload.overlay_url + "?t=" + Date.now();
-        preview.alt = "선택 영역이 표시된 생성 결과 이미지";
+        window.AppI18n.setProperty(preview, "alt", () => tr("선택 영역이 표시된 생성 결과 이미지"));
         preview.hidden = false;
       }
     }
     async function segmentCurrentImageWithSam3() {
       if (!currentOutputUrl) {
-        sam3Status.textContent = "먼저 결과 이미지를 선택하세요.";
+        window.AppI18n.setText(sam3Status, () => tr("먼저 결과 이미지를 선택하세요."));
         return;
       }
       const prompt = sam3Prompt.value.trim();
       if (!prompt) {
-        sam3Status.textContent = "마스크 프롬프트를 입력하세요.";
+        window.AppI18n.setText(sam3Status, () => tr("마스크 프롬프트를 입력하세요."));
         return;
       }
       sam3SegmentButton.disabled = true;
-      sam3Status.textContent = "SAM3 마스크 생성 중...";
+      window.AppI18n.setText(sam3Status, () => tr("SAM3 마스크 생성 중..."));
       try {
         const response = await fetch("/api/sam3/segment", {
           method: "POST",
@@ -801,15 +815,15 @@
         const payload = await response.json();
         setResultPayload(payload);
         if (!response.ok) {
-          sam3Status.textContent = payload.error || "SAM3 마스크 생성 실패";
+          window.AppI18n.setText(sam3Status, () => payload.error || tr("SAM3 마스크 생성 실패"));
           return;
         }
         setCurrentMaskFromPayload(payload);
-        sam3Status.textContent = `마스크 생성 완료: ${payload.boxes?.length || 0}개 영역`;
+        window.AppI18n.setText(sam3Status, () => tr`마스크 생성 완료: ${payload.boxes?.length || 0}개 영역`);
         loadHistoryStorage().catch(() => {});
       } catch (error) {
-        sam3Status.textContent = String(error);
-        setResultPayload({error: String(error)});
+        window.AppI18n.setText(sam3Status, () => String(error));
+        setResultPayload(error.payload || {error: String(error)});
       } finally {
         sam3SegmentButton.disabled = false;
       }
@@ -819,7 +833,7 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "sam3-preset";
-        button.textContent = prompt;
+        window.AppI18n.setText(button, () => prompt);
         button.addEventListener("click", () => {
           sam3Prompt.value = prompt;
         });
@@ -834,7 +848,7 @@
         const bestScore = Math.max(...(item.scores || [0]));
         const boxCount = item.boxes?.length || 0;
         button.dataset.hasMask = String(boxCount > 0);
-        button.textContent = `${item.prompt}: ${boxCount} / ${bestScore.toFixed(2)}`;
+        window.AppI18n.setText(button, () => `${item.prompt}: ${boxCount} / ${bestScore.toFixed(2)}`);
         button.addEventListener("click", () => {
           sam3Prompt.value = item.prompt;
           setCurrentMaskFromPayload(item);
@@ -845,12 +859,12 @@
     }
     async function compareCurrentImageWithSam3() {
       if (!currentOutputUrl) {
-        sam3Status.textContent = "먼저 결과 이미지를 선택하세요.";
+        window.AppI18n.setText(sam3Status, () => tr("먼저 결과 이미지를 선택하세요."));
         return;
       }
       sam3CompareButton.disabled = true;
       sam3SegmentButton.disabled = true;
-      sam3Status.textContent = "SAM3 후보 비교 중...";
+      window.AppI18n.setText(sam3Status, () => tr("SAM3 후보 비교 중..."));
       try {
         const response = await fetch("/api/sam3/compare", {
           method: "POST",
@@ -860,7 +874,7 @@
         const payload = await response.json();
         setResultPayload(payload);
         if (!response.ok) {
-          sam3Status.textContent = payload.error || "SAM3 후보 비교 실패";
+          window.AppI18n.setText(sam3Status, () => payload.error || tr("SAM3 후보 비교 실패"));
           return;
         }
         renderSam3CompareResults(payload.results || []);
@@ -869,11 +883,11 @@
           setCurrentMaskFromPayload(payload.best);
         }
         const bestCount = payload.best?.boxes?.length || 0;
-        sam3Status.textContent = `후보 비교 완료: ${payload.count || 0}개, 최고 ${bestCount}개 영역`;
+        window.AppI18n.setText(sam3Status, () => tr`후보 비교 완료: ${payload.count || 0}개, 최고 ${bestCount}개 영역`);
         loadHistoryStorage().catch(() => {});
       } catch (error) {
-        sam3Status.textContent = String(error);
-        setResultPayload({error: String(error)});
+        window.AppI18n.setText(sam3Status, () => String(error));
+        setResultPayload(error.payload || {error: String(error)});
       } finally {
         sam3CompareButton.disabled = false;
         sam3SegmentButton.disabled = false;
@@ -881,11 +895,11 @@
     }
     async function adjustCurrentMask() {
       if (!currentOutputUrl || !currentMaskUrl) {
-        sam3Status.textContent = "먼저 SAM3 마스크를 생성하거나 후보를 선택하세요.";
+        window.AppI18n.setText(sam3Status, () => tr("먼저 SAM3 마스크를 생성하거나 후보를 선택하세요."));
         return;
       }
       maskAdjustButton.disabled = true;
-      sam3Status.textContent = "마스크 조정 중...";
+      window.AppI18n.setText(sam3Status, () => tr("마스크 조정 중..."));
       try {
         const response = await fetch("/api/masks/adjust", {
           method: "POST",
@@ -900,27 +914,27 @@
         const payload = await response.json();
         setResultPayload(payload);
         if (!response.ok) {
-          sam3Status.textContent = payload.error || "마스크 조정 실패";
+          window.AppI18n.setText(sam3Status, () => payload.error || tr("마스크 조정 실패"));
           return;
         }
         setCurrentMaskFromPayload(payload);
-        sam3Status.textContent = `마스크 조정 완료: 확장 ${payload.dilation}px, 페더 ${payload.feather}px`;
+        window.AppI18n.setText(sam3Status, () => tr`마스크 조정 완료: 확장 ${payload.dilation}px, 페더 ${payload.feather}px`);
         loadHistoryStorage().catch(() => {});
       } catch (error) {
-        sam3Status.textContent = String(error);
-        setResultPayload({error: String(error)});
+        window.AppI18n.setText(sam3Status, () => String(error));
+        setResultPayload(error.payload || {error: String(error)});
       } finally {
         maskAdjustButton.disabled = false;
       }
     }
     async function runMaskedInpaint() {
       if (!currentOutputUrl || !currentMaskUrl) {
-        sam3Status.textContent = "먼저 조정할 마스크를 선택하세요.";
+        window.AppI18n.setText(sam3Status, () => tr("먼저 조정할 마스크를 선택하세요."));
         return;
       }
       const prompt = inpaintPromptInput.value.trim();
       if (!prompt) {
-        sam3Status.textContent = "바꿀 내용을 입력하세요.";
+        window.AppI18n.setText(sam3Status, () => tr("바꿀 내용을 입력하세요."));
         return;
       }
       const inpaintSeed = seedNumberFromElement(inpaintSeedInput);
@@ -931,7 +945,7 @@
       sam3SegmentButton.disabled = true;
       sam3CompareButton.disabled = true;
       maskAdjustButton.disabled = true;
-      sam3Status.textContent = "인페인트 생성 중...";
+      window.AppI18n.setText(sam3Status, () => tr("인페인트 생성 중..."));
       try {
         const response = await fetch("/api/inpaint/masked", {
           method: "POST",
@@ -953,18 +967,18 @@
         const payload = await response.json();
         setResultPayload(payload);
         if (!response.ok) {
-          sam3Status.textContent = payload.error || "인페인트 실패";
+          window.AppI18n.setText(sam3Status, () => payload.error || tr("인페인트 실패"));
           return;
         }
         if (payload.output_url) {
           showOutputPreview(payload.output_url);
         }
-        sam3Status.textContent = `인페인트 완료: ${payload.method}, seed ${payload.seed}`;
+        window.AppI18n.setText(sam3Status, () => tr`인페인트 완료: ${payload.method}, seed ${payload.seed}`);
         loadHistory().catch(() => {});
         loadHistoryStorage().catch(() => {});
       } catch (error) {
-        sam3Status.textContent = String(error);
-        setResultPayload({error: String(error)});
+        window.AppI18n.setText(sam3Status, () => String(error));
+        setResultPayload(error.payload || {error: String(error)});
       } finally {
         maskedInpaintButton.disabled = false;
         sam3SegmentButton.disabled = false;
@@ -974,7 +988,7 @@
     }
     function setSelectValue(select, value) {
       if (value && ![...select.options].some((option) => option.value === value)) {
-        select.add(new Option(`${value} (누락)`, value));
+        select.add(new Option(tr`${value} (누락)`, value));
       }
       select.value = value || "";
     }
@@ -995,7 +1009,7 @@
     }
     function renderLoraSelectOptions(select, selectedPath = "") {
       select.replaceChildren(
-        new Option("없음", ""),
+        new Option(tr("없음"), ""),
         ...loraCatalog.map((item) => new Option(item.relative_path, item.relative_path))
       );
       setSelectValue(select, selectedPath);
@@ -1015,16 +1029,16 @@
       row.className = "lora-row";
       const selectWrap = document.createElement("div");
       const selectLabel = document.createElement("label");
-      selectLabel.textContent = "LoRA";
+      window.AppI18n.setText(selectLabel, () => "LoRA");
       const select = document.createElement("select");
       select.className = "lora-path";
-      select.setAttribute("aria-label", "LoRA 경로");
+      window.AppI18n.setAttribute(select, "aria-label", tr("LoRA 경로"));
       renderLoraSelectOptions(select, config.path || "");
       selectWrap.append(selectLabel, select);
 
       const strengthWrap = document.createElement("div");
       const strengthLabel = document.createElement("label");
-      strengthLabel.textContent = "강도";
+      window.AppI18n.setText(strengthLabel, () => tr("강도"));
       const strength = document.createElement("input");
       strength.className = "lora-strength";
       strength.type = "number";
@@ -1032,7 +1046,7 @@
       strength.max = String(animaDefaults.limits.max_lora_strength);
       strength.step = "0.05";
       strength.value = config.model_strength ?? config.strength ?? 1;
-      strength.setAttribute("aria-label", "LoRA 강도");
+      window.AppI18n.setAttribute(strength, "aria-label", tr("LoRA 강도"));
       strength.setAttribute("form", form.id);
       strengthWrap.append(strengthLabel, strength);
 
@@ -1040,7 +1054,7 @@
       remove.type = "button";
       remove.className = "secondary-button";
       remove.dataset.removeLora = "1";
-      remove.textContent = "삭제";
+      window.AppI18n.setText(remove, () => tr("삭제"));
       remove.addEventListener("click", () => {
         const rows = [...loraList.querySelectorAll(".lora-row")];
         const rowIndex = rows.indexOf(row);
@@ -1090,35 +1104,35 @@
         return true;
       }
       if (report) {
-        setResultMessage("파일 업로드가 끝난 뒤 다시 시도해 주세요.");
+        setResultMessage(tr("파일 업로드가 끝난 뒤 다시 시도해 주세요."));
       }
       return false;
     }
     function validateUploadFile(file, kind) {
       if (!(file instanceof File)) {
-        throw new Error("파일 한 개를 선택해 주세요.");
+        throw new Error(tr("파일 한 개를 선택해 주세요."));
       }
       const name = file.name.toLowerCase();
       if (kind === "reference" || kind === "metadata") {
         if (kind === "metadata" && !/[.](png|webp)$/.test(name)) {
-          throw new Error("NAI PNG 또는 WebP 파일을 선택해 주세요.");
+          throw new Error(tr("NAI PNG 또는 WebP 파일을 선택해 주세요."));
         }
         if (!/[.](png|jpe?g|webp)$/.test(name)) {
-          throw new Error("참조 이미지는 PNG, JPEG 또는 WebP만 사용할 수 있습니다.");
+          throw new Error(tr("참조 이미지는 PNG, JPEG 또는 WebP만 사용할 수 있습니다."));
         }
         if (file.size > animaDefaults.limits.max_reference_upload_bytes) {
-          throw new Error(`참조 이미지는 ${formatByteSize(animaDefaults.limits.max_reference_upload_bytes)} 이하여야 합니다.`);
+          throw new Error(tr`참조 이미지는 ${formatByteSize(animaDefaults.limits.max_reference_upload_bytes)} 이하여야 합니다.`);
         }
       } else {
         if (!name.endsWith(".safetensors")) {
-          throw new Error("LoRA는 .safetensors 파일만 사용할 수 있습니다.");
+          throw new Error(tr("LoRA는 .safetensors 파일만 사용할 수 있습니다."));
         }
         if (file.size > animaDefaults.limits.max_lora_upload_bytes) {
-          throw new Error(`LoRA는 ${formatByteSize(animaDefaults.limits.max_lora_upload_bytes)} 이하여야 합니다.`);
+          throw new Error(tr`LoRA는 ${formatByteSize(animaDefaults.limits.max_lora_upload_bytes)} 이하여야 합니다.`);
         }
       }
       if (file.size <= 0) {
-        throw new Error("빈 파일은 업로드할 수 없습니다.");
+        throw new Error(tr("빈 파일은 업로드할 수 없습니다."));
       }
     }
     function uploadContentType(file, kind) {
@@ -1142,7 +1156,7 @@
       });
       const payload = await response.json();
       if (!response.ok || payload.error) {
-        throw new Error(payload.error || "파일 업로드 실패");
+        throw window.NaiErrors.asError(payload, tr("파일 업로드 실패"));
       }
       return payload;
     }
@@ -1164,7 +1178,7 @@
         referencePreview.removeAttribute("src");
         referencePreview.hidden = true;
       }
-      referenceUploadStatus.textContent = path ? `관리 파일: ${path}` : "선택된 이미지 없음";
+      window.AppI18n.setText(referenceUploadStatus, () => path ? tr`관리 파일: ${path}` : tr("선택된 이미지 없음"));
       removeReferenceButton.hidden = !path;
     }
     function cancelPendingReferenceUpload() {
@@ -1180,7 +1194,7 @@
       const revision = ++referenceUploadRevision;
       const controller = new AbortController();
       referenceUploadController = controller;
-      referenceUploadStatus.textContent = `${file.name} 업로드 중...`;
+      window.AppI18n.setText(referenceUploadStatus, () => tr`${file.name} 업로드 중...`);
       referenceDropZone.setAttribute("aria-busy", "true");
       setUploadActive(true);
       try {
@@ -1213,14 +1227,14 @@
         return emptyRow;
       }
       if (rows.length >= animaDefaults.limits.max_loras) {
-        throw new Error(`LoRA 스택은 ${animaDefaults.limits.max_loras}개까지 사용할 수 있습니다.`);
+        throw new Error(tr`LoRA 스택은 ${animaDefaults.limits.max_loras}개까지 사용할 수 있습니다.`);
       }
       return addLoraRow();
     }
     async function uploadLoraFile(file) {
       validateUploadFile(file, "lora");
       if (loraUploadInFlight) {
-        throw new Error("다른 LoRA 업로드가 끝날 때까지 기다려 주세요.");
+        throw new Error(tr("다른 LoRA 업로드가 끝날 때까지 기다려 주세요."));
       }
       const targetRow = reserveLoraUploadRow();
       const targetSelect = targetRow.querySelector(".lora-path");
@@ -1234,25 +1248,25 @@
       loraFileInput.disabled = true;
       loraUploadButton.disabled = true;
       loraDropZone.setAttribute("aria-busy", "true");
-      loraUploadStatus.textContent = `${file.name} 업로드 중...`;
+      window.AppI18n.setText(loraUploadStatus, () => tr`${file.name} 업로드 중...`);
       setUploadActive(true);
       try {
         const payload = await uploadFile("/api/loras/upload", file, "lora");
         setSelectValue(targetSelect, payload.relative_path);
-        loraUploadStatus.textContent = `업로드 완료: ${payload.relative_path}`;
+        window.AppI18n.setText(loraUploadStatus, () => tr`업로드 완료: ${payload.relative_path}`);
         setResultPayload(payload);
         try {
           const response = await fetch("/api/loras", {cache: "no-store"});
           const inventory = await response.json();
           if (!response.ok || inventory.error) {
-            throw new Error(inventory.error || "LoRA 목록 새로고침 실패");
+            throw new Error(inventory.error || tr("LoRA 목록 새로고침 실패"));
           }
           loraCatalog = inventory.items || [];
           [...loraList.querySelectorAll(".lora-path")].forEach((select) => {
             renderLoraSelectOptions(select, select.value);
           });
         } catch {
-          loraUploadStatus.textContent = `업로드 완료: ${payload.relative_path} · 목록 새로고침 실패`;
+          window.AppI18n.setText(loraUploadStatus, () => tr`업로드 완료: ${payload.relative_path} · 목록 새로고침 실패`);
         }
         return payload;
       } finally {
@@ -1267,41 +1281,42 @@
       }
     }
     async function readNaiMetadata(file) {
+      window.NaiErrors.render("nai-metadata-error-guide", null);
       const revision = ++naiMetadataRevision;
       naiMetadata = null;
       naiMetadataPreview.hidden = true;
       syncGenerationControls();
       if (queueRunning || activeUploadCount > 0) {
-        throw new Error("생성과 파일 업로드가 끝난 뒤 생성 조건을 불러와 주세요.");
+        throw new Error(tr("생성과 파일 업로드가 끝난 뒤 생성 조건을 불러와 주세요."));
       }
       validateUploadFile(file, "metadata");
       setUploadActive(true);
-      naiMetadataStatus.textContent = `${file.name}: 메타데이터 읽는 중…`;
+      window.AppI18n.setText(naiMetadataStatus, () => tr`${file.name}: 메타데이터 읽는 중…`);
       try {
         const payload = await uploadFile("/api/metadata/novelai", file, "metadata");
         if (revision !== naiMetadataRevision) return;
         naiMetadata = payload;
         const request = payload.request;
-        document.getElementById("nai-metadata-summary").textContent = [
-          `모델 해시: ${payload.model_hash || "없음"}`,
-          `원본 표기: ${payload.source_model || "미기록"}`,
-          `모델 대응: ${payload.detected_model || "확인 필요"} · 생성 방식: ${{t2i: "T2I", i2i: "I2I", inpaint: "인페인트", unknown: "확인 필요"}[payload.generation_mode]}`,
-          `생성 크기: ${request.width ?? "미기록"} × ${request.height ?? "미기록"}`,
-          `스텝: ${request.steps ?? "미기록"} · CFG: ${request.cfg ?? "미기록"} · 시드: ${request.seed ?? "미기록"}`,
-          `샘플러: ${request.nai_sampler ?? "미기록"} · 스케줄러: ${request.nai_scheduler ?? "미기록"}`,
-          `CFG rescale: ${request.nai_cfg_rescale ?? "미기록"} · Brownian: ${request.nai_prefer_brownian ?? "미기록"} · Variety boost: ${request.nai_variety_boost ?? "미기록"}`,
-          "", "프롬프트", request.prompt ?? "미기록", "", "네거티브 프롬프트", request.negative_prompt ?? "미기록"
-        ].join("\n");
-        naiMetadataModel.replaceChildren(new Option("모델을 확인하고 선택하세요", ""),
+        window.AppI18n.setText(document.getElementById("nai-metadata-summary"), () => [
+          tr`모델 해시: ${payload.model_hash || tr("없음")}`,
+          tr`원본 표기: ${payload.source_model || tr("미기록")}`,
+          tr`모델 대응: ${payload.detected_model || tr("확인 필요")} · 생성 방식: ${{t2i: "T2I", i2i: "I2I", inpaint: tr("인페인트"), unknown: tr("확인 필요")}[payload.generation_mode]}`,
+          tr`생성 크기: ${request.width ?? tr("미기록")} × ${request.height ?? tr("미기록")}`,
+          tr`스텝: ${request.steps ?? tr("미기록")} · CFG: ${request.cfg ?? tr("미기록")} · 시드: ${request.seed ?? tr("미기록")}`,
+          tr`샘플러: ${request.nai_sampler ?? tr("미기록")} · 스케줄러: ${request.nai_scheduler ?? tr("미기록")}`,
+          `CFG rescale: ${request.nai_cfg_rescale ?? tr("미기록")} · Brownian: ${request.nai_prefer_brownian ?? tr("미기록")} · Variety boost: ${request.nai_variety_boost ?? tr("미기록")}`,
+          "", tr("프롬프트"), request.prompt ?? tr("미기록"), "", tr("네거티브 프롬프트"), request.negative_prompt ?? tr("미기록")
+        ].join("\n"));
+        naiMetadataModel.replaceChildren(new Option(tr("모델을 확인하고 선택하세요"), ""),
           ...payload.model_candidates.map((value) => new Option(value, value)));
-        document.getElementById("nai-metadata-summary").textContent += `\n\n캐릭터: ${request.nai_characters?.length ?? 0}명\n` +
-          (request.nai_characters || []).map((c, index) => `캐릭터 ${index + 1} (${c.x}, ${c.y})\n${c.prompt}\n네거티브: ${c.negative_prompt}`).join("\n");
+        document.getElementById("nai-metadata-summary").textContent += tr`\n\n캐릭터: ${request.nai_characters?.length ?? 0}명\n` +
+          (request.nai_characters || []).map((c, index) => tr`캐릭터 ${index + 1} (${c.x}, ${c.y})\n${c.prompt}\n네거티브: ${c.negative_prompt}`).join("\n");
         naiMetadataModel.value = request.nai_model || "";
-        document.getElementById("nai-metadata-warnings").textContent = payload.warnings.join("\n");
+        window.AppI18n.setText(document.getElementById("nai-metadata-warnings"), () => payload.warnings.join("\n"));
         naiMetadataPreview.hidden = false;
-        applyNaiMetadataButton.textContent = payload.generation_mode === "inpaint"
-          ? "인페인트 조건 적용" : payload.generation_mode === "i2i" ? "Img2Img 조건 적용" : "생성 조건 적용";
-        naiMetadataStatus.textContent = `${file.name}: 생성 조건을 읽었습니다. 확인 후 적용하세요.`;
+        window.AppI18n.setText(applyNaiMetadataButton, () => payload.generation_mode === "inpaint"
+          ? tr("인페인트 조건 적용") : payload.generation_mode === "i2i" ? tr("Img2Img 조건 적용") : tr("생성 조건 적용"));
+        window.AppI18n.setText(naiMetadataStatus, () => tr`${file.name}: 생성 조건을 읽었습니다. 확인 후 적용하세요.`);
       } finally {
         naiMetadataFile.value = "";
         setUploadActive(false);
@@ -1315,9 +1330,9 @@
       naiMaskCanvas.width = naiMaskBuffer.width = 0;
       naiMaskCanvas.height = naiMaskBuffer.height = 0;
       naiMaskPointer = null;
-      naiInpaintStatus.textContent = form.elements.input_image.value
-        ? `입력: ${form.elements.input_image.value} · 마스크: ${form.elements.mask_image.value || "없음"}. 편집하려면 입력 파일을 다시 선택하세요.`
-        : "입력 이미지와 수정할 마스크를 지정하세요.";
+      window.AppI18n.setText(naiInpaintStatus, () => form.elements.input_image.value
+        ? tr`입력: ${form.elements.input_image.value} · 마스크: ${form.elements.mask_image.value || tr("없음")}. 편집하려면 입력 파일을 다시 선택하세요.`
+        : tr("입력 이미지와 수정할 마스크를 지정하세요."));
     }
     function redrawNaiMask() {
       const pixels = naiMaskBuffer.getContext("2d").getImageData(0, 0, naiMaskBuffer.width, naiMaskBuffer.height);
@@ -1348,7 +1363,7 @@
     async function uploadNaiInput(file, mask = false) {
       if (queueRunning || !uploadsAreIdle()) return;
       validateUploadFile(file, "reference");
-      if (mask && !form.elements.input_image.value) throw new Error("입력 이미지를 먼저 지정하세요.");
+      if (mask && !form.elements.input_image.value) throw new Error(tr("입력 이미지를 먼저 지정하세요."));
       const field = mask ? form.elements.mask_image : form.elements.input_image;
       field.value = "";
       if (!mask) { form.elements.mask_image.value = ""; resetNaiEditor(); }
@@ -1362,7 +1377,7 @@
           await image.decode();
           if (mask) {
             if (image.naturalWidth !== Number(form.elements.width.value) || image.naturalHeight !== Number(form.elements.height.value)) {
-              throw new Error("입력 이미지와 마스크 크기가 다릅니다.");
+              throw new Error(tr("입력 이미지와 마스크 크기가 다릅니다."));
             }
             if (naiMaskBuffer.width) {
               const ctx = naiMaskBuffer.getContext("2d");
@@ -1384,7 +1399,7 @@
           }
           field.value = uploaded.relative_path;
         } finally { if (mask || naiInputObjectUrl !== url) URL.revokeObjectURL(url); }
-        naiInpaintStatus.textContent = `입력: ${form.elements.input_image.value} · 마스크: ${form.elements.mask_image.value || "그린 뒤 저장하세요"}`;
+        window.AppI18n.setText(naiInpaintStatus, () => tr`입력: ${form.elements.input_image.value} · 마스크: ${form.elements.mask_image.value || tr("그린 뒤 저장하세요")}`);
       } finally { setUploadActive(false); syncGenerationResourceValidity(); syncGenerationControls(); }
     }
     async function saveNaiMask() {
@@ -1392,10 +1407,10 @@
       setUploadActive(true);
       try {
         const blob = await new Promise((resolve) => naiMaskBuffer.toBlob(resolve, "image/png"));
-        if (!blob) throw new Error("마스크를 저장할 수 없습니다.");
+        if (!blob) throw new Error(tr("마스크를 저장할 수 없습니다."));
         const uploaded = await uploadFile("/api/inputs/reference", new File([blob], "inpaint-mask.png", {type: "image/png"}), "reference");
         form.elements.mask_image.value = uploaded.relative_path;
-        naiInpaintStatus.textContent = "그린 마스크를 저장했습니다. 전송 설정과 비용 한도를 확인하세요.";
+        window.AppI18n.setText(naiInpaintStatus, () => tr("그린 마스크를 저장했습니다. 전송 설정과 비용 한도를 확인하세요."));
       } finally { setUploadActive(false); syncGenerationResourceValidity(); syncGenerationControls(); }
     }
     function applyNaiMetadata() {
@@ -1414,7 +1429,7 @@
         else if (input.tagName === "SELECT") setSelectValue(input, value);
         else input.value = value;
       }
-      setNaiCharacters(request.nai_characters || []);
+      setNaiCharacters(request.nai_character_slots || request.nai_characters || [], request.nai_character_count);
       setNaiReferences([], []);
       setNaiDetailer(request.nai_detailer || {});
       naiUseCoords.checked = request.nai_use_coords ?? true;
@@ -1422,13 +1437,13 @@
       syncStartingPointSelectionFromInputs();
       syncProviderControls();
       if (request.operation && request.operation !== "generate") resetNaiEditor();
-      naiMetadataStatus.textContent = "NAI 생성 조건을 적용했습니다. 전송 설정을 확인하고 생성하기를 누르세요.";
+      window.AppI18n.setText(naiMetadataStatus, () => tr("NAI 생성 조건을 적용했습니다. 전송 설정을 확인하고 생성하기를 누르세요."));
       form.elements.prompt.focus();
     }
     function setupSingleFileDropZone(zone, input, onFile, onError, uploadOnChange = true) {
       const run = (files) => {
         if (!files || files.length !== 1) {
-          onError(new Error("파일은 한 번에 한 개만 선택해 주세요."));
+          onError(new Error(tr("파일은 한 번에 한 개만 선택해 주세요.")));
           return;
         }
         Promise.resolve(onFile(files[0])).catch(onError);
@@ -1467,7 +1482,7 @@
         return null;
       }
       if (!response.ok) {
-        throw new Error(payload.error || "모델 준비 상태 확인 실패");
+        throw new Error(payload.error || tr("모델 준비 상태 확인 실패"));
       }
       renderReadiness(payload);
       return payload;
@@ -1476,7 +1491,7 @@
       const response = await fetch("/api/health", {cache: "no-store"});
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "저장공간 확인 실패");
+        throw new Error(payload.error || tr("저장공간 확인 실패"));
       }
       renderHistoryStorage(payload.outputs);
       return payload.outputs;
@@ -1496,7 +1511,7 @@
       const checkpoints = await checkpointResponse.json();
       const version = await versionResponse.json();
       if (!providersResponse.ok || !naiResponse.ok) {
-        throw new Error("생성 엔진 상태 확인 실패");
+        throw new Error(tr("생성 엔진 상태 확인 실패"));
       }
       providerCapabilities = await providersResponse.json();
       naiTokenConfigured = Boolean((await naiResponse.json()).configured);
@@ -1513,24 +1528,25 @@
       const readiness = await loadReadiness();
       const readinessGeneration = readiness?.generation || generationReadiness;
       statusPanel.replaceChildren(
-        statusCard("현재 모델", readinessGeneration?.ready ? "실행 가능" : "준비 필요"),
-        statusCard("체크포인트", `${checkpoints.count}개 로컬`),
-        statusCard("LoRA", `${loras.count}개 사용 가능`),
-        statusCard("출력", health.outputs.image_root)
+        statusCard(tr("현재 모델"), readinessGeneration?.ready ? tr("실행 가능") : tr("준비 필요")),
+        statusCard(tr("체크포인트"), tr`${checkpoints.count}개 로컬`),
+        statusCard("LoRA", tr`${loras.count}개 사용 가능`),
+        statusCard(tr("출력"), health.outputs.image_root)
       );
       renderUpdateStatus(version);
       syncProviderControls();
+      window.dispatchEvent(new Event("generation-ready"));
     }
     function historyType(item) {
       return item.output_url ? "images" : "dry-run";
     }
     function historyTypeLabel(item) {
-      return item.output_url ? "이미지" : "드라이런";
+      return item.output_url ? tr("이미지") : tr("드라이런");
     }
-    function historyThumbnailPlaceholder(label = "생성 정보") {
+    function historyThumbnailPlaceholder(label = tr("생성 정보")) {
       const placeholder = document.createElement("div");
       placeholder.className = "history-thumb history-thumb-empty";
-      placeholder.textContent = label;
+      window.AppI18n.setText(placeholder, () => label);
       return placeholder;
     }
     function historyCard(item) {
@@ -1540,11 +1556,11 @@
       if (item.thumbnail_url) {
         const image = document.createElement("img");
         image.className = "history-thumb";
-        image.alt = "";
+        window.AppI18n.setProperty(image, "alt", () => "");
         image.loading = "lazy";
         image.decoding = "async";
         image.addEventListener("error", () => {
-          image.replaceWith(historyThumbnailPlaceholder("미리보기 없음"));
+          image.replaceWith(historyThumbnailPlaceholder(tr("미리보기 없음")));
         }, {once: true});
         image.src = item.thumbnail_url;
         card.append(image);
@@ -1554,13 +1570,13 @@
       const body = document.createElement("div");
       body.className = "history-card-body";
       const title = document.createElement("strong");
-      title.textContent = item.prompt || "(빈 프롬프트)";
+      window.AppI18n.setText(title, () => item.prompt || tr("(빈 프롬프트)"));
       const type = document.createElement("span");
       type.className = "history-type";
-      type.textContent = historyTypeLabel(item);
+      window.AppI18n.setText(type, () => historyTypeLabel(item));
       const meta = document.createElement("span");
-      const outputSummary = item.output_url ? formatByteSize(item.output_size_bytes) : "이미지 없음";
-      meta.textContent = `${statusLabel(item.status || "unknown")} / ${outputSummary}`;
+      const outputSummary = item.output_url ? formatByteSize(item.output_size_bytes) : tr("이미지 없음");
+      window.AppI18n.setText(meta, () => `${statusLabel(item.status || "unknown")} / ${outputSummary}`);
       body.append(title, type, meta);
       card.append(body);
       const actions = document.createElement("div");
@@ -1569,8 +1585,8 @@
       const manifestButton = document.createElement("button");
       manifestButton.type = "button";
       manifestButton.className = "history-action";
-      manifestButton.textContent = "상세";
-      manifestButton.title = "생성 정보 보기";
+      window.AppI18n.setText(manifestButton, () => tr("상세"));
+      window.AppI18n.setProperty(manifestButton, "title", () => tr("생성 정보 보기"));
       manifestButton.addEventListener("click", () => openManifest(manifestName));
       actions.append(manifestButton);
       if (item.output_url) {
@@ -1579,22 +1595,22 @@
         openOutput.href = item.output_url;
         openOutput.target = "_blank";
         openOutput.rel = "noopener";
-        openOutput.textContent = "열기";
-        openOutput.title = "출력 이미지 열기";
+        window.AppI18n.setText(openOutput, () => tr("열기"));
+        window.AppI18n.setProperty(openOutput, "title", () => tr("출력 이미지 열기"));
         actions.append(openOutput);
       }
       const exportButton = document.createElement("button");
       exportButton.type = "button";
       exportButton.className = "history-action";
-      exportButton.textContent = "내보내기";
-      exportButton.title = "생성 정보 JSON 다운로드";
+      window.AppI18n.setText(exportButton, () => tr("내보내기"));
+      window.AppI18n.setProperty(exportButton, "title", () => tr("생성 정보 JSON 다운로드"));
       exportButton.addEventListener("click", () => exportManifest(manifestName));
       actions.append(exportButton);
       const deleteButton = document.createElement("button");
       deleteButton.type = "button";
       deleteButton.className = "history-action danger";
-      deleteButton.textContent = "삭제";
-      deleteButton.title = "생성 정보와 관리 출력 이미지 삭제";
+      window.AppI18n.setText(deleteButton, () => tr("삭제"));
+      window.AppI18n.setProperty(deleteButton, "title", () => tr("생성 정보와 관리 출력 이미지 삭제"));
       deleteButton.addEventListener("click", () => deleteHistoryItem(manifestName));
       actions.append(deleteButton);
       card.append(actions);
@@ -1607,15 +1623,15 @@
         button.classList.toggle("active", active);
         button.setAttribute("aria-pressed", String(active));
       });
-      historyCount.textContent = historyLoading
-        ? (historyItems.length ? `${historyItems.length.toLocaleString("ko-KR")} / ${historyTotalCount.toLocaleString("ko-KR")} 표시 · 불러오는 중` : "히스토리 불러오는 중")
-        : `${historyItems.length.toLocaleString("ko-KR")} / ${historyTotalCount.toLocaleString("ko-KR")} 표시${historyHasMore ? " · 더 있음" : ""}`;
+      window.AppI18n.setText(historyCount, () => historyLoading
+        ? (historyItems.length ? tr`${historyItems.length.toLocaleString(window.AppI18n.locale)} / ${historyTotalCount.toLocaleString(window.AppI18n.locale)} 표시 · 불러오는 중` : tr("히스토리 불러오는 중"))
+        : tr`${historyItems.length.toLocaleString(window.AppI18n.locale)} / ${historyTotalCount.toLocaleString(window.AppI18n.locale)} 표시${historyHasMore ? tr(" · 더 있음") : ""}`);
       if (!historyItems.length) {
         const empty = document.createElement("div");
         empty.className = "history-empty";
-        empty.textContent = historyLoading
-          ? "히스토리를 불러오는 중입니다."
-          : (historySearchInput?.value.trim() ? "검색 조건에 맞는 히스토리가 없습니다." : "아직 표시할 히스토리가 없습니다.");
+        window.AppI18n.setText(empty, () => historyLoading
+          ? tr("히스토리를 불러오는 중입니다.")
+          : (historySearchInput?.value.trim() ? tr("검색 조건에 맞는 히스토리가 없습니다.") : tr("아직 표시할 히스토리가 없습니다.")));
         history.replaceChildren(empty);
         return;
       }
@@ -1650,7 +1666,7 @@
           return;
         }
         if (!response.ok) {
-          throw new Error(payload.error || "히스토리 불러오기 실패");
+          throw new Error(payload.error || tr("히스토리 불러오기 실패"));
         }
         const items = payload.items || [];
         historyItems = append ? [...historyItems, ...items] : items;
@@ -1697,6 +1713,7 @@
         showOutputPreview(payload.output_url);
       }
       syncCompareControls(payload);
+      window.animaAuthoring?.showResult(payload);
     }
     async function exportManifest(name) {
       const response = await fetch("/api/manifests/" + encodeURIComponent(name));
@@ -1717,7 +1734,7 @@
       setResultPayload({status: "manifest_exported", filename: name});
     }
     async function deleteHistoryItem(name) {
-      if (!window.confirm(`${name} 생성 기록과 연결된 출력 이미지를 삭제할까요?`)) {
+      if (!window.confirm(tr`${name} 생성 기록과 연결된 출력 이미지를 삭제할까요?`)) {
         return;
       }
       const response = await fetch("/api/manifests/" + encodeURIComponent(name), {method: "DELETE"});
@@ -1735,7 +1752,7 @@
     }
     function setPresetStatus(message) {
       if (presetStatus.textContent !== message) {
-        presetStatus.textContent = message;
+        window.AppI18n.setText(presetStatus, () => message);
       }
     }
     function syncPresetSelectionControls() {
@@ -1746,11 +1763,11 @@
       const response = await fetch("/api/presets");
       const payload = await response.json();
       if (!response.ok || payload.error) {
-        throw new Error(payload.error || "저장된 설정 불러오기 실패");
+        throw new Error(payload.error || tr("저장된 설정 불러오기 실패"));
       }
       presets = payload.items || [];
       presetSelect.replaceChildren(
-        new Option(presets.length ? "프리셋 선택" : "저장된 프리셋 없음", ""),
+        new Option(presets.length ? tr("프리셋 선택") : tr("저장된 프리셋 없음"), ""),
         ...presets.map((item) => new Option(item.name, item.slug))
       );
       if (presets.some((item) => item.slug === selectedSlug)) {
@@ -1759,8 +1776,8 @@
       syncPresetSelectionControls();
       setPresetStatus(
         payload.invalid_count
-          ? `설정 ${presets.length}개 불러옴 · 손상 파일 ${payload.invalid_count}개 제외`
-          : `설정 ${presets.length}개 불러옴`
+          ? tr`설정 ${presets.length}개 불러옴 · 손상 파일 ${payload.invalid_count}개 제외`
+          : tr`설정 ${presets.length}개 불러옴`
       );
     }
     async function exportPresets() {
@@ -1768,7 +1785,7 @@
       const payload = await response.json();
       if (!response.ok || payload.error) {
         setResultPayload(payload);
-        setPresetStatus(`내보내기 실패: ${payload.error || "알 수 없는 오류"}`);
+        setPresetStatus(tr`내보내기 실패: ${payload.error || tr("알 수 없는 오류")}`);
         return;
       }
       const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
@@ -1781,7 +1798,7 @@
       link.remove();
       URL.revokeObjectURL(url);
       setResultPayload({status: "settings_exported", count: payload.count});
-      setPresetStatus(`설정 ${payload.count}개 내보냄`);
+      setPresetStatus(tr`설정 ${payload.count}개 내보냄`);
     }
     async function importPresetsFromFile(file) {
       if (!file) {
@@ -1797,14 +1814,14 @@
         const payload = await response.json();
         setResultPayload(payload);
         if (!response.ok || payload.error) {
-          setPresetStatus(`가져오기 실패: ${payload.error || payload.errors?.[0]?.error || "알 수 없는 오류"}`);
+          setPresetStatus(tr`가져오기 실패: ${payload.error || payload.errors?.[0]?.error || tr("알 수 없는 오류")}`);
           return;
         }
         await loadPresets();
-        setPresetStatus(`설정 ${payload.imported_count}개 가져옴`);
+        setPresetStatus(tr`설정 ${payload.imported_count}개 가져옴`);
       } catch (error) {
-        setResultPayload({error: String(error)});
-        setPresetStatus(`가져오기 실패: ${String(error)}`);
+        setResultPayload(error.payload || {error: String(error)});
+        setPresetStatus(tr`가져오기 실패: ${String(error)}`);
       } finally {
         presetImportFile.value = "";
       }
@@ -1815,11 +1832,11 @@
       const items = payload.items || [];
       const presets = payload.presets || [];
       wildcardSelect.replaceChildren(
-        new Option(items.length ? "와일드카드 선택" : "와일드카드 파일 없음", ""),
+        new Option(items.length ? tr("와일드카드 선택") : tr("와일드카드 파일 없음"), ""),
         ...items.map((item) => new Option(`${item.name} (${item.value_count})`, item.token))
       );
       presetWildcardSelect.replaceChildren(
-        new Option(presets.length ? "프리셋 선택" : "프롬프트 프리셋 없음", ""),
+        new Option(presets.length ? tr("프리셋 선택") : tr("프롬프트 프리셋 없음"), ""),
         ...presets.map((item) => new Option(`${item.name} (${item.value_count})`, item.token))
       );
     }
@@ -1887,7 +1904,7 @@
       }
       autocompleteMenu.hidden = true;
       autocompleteMenu.replaceChildren();
-      autocompleteStatus.textContent = "";
+      window.AppI18n.setText(autocompleteStatus, () => "");
       autocompleteItems = [];
       autocompleteIndex = -1;
       autocompleteFragment = null;
@@ -1931,10 +1948,10 @@
         button.setAttribute("role", "option");
         button.tabIndex = -1;
         const label = document.createElement("span");
-        label.textContent = item.value;
+        window.AppI18n.setText(label, () => item.value);
         const count = document.createElement("span");
         count.className = "autocomplete-item-count";
-        count.textContent = item.count ? item.count.toLocaleString() : "";
+        window.AppI18n.setText(count, () => item.count ? item.count.toLocaleString(window.AppI18n.locale) : "");
         button.append(label, count);
         button.addEventListener("mousedown", (event) => event.preventDefault());
         button.addEventListener("click", () => applyAutocompleteItem(index));
@@ -1943,7 +1960,7 @@
       autocompleteActiveInput = input;
       setAutocompleteExpanded(input, true);
       autocompleteMenu.hidden = false;
-      autocompleteStatus.textContent = `자동완성 제안 ${autocompleteItems.length}개. 위아래 화살표로 선택하세요.`;
+      window.AppI18n.setText(autocompleteStatus, () => tr`자동완성 제안 ${autocompleteItems.length}개. 위아래 화살표로 선택하세요.`);
       positionAutocomplete(input);
       setAutocompleteIndex(0);
     }
@@ -2054,23 +2071,23 @@
     function renderWildcardPreview(payload) {
       const lines = [];
       if (payload.error) {
-        lines.push(`오류: ${payload.error}`);
+        lines.push(tr`오류: ${payload.error}`);
       }
-      lines.push("프롬프트:");
+      lines.push(tr("프롬프트:"));
       lines.push(payload.prompt || "");
       if (payload.negative_prompt) {
         lines.push("");
-        lines.push("네거티브:");
+        lines.push(tr("네거티브:"));
         lines.push(payload.negative_prompt);
       }
       lines.push("");
-      lines.push(`선택: ${payload.selection_count || 0}`);
+      lines.push(tr`선택: ${payload.selection_count || 0}`);
       (payload.selections || []).forEach((item, index) => {
-        const label = item.wildcard || item.type || "항목";
+        const label = item.wildcard || item.type || tr("항목");
         const value = item.expanded_value || item.value || "";
         lines.push(`${index + 1}. ${label}: ${value}`);
       });
-      wildcardPreview.textContent = lines.join("\n");
+      window.AppI18n.setText(wildcardPreview, () => lines.join("\n"));
       wildcardPreview.hidden = false;
     }
     async function previewWildcards() {
@@ -2092,15 +2109,15 @@
     async function refinePromptWithLlm() {
       const prompt = form.elements.prompt.value.trim();
       if (!prompt) {
-        llmPromptStatus.textContent = "프롬프트가 비어 있음";
+        window.AppI18n.setText(llmPromptStatus, () => tr("프롬프트가 비어 있음"));
         return;
       }
       const refinePriority = llmRefinePrioritySelect.value === "natural" ? "natural" : "tag";
       const refinePriorityLabel = refinePriority === "natural" ? "natural-language priority" : "tag priority";
       const previousText = llmRefinePromptButton.textContent;
       llmRefinePromptButton.disabled = true;
-      llmRefinePromptButton.textContent = "LLM 처리 중...";
-      llmPromptStatus.textContent = "LLM 보정 중...";
+      window.AppI18n.setText(llmRefinePromptButton, () => tr("LLM 처리 중..."));
+      window.AppI18n.setText(llmPromptStatus, () => tr("LLM 보정 중..."));
       try {
         const response = await fetch("/api/llm/generate", {
           method: "POST",
@@ -2135,9 +2152,9 @@
           throw new Error("LLM returned an empty refined prompt");
         }
         form.elements.prompt.value = nextPrompt;
-        llmPromptStatus.textContent = refined.resolvedConflicts.length
-          ? `LLM 보정 완료 (${refined.resolvedConflicts.length}개 정리)`
-          : "LLM 보정 완료";
+        window.AppI18n.setText(llmPromptStatus, () => refined.resolvedConflicts.length
+          ? tr`LLM 보정 완료 (${refined.resolvedConflicts.length}개 정리)`
+          : tr("LLM 보정 완료"));
         setResultPayload({
           status: "llm_prompt_appended",
           original_prompt: prompt,
@@ -2149,10 +2166,10 @@
           ...payload
         });
       } catch (error) {
-        llmPromptStatus.textContent = "LLM 보정 실패";
-        setResultPayload({error: String(error)});
+        window.AppI18n.setText(llmPromptStatus, () => tr("LLM 보정 실패"));
+        setResultPayload(error.payload || {error: String(error)});
       } finally {
-        llmRefinePromptButton.textContent = previousText;
+        window.AppI18n.setText(llmRefinePromptButton, () => previousText);
         llmRefinePromptButton.disabled = false;
       }
     }
@@ -2250,14 +2267,14 @@
         return null;
       }
       if (!/^\d+$/.test(value)) {
-        input.setCustomValidity("시드는 0 이상의 10진 정수여야 합니다.");
+        input.setCustomValidity(tr("시드는 0 이상의 10진 정수여야 합니다."));
         return null;
       }
       const normalized = value.replace(/^0+(?=\d)/, "");
       const maximum = String(input === form.elements.seed && providerSelect.value === "novelai"
         ? 4294967295 : animaDefaults.limits.max_seed_safe);
       if (normalized.length > maximum.length || (normalized.length === maximum.length && normalized > maximum)) {
-        input.setCustomValidity(`웹 시드는 ${maximum} 이하여야 합니다.`);
+        input.setCustomValidity(tr`웹 시드는 ${maximum} 이하여야 합니다.`);
         return null;
       }
       return Number(normalized);
@@ -2266,9 +2283,8 @@
       return seedNumberFromElement(form.elements.seed);
     }
     function syncGenerationResourceValidity() {
-      form.elements.nai_model.setCustomValidity(providerSelect.value === "novelai" && naiCharacters.children.length &&
-        !form.elements.nai_model.value.startsWith("nai-diffusion-4") && !form.elements.nai_model.value.startsWith("nai-diffusion-5")
-        ? "캐릭터별 프롬프트는 V4 / V5 모델에서 지원합니다." : "");
+      window.dispatchEvent(new Event("generation-settings-applied"));
+      syncCharacterControls();
       const widthInput = form.elements.width;
       const heightInput = form.elements.height;
       const upscaleScaleInput = form.elements.upscale_scale;
@@ -2283,41 +2299,41 @@
         naiOperation.setCustomValidity("");
         if (["infill", "focused_infill"].includes(naiOperation.value)) {
           if (!form.elements.input_image.value || !form.elements.mask_image.value) {
-            naiOperation.setCustomValidity("입력 이미지와 마스크를 지정하고, 그린 마스크는 저장해 주세요.");
+            naiOperation.setCustomValidity(tr("입력 이미지와 마스크를 지정하고, 그린 마스크는 저장해 주세요."));
           } else if (form.elements.nai_limit_opus_free.checked && naiOperation.value === "infill") {
-            naiOperation.setCustomValidity("인페인트는 비용이 발생할 수 있습니다. Opus 요청 한도를 직접 해제해 주세요.");
+            naiOperation.setCustomValidity(tr("인페인트는 비용이 발생할 수 있습니다. Opus 요청 한도를 직접 해제해 주세요."));
           }
         }
         if (naiOperation.value === "img2img") {
-          if (!form.elements.input_image.value) naiOperation.setCustomValidity("Img2Img 입력 이미지를 지정해 주세요.");
-          else if (form.elements.nai_limit_opus_free.checked) naiOperation.setCustomValidity("Img2Img는 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요.");
+          if (!form.elements.input_image.value) naiOperation.setCustomValidity(tr("Img2Img 입력 이미지를 지정해 주세요."));
+          else if (form.elements.nai_limit_opus_free.checked) naiOperation.setCustomValidity(tr("Img2Img는 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요."));
         }
-        if (naiOperation.value === "detail" && !form.elements.input_image.value) naiOperation.setCustomValidity("디테일러 입력 이미지를 지정해 주세요.");
+        if (naiOperation.value === "detail" && !form.elements.input_image.value) naiOperation.setCustomValidity(tr("디테일러 입력 이미지를 지정해 주세요."));
         if (!form.elements.nai_limit_opus_free.checked && width * height > animaDefaults.limits.max_base_image_pixels) {
-          heightInput.setCustomValidity(`한도 미적용 시 ${animaDefaults.limits.max_base_image_pixels.toLocaleString()}픽셀 이하여야 합니다.`);
+          heightInput.setCustomValidity(tr`한도 미적용 시 ${animaDefaults.limits.max_base_image_pixels.toLocaleString(window.AppI18n.locale)}픽셀 이하여야 합니다.`);
         }
         renderNovelAIEffective();
         const vibes = readNaiReferences("vibe"), references = readNaiReferences("precise");
         const model = form.elements.nai_model.value;
         if (vibes.length || references.length) {
-          if (form.elements.nai_limit_opus_free.checked) naiOperation.setCustomValidity("참조는 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요.");
-          else if (vibes.length && references.length) naiOperation.setCustomValidity("Vibe와 Precise Reference는 함께 사용할 수 없습니다.");
-          else if (vibes.length && (!/^nai-diffusion-(3|furry-3|4)/.test(model) || ["infill", "focused_infill", "detail"].includes(naiOperation.value) && model.startsWith("nai-diffusion-4"))) naiOperation.setCustomValidity("이 모델 / 생성 방식은 Vibe를 지원하지 않습니다.");
-          else if (references.length && !model.startsWith("nai-diffusion-4-5")) naiOperation.setCustomValidity("Precise Reference는 V4.5 모델을 선택해 주세요.");
-          else if ([...vibes, ...references].some((r) => !r.image)) naiOperation.setCustomValidity("참조 이미지를 업로드해 주세요.");
+          if (form.elements.nai_limit_opus_free.checked) naiOperation.setCustomValidity(tr("참조는 비용이 발생할 수 있습니다. Opus 보호 모드를 직접 해제해 주세요."));
+          else if (vibes.length && references.length) naiOperation.setCustomValidity(tr("Vibe와 Precise Reference는 함께 사용할 수 없습니다."));
+          else if (vibes.length && (!/^nai-diffusion-(3|furry-3|4)/.test(model) || ["infill", "focused_infill", "detail"].includes(naiOperation.value) && model.startsWith("nai-diffusion-4"))) naiOperation.setCustomValidity(tr("이 모델 / 생성 방식은 Vibe를 지원하지 않습니다."));
+          else if (references.length && !model.startsWith("nai-diffusion-4-5")) naiOperation.setCustomValidity(tr("Precise Reference는 V4.5 모델을 선택해 주세요."));
+          else if ([...vibes, ...references].some((r) => !r.image)) naiOperation.setCustomValidity(tr("참조 이미지를 업로드해 주세요."));
         }
         return;
       }
 
       if (width > 0 && height > 0 && width * height > animaDefaults.limits.max_base_image_pixels) {
-        heightInput.setCustomValidity(`기본 이미지는 ${animaDefaults.limits.max_base_image_pixels.toLocaleString()}픽셀 이하여야 합니다.`);
+        heightInput.setCustomValidity(tr`기본 이미지는 ${animaDefaults.limits.max_base_image_pixels.toLocaleString(window.AppI18n.locale)}픽셀 이하여야 합니다.`);
       }
       if (form.elements.upscale_enabled.checked && width > 0 && height > 0 && scale > 0) {
         const outputWidth = 8 * Math.round((width / 8) * scale);
         const outputHeight = 8 * Math.round((height / 8) * scale);
         const outputPixels = outputWidth * outputHeight;
         if (outputPixels > animaDefaults.limits.max_output_image_pixels) {
-          upscaleScaleInput.setCustomValidity(`업스케일 결과는 ${animaDefaults.limits.max_output_image_pixels.toLocaleString()}픽셀 이하여야 합니다.`);
+          upscaleScaleInput.setCustomValidity(tr`업스케일 결과는 ${animaDefaults.limits.max_output_image_pixels.toLocaleString(window.AppI18n.locale)}픽셀 이하여야 합니다.`);
         }
       }
 
@@ -2337,18 +2353,29 @@
       syncGenerationResourceValidity();
       if (!(report ? form.reportValidity() : form.checkValidity())) return false;
       if (providerSelect.value === "novelai") {
+        if (!naiCharacterCount.checkValidity()) {
+          if (report) { document.getElementById("nai-characters-panel").open = true; naiCharacterCount.reportValidity(); }
+          return false;
+        }
         for (const input of naiCharacters.querySelectorAll("input, textarea")) {
           if (!input.checkValidity()) {
-            if (report) { document.getElementById("nai-characters-panel").open = true; input.reportValidity(); }
+            if (report) { document.getElementById("nai-characters-panel").open = true; input.closest(".nai-character").querySelector("details").open = true; input.reportValidity(); }
             return false;
           }
         }
       }
       return true;
     }
-    function buildRequestData() {
-      if (!generationFormIsValid()) {
-        throw new Error("생성 설정 값을 확인해 주세요.");
+    window.animaGenerationRequest = () => buildRequestData(false);
+    window.animaGenerationDraft = () => {
+      const request = buildRequestData(false, false);
+      const steps = window.animaWorkflow?.snapshot() || [];
+      return steps.length ? {...request, workflow: {version: 1, steps}} : request;
+    };
+    window.animaRestoreGeneration = request => applyPreset({name: tr("작업 초안"), request});
+    function buildRequestData(includeWorkflow = true, validate = true) {
+      if (validate && !generationFormIsValid()) {
+        throw new Error(tr("생성 설정 값을 확인해 주세요."));
       }
       const data = Object.fromEntries(new FormData(form).entries());
       data.width = Number(data.width);
@@ -2373,14 +2400,16 @@
           img2img_noise: Number(form.elements.img2img_noise.value)
         };
         for (const input of naiCharacters.querySelectorAll("input, textarea")) {
-          if (!input.checkValidity()) {
+          if (validate && !input.checkValidity()) {
             document.getElementById("nai-characters-panel").open = true;
-            input.reportValidity(); throw new Error("캐릭터 프롬프트와 좌표를 확인해 주세요.");
+            input.reportValidity(); throw new Error(tr("캐릭터 프롬프트와 좌표를 확인해 주세요."));
           }
         }
         request.nai_characters = readNaiCharacters();
+        request.nai_character_slots = readNaiCharacterSlots();
+        request.nai_character_count = Number(naiCharacterCount.value);
         for (const input of document.querySelectorAll("#nai-reference-panel input, #nai-detailer-panel input")) {
-          if (!input.checkValidity()) { input.closest("details").open = true; input.reportValidity(); throw new Error("참조 / 디테일러 설정 범위를 확인해 주세요."); }
+          if (validate && !input.checkValidity()) { input.closest("details").open = true; input.reportValidity(); throw new Error(tr("참조 / 디테일러 설정 범위를 확인해 주세요.")); }
         }
         request.nai_use_coords = naiUseCoords.checked;
         request.nai_use_order = naiUseOrder.checked;
@@ -2390,7 +2419,8 @@
         request.nai_detailer = readNaiDetailer();
         const seed = seedNumberFromInput();
         if (seed !== null) request.seed = seed;
-        return request;
+        Object.assign(request, window.animaAuthoring?.context());
+        return includeWorkflow && window.animaWorkflow ? window.animaWorkflow.decorate(request) : request;
       }
       data.checkpoint = data.checkpoint || animaDefaults.checkpoint;
       if (data.i2i_image) {
@@ -2471,7 +2501,8 @@
       } else {
         data.seed = seedNumberFromInput();
       }
-      return data;
+      Object.assign(data, window.animaAuthoring?.context());
+      return includeWorkflow && window.animaWorkflow ? window.animaWorkflow.decorate(data) : data;
     }
     function renderNovelAIOptions() {
       const capability = providerCapabilities?.providers.find((item) => item.id === "novelai");
@@ -2492,7 +2523,7 @@
       const settings = {enabled: document.getElementById("nai-detailer-enabled").checked || naiOperation.value === "detail",
         preview_only: document.getElementById("nai-detailer-preview").checked,
         concepts: [...document.querySelectorAll(".nai-detailer-concept:checked")].map((input) => input.value)};
-      for (const key of ["mode", "matching", "backend", "wd_device"]) settings[key] = document.getElementById(`nai-detailer-${key}`).value;
+      for (const key of ["mode", "matching", "backend", "wd_device", "wd_model"]) settings[key] = document.getElementById(`nai-detailer-${key}`).value;
       for (const key of ["threshold", "mask_threshold", "crop_factor", "padding", "dilation", "strength", "steps", "max_regions", "match_min_score", "match_min_margin", "match_crop_factor", "wd_batch_size"]) {
         settings[key] = Number(document.getElementById(`nai-detailer-${key}`).value);
       }
@@ -2501,13 +2532,69 @@
     function setNaiDetailer(value = {}) {
       const defaults = {enabled: false, preview_only: false, mode: "all", matching: "shared", backend: "sam_b",
         threshold: .5, mask_threshold: .3, crop_factor: 2, padding: 32, dilation: 0, strength: .55, steps: 28,
-        max_regions: 16, match_min_score: .25, match_min_margin: .08, match_crop_factor: 2, wd_device: "auto", wd_batch_size: 4};
+        max_regions: 16, match_min_score: .25, match_min_margin: .08, match_crop_factor: 2, wd_device: "auto", wd_batch_size: 4,
+        wd_model: "WD ViT v3"};
       for (const [key, initial] of Object.entries(defaults)) {
         const input = document.getElementById(`nai-detailer-${key === "preview_only" ? "preview" : key}`);
         if (input.type === "checkbox") input.checked = value[key] ?? initial;
         else input.value = value[key] ?? initial;
       }
       for (const input of document.querySelectorAll(".nai-detailer-concept")) input.checked = (value.concepts || ["face", "eyes"]).includes(input.value);
+    }
+    function syncTaggerControls() {
+      const busy = taggerJob?.status === "running" || taggerSubmitting;
+      const disabled = providerSelect.value !== "novelai" || queueRunning || !uploadsAreIdle();
+      naiBind(document.getElementById("nai-tagger-hint"), document.getElementById("nai-detailer-wd_model").value === "PixAI Tagger v1.0" ? "taggerPixAI" : "taggerWD");
+      for (const key of ["wd_model", "wd_device", "wd_batch_size"]) {
+        document.getElementById(`nai-detailer-${key}`).disabled = disabled || busy;
+      }
+      document.getElementById("nai-tagger-prepare").disabled = disabled || busy;
+      document.getElementById("nai-tagger-cancel").disabled = taggerSubmitting || taggerJob?.status !== "running" || taggerJob?.cancel_requested;
+    }
+    function renderTaggerJob(data) {
+      taggerJob = data.job;
+      window.NaiErrors.render("nai-tagger-error-guide", taggerJob);
+      const progress = document.getElementById("nai-tagger-progress");
+      progress.hidden = !taggerJob;
+      if (taggerJob) {
+        if (taggerJob.status === "running" && !taggerJob.total_bytes) progress.removeAttribute("value");
+        else progress.value = taggerJob.fraction;
+        const status = {running: tr("준비 중"), ready: tr("준비 완료"), cancelled: tr("취소됨"), failed: tr("실패")}[taggerJob.status] || taggerJob.status;
+        window.AppI18n.setText(document.getElementById("nai-tagger-status"), () => `${taggerJob.model_name} — ${status}: ${taggerJob.text}`
+          + (taggerJob.error ? ` — ${window.NaiErrors.message(taggerJob)}` : ""));
+      }
+      syncTaggerControls();
+      window.clearTimeout(taggerPollTimer);
+      if (taggerJob?.status === "running") taggerPollTimer = window.setTimeout(refreshTagger, 500);
+    }
+    async function refreshTagger() {
+      try {
+        const response = await fetch("/api/nai/tagger", {cache: "no-store"});
+        if (!response.ok) throw new Error(tr("태거 준비 상태를 확인할 수 없습니다."));
+        renderTaggerJob(await response.json());
+      } catch (error) {
+        window.AppI18n.setText(document.getElementById("nai-tagger-status"), () => String(error));
+        window.clearTimeout(taggerPollTimer);
+        taggerPollTimer = window.setTimeout(refreshTagger, 2000);
+      }
+    }
+    async function controlTagger(action) {
+      window.NaiErrors.render("nai-tagger-error-guide", null);
+      taggerSubmitting = true;
+      syncTaggerControls();
+      try {
+        const settings = readNaiDetailer();
+        const payload = action === "prepare" ? {model_name: settings.wd_model, device: settings.wd_device, batch_size: settings.wd_batch_size}
+          : {job_id: taggerJob?.id};
+        const response = await fetch(`/api/nai/tagger/${action}`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
+        const data = await response.json();
+        if (!response.ok) throw window.NaiErrors.asError(data, tr("태거 준비 실패"));
+        renderTaggerJob(data);
+      } catch (error) {
+        window.NaiErrors.render("nai-tagger-error-guide", error.payload);
+        window.AppI18n.setText(document.getElementById("nai-tagger-status"), () => String(error));
+      }
+      finally { taggerSubmitting = false; syncTaggerControls(); }
     }
     function readNaiReferences(kind) {
       const container = document.getElementById(kind === "vibe" ? "nai-vibes" : "nai-references");
@@ -2521,31 +2608,38 @@
       if (container.children.length >= 16 || queueRunning || !uploadsAreIdle()) return;
       const row = document.createElement("fieldset");
       row.dataset.image = value.image || "";
-      const legend = document.createElement("legend"); legend.textContent = kind === "vibe" ? "Vibe" : "Precise Reference"; row.append(legend);
-      const path = document.createElement("p"); path.className = "reference-path"; path.textContent = value.image || "이미지를 업로드하세요."; row.append(path);
+      const legend = document.createElement("legend"); window.AppI18n.setText(legend, () => kind === "vibe" ? "Vibe" : "Precise Reference"); row.append(legend);
+      const path = document.createElement("p"); path.className = "reference-path";
+      if (value.image) window.AppI18n.setText(path, () => value.image);
+      else naiBind(path, "uploadReference");
+      row.append(path);
       const file = document.createElement("input"); file.type = "file"; file.accept = "image/png,image/webp,image/jpeg";
       file.addEventListener("change", async () => {
         if (!file.files[0] || queueRunning || !uploadsAreIdle()) return;
         setUploadActive(true);
         try {
           const uploaded = await uploadFile("/api/inputs/reference", file.files[0], "reference");
-          row.dataset.image = uploaded.relative_path; path.textContent = uploaded.relative_path;
-        } catch (error) { document.getElementById("nai-reference-status").textContent = String(error); }
+          row.dataset.image = uploaded.relative_path;
+          delete path.dataset.naiI18n; delete path.dataset.naiI18nParams;
+          window.AppI18n.setText(path, () => uploaded.relative_path);
+        } catch (error) { window.AppI18n.setText(document.getElementById("nai-reference-status"), () => String(error)); }
         finally { file.value = ""; setUploadActive(false); syncGenerationResourceValidity(); }
       }); row.append(file);
-      for (const [key, label, initial] of [["strength", "강도", kind === "vibe" ? .6 : 1],
-        [kind === "vibe" ? "information_extracted" : "fidelity", kind === "vibe" ? "정보 추출량" : "Fidelity", 1]]) {
-        const wrapper = document.createElement("label"); wrapper.textContent = label;
+      for (const [key, label, initial] of [["strength", "strength", kind === "vibe" ? .6 : 1],
+        [kind === "vibe" ? "information_extracted" : "fidelity", kind === "vibe" ? "information" : "fidelity", 1]]) {
+        const wrapper = document.createElement("label"); wrapper.append(naiBind(document.createElement("span"), label));
         const input = document.createElement("input"); input.type = "number"; input.min = "0"; input.max = "1"; input.step = "any"; input.required = true;
         input.className = `reference-${key}`; input.value = value[key] ?? initial;
         wrapper.append(input); row.append(wrapper);
       }
       if (kind === "precise") {
         const select = document.createElement("select"); select.className = "reference-type";
-        for (const type of ["character", "style", "character&style"]) select.add(new Option(type, type));
-        select.value = value.reference_type || "character"; row.append(select);
+        for (const [type, key] of [["character", "referenceCharacter"], ["style", "referenceStyle"], ["character&style", "referenceBoth"]]) select.add(naiBind(new Option("", type), key));
+        select.value = value.reference_type || "character";
+        const wrapper = document.createElement("label");
+        wrapper.append(naiBind(document.createElement("span"), "referenceType"), select); row.append(wrapper);
       }
-      const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "참조 삭제";
+      const remove = document.createElement("button"); remove.type = "button"; naiBind(remove, "referenceRemove");
       remove.addEventListener("click", () => { if (!queueRunning && uploadsAreIdle()) { row.remove(); syncGenerationResourceValidity(); } }); row.append(remove);
       container.append(row); syncGenerationResourceValidity();
     }
@@ -2555,34 +2649,66 @@
     }
     document.getElementById("nai-add-vibe").addEventListener("click", () => addNaiReference("vibe"));
     document.getElementById("nai-add-reference").addEventListener("click", () => addNaiReference("precise"));
-    function readNaiCharacters() {
+    function readNaiCharacterSlots() {
       return [...naiCharacters.children].map((row) => ({
         prompt: row.querySelector(".character-prompt").value,
         negative_prompt: row.querySelector(".character-negative").value,
-        x: Number(row.querySelector(".character-x").value), y: Number(row.querySelector(".character-y").value)
+        x: Number(row.querySelector(".character-x").value), y: Number(row.querySelector(".character-y").value),
+        enabled: row.querySelector(".character-enabled").checked, collapsed: !row.querySelector("details").open
       }));
     }
-    function refreshConvertFields() {
+    function readNaiCharacters() {
+      return readNaiCharacterSlots().slice(0, Number(naiCharacterCount.value))
+        .filter((s) => s.enabled).map(({enabled, collapsed, ...character}) => character);
+    }
+    function syncCharacterControls(updateControls = true) {
+      const count = Number(naiCharacterCount.value), active = readNaiCharacters().length;
+      const model = form.elements.nai_model.value;
+      const limits = providerCapabilities?.providers.find((p) => p.id === "novelai")?.characters?.model_limits || {};
+      const limit = limits[model] ?? (model.startsWith("nai-diffusion-5") ? 22 : model.startsWith("nai-diffusion-4") ? 6 : 0);
+      naiCharacterCount.setCustomValidity(Number.isInteger(count) && count >= 0 && count <= naiCharacters.children.length ? "" : naiText("characterCountInvalid"));
+      const message = active > limit ? naiText("characterOverflow", {limit, active}) : "";
+      form.elements.nai_model.setCustomValidity(providerSelect.value === "novelai" ? message : "");
+      naiBind(document.getElementById("nai-character-status"), "characterStatus", {model: model || naiText("modelSelect"), active, limit,
+        stored: naiCharacters.children.length, hidden: Math.max(0, naiCharacters.children.length - count), warning: message ? ` · ${message}` : ""});
+      if (!updateControls) return;
+      [...naiCharacters.children].forEach((row, index) => {
+        row.hidden = index >= count;
+        for (const input of row.querySelectorAll("input, textarea")) {
+          input.disabled = providerSelect.value !== "novelai" || row.hidden || (input.className !== "character-enabled" && !row.querySelector(".character-enabled").checked);
+        }
+      });
+      naiAddCharacter.disabled = providerSelect.value !== "novelai" || count >= 22;
+    }
+    function refreshConvertFields(invalidate = true) {
       const selected = convertField.value;
-      convertField.replaceChildren(new Option("공통 프롬프트", "prompt"), new Option("공통 네거티브", "negative_prompt"));
-      [...naiCharacters.children].forEach((_, index) => {
-        for (const [kind, label] of [["prompt", "프롬프트"], ["negative", "네거티브"]]) {
-          convertField.add(new Option(`캐릭터 ${index + 1} ${label}`, `character:${index}:${kind}`));
+      convertField.replaceChildren(new Option(naiText("commonPrompt"), "prompt"), new Option(naiText("commonNegative"), "negative_prompt"));
+      [...naiCharacters.children].forEach((row, index) => {
+        if (row.hidden || !row.querySelector(".character-enabled").checked) return;
+        for (const kind of ["prompt", "negative"]) {
+          convertField.add(new Option(naiText("characterField", {number: index + 1, field: naiText(kind)}), `character:${index}:${kind}`));
         }
       });
       if ([...convertField.options].some((item) => item.value === selected)) convertField.value = selected;
-      invalidateConversion();
+      if (invalidate) invalidateConversion();
     }
     function addNaiCharacter(value = {}) {
-      if (naiCharacters.children.length >= 5) return;
+      if (naiCharacters.children.length >= 22) return;
       const row = document.createElement("fieldset");
       row.className = "nai-character";
       const legend = document.createElement("legend");
-      legend.textContent = "캐릭터";
+      window.AppI18n.setText(legend, () => tr("캐릭터"));
       row.append(legend);
-      for (const [key, label] of [["prompt", "프롬프트"], ["negative", "네거티브"], ["x", "X"], ["y", "Y"]]) {
+      const enabledLabel = document.createElement("label"), enabled = document.createElement("input");
+      enabled.type = "checkbox"; enabled.className = "character-enabled"; enabled.checked = value.enabled ?? true;
+      enabledLabel.append(enabled, naiBind(document.createElement("span"), "characterEnabled")); row.append(enabledLabel);
+      enabled.addEventListener("change", refreshCharacterRows);
+      const body = document.createElement("details"), summary = document.createElement("summary");
+      body.open = !(value.collapsed ?? false); naiBind(summary, "characterFold");
+      body.append(summary); row.append(body);
+      for (const [key, label] of [["prompt", "prompt"], ["negative", "negative"], ["x", "X"], ["y", "Y"]]) {
         const wrapper = document.createElement("label");
-        wrapper.textContent = label;
+        wrapper.append(naiBind(document.createElement("span"), label));
         const input = document.createElement(key === "prompt" || key === "negative" ? "textarea" : "input");
         input.className = `character-${key}`;
         if (input.tagName === "TEXTAREA") {
@@ -2594,31 +2720,47 @@
           input.value = value[key] ?? 0.5;
         }
         input.addEventListener("input", invalidateConversion);
-        wrapper.append(input); row.append(wrapper);
+        wrapper.append(input); body.append(wrapper);
       }
       const remove = document.createElement("button");
-      remove.type = "button"; remove.textContent = "캐릭터 삭제"; remove.className = "secondary-button";
-      remove.addEventListener("click", () => { row.remove(); refreshCharacterRows(); });
-      row.append(remove); naiCharacters.append(row); refreshCharacterRows();
+      remove.type = "button"; naiBind(remove, "characterRemove"); remove.className = "secondary-button";
+      remove.addEventListener("click", () => {
+        const index = [...naiCharacters.children].indexOf(row);
+        if (index < Number(naiCharacterCount.value)) naiCharacterCount.value = Number(naiCharacterCount.value) - 1;
+        row.remove(); refreshCharacterRows();
+      });
+      row.append(remove); naiCharacters.append(row); naiCharacterCount.value = naiCharacters.children.length; refreshCharacterRows();
     }
     function refreshCharacterRows() {
-      [...naiCharacters.children].forEach((row, index) => { row.querySelector("legend").textContent = `캐릭터 ${index + 1}`; });
-      naiAddCharacter.disabled = providerSelect.value !== "novelai" || naiCharacters.children.length >= 5;
+      [...naiCharacters.children].forEach((row, index) => { naiBind(row.querySelector("legend"), "character", {number: index + 1}); });
+      syncCharacterControls();
       refreshConvertFields();
-      form.elements.nai_model.setCustomValidity("");
     }
-    function setNaiCharacters(values) {
+    function setNaiCharacters(values, count = values.length) {
+      if (values.length > 22) throw new Error(tr("캐릭터 슬롯 22개를 초과한 설정은 가져올 수 없습니다."));
       naiCharacters.replaceChildren();
       values.forEach(addNaiCharacter);
+      naiCharacterCount.value = count;
       refreshCharacterRows();
     }
+    naiCharacterCount.addEventListener("input", () => {
+      const count = Number(naiCharacterCount.value);
+      if (Number.isInteger(count) && count >= 0 && count <= 22) {
+        while (naiCharacters.children.length < count) addNaiCharacter();
+        naiCharacterCount.value = count;
+      }
+      refreshCharacterRows();
+    });
     function conversionInput() {
       if (!convertField.value.startsWith("character:")) return form.elements[convertField.value];
       const [, index, kind] = convertField.value.split(":");
       return naiCharacters.children[Number(index)]?.querySelector(`.character-${kind}`);
     }
     function invalidateConversion() {
+      window.NaiErrors.render("nai-convert-error-guide", null);
       conversionRevision += 1; conversion = null; convertApply.disabled = true;
+      window.AppI18n.setText(document.getElementById("convert-status"), () => "");
+      window.AppI18n.setText(document.getElementById("convert-result"), () => "");
     }
     document.getElementById("convert-preview").addEventListener("click", async () => {
       invalidateConversion();
@@ -2631,12 +2773,15 @@
           body: JSON.stringify({source, target, text: original})});
         const result = await response.json();
         if (revision !== conversionRevision) return;
-        if (!response.ok) throw new Error(result.error);
-        document.getElementById("convert-result").textContent = `원문\n${original}\n\n변환 결과\n${result.converted}`;
-        document.getElementById("convert-status").textContent = result.warnings.join("\n") || "변환 결과를 확인한 뒤 적용하세요.";
+        if (!response.ok) throw window.NaiErrors.asError(result);
+        window.AppI18n.setText(document.getElementById("convert-result"), () => tr`원문\n${original}\n\n변환 결과\n${result.converted}`);
+        window.AppI18n.setText(document.getElementById("convert-status"), () => result.warnings.join("\n") || tr("변환 결과를 확인한 뒤 적용하세요."));
         conversion = {input, original, converted: result.converted}; convertApply.disabled = false;
       } catch (error) {
-        if (revision === conversionRevision) document.getElementById("convert-status").textContent = String(error);
+        if (revision === conversionRevision) {
+          window.AppI18n.setText(document.getElementById("convert-status"), () => String(error));
+          window.NaiErrors.render("nai-convert-error-guide", error.payload);
+        }
       }
     });
     convertApply.addEventListener("click", () => {
@@ -2645,22 +2790,40 @@
       }
       const {input, converted} = conversion;
       input.value = converted; input.dispatchEvent(new Event("input", {bubbles: true})); invalidateConversion();
-      document.getElementById("convert-status").textContent = "선택한 프롬프트에 적용했습니다.";
+      window.AppI18n.setText(document.getElementById("convert-status"), () => tr("선택한 프롬프트에 적용했습니다."));
     });
     for (const id of ["convert-field", "convert-source", "convert-target"]) document.getElementById(id).addEventListener("change", invalidateConversion);
     form.elements.prompt.addEventListener("input", invalidateConversion);
     form.elements.negative_prompt.addEventListener("input", invalidateConversion);
-    naiAddCharacter.addEventListener("click", () => addNaiCharacter());
+    naiAddCharacter.addEventListener("click", () => {
+      const count = Number(naiCharacterCount.value);
+      if (count < naiCharacters.children.length) { naiCharacterCount.value = count + 1; refreshCharacterRows(); }
+      else addNaiCharacter();
+    });
     function renderNovelAIEffective() {
       let width = Number(form.elements.width.value), height = Number(form.elements.height.value);
       let steps = Number(form.elements.steps.value);
+      const medium = ["nai-diffusion-5-full-medium", "nai-diffusion-5-full-medium-inpainting"].includes(form.elements.nai_model.value);
+      const mediumNotice = document.getElementById("nai-medium-notice");
+      mediumNotice.hidden = !medium;
+      window.AppI18n.setText(mediumNotice, () => medium ? naiText("medium") : "");
+      const routingNotice = document.getElementById("nai-routing-notice");
+      const curatedInfill = ["infill", "focused_infill"].includes(naiOperation.value)
+        && form.elements.nai_model.value === "nai-diffusion-4-5-curated-inpainting";
+      const curatedDetail = form.elements.nai_model.value === "nai-diffusion-5-curated"
+        && (naiOperation.value === "detail" || document.getElementById("nai-detailer-enabled").checked);
+      routingNotice.hidden = !curatedInfill && !curatedDetail;
+      window.AppI18n.setText(routingNotice, () => routingNotice.hidden ? "" : naiText("routing"));
+      if (medium) steps = 14;
       const capped = form.elements.nai_limit_opus_free.checked;
       if (naiOperation.value !== "generate") {
-        const label = {infill: "인페인트", img2img: "Img2Img", detail: "자동 디테일러", focused_infill: "Focused Inpainting"}[naiOperation.value];
+        const label = naiText(`op_${naiOperation.value}`);
         const focused = ["detail", "focused_infill"].includes(naiOperation.value);
         const preview = focused && document.getElementById("nai-detailer-preview").checked;
         const model = naiOperation.value === "detail" ? providerCapabilities?.providers.find((p) => p.id === "novelai")?.inpaint_routing[form.elements.nai_model.value] : form.elements.nai_model.value;
-        naiEffective.textContent = `${label}: ${model || "인페인트 모델 확인 필요"} · 원본 ${width}x${height}${preview ? " · 원격 요청 없는 미리보기" : capped ? focused ? " · 작은 크롭 (각 축 1024 이하 / 28스텝) 자격 확인" : " · Opus 보호로 전송 차단" : " · Anlas 비용 가능"}`;
+        window.AppI18n.setText(naiEffective, () => naiText("effectiveEdit", {operation: label, model: model || naiText("modelCheck"), width, height,
+          medium: medium ? naiText("mediumSteps") : "", cost: preview ? naiText("previewFree") : capped
+            ? focused ? naiText("cropCheck", {steps: medium ? 14 : 28}) : naiText("blockedOpus") : naiText("mayCost")}));
         return;
       }
       if (capped && width * height > 1048576) {
@@ -2669,20 +2832,23 @@
         height = Math.max(64, Math.floor(height * scale / 64) * 64);
       }
       if (capped) steps = Math.min(steps, 28);
-      naiEffective.textContent = `전송 설정: ${width}x${height} · ${steps}스텝${capped ? " · Opus 요청 한도" : " · 계정 비용이 발생할 수 있음"}`;
+      window.AppI18n.setText(naiEffective, () => naiText("effectiveGenerate", {width, height, steps, cost: naiText(capped ? "opusLimit" : "accountCost")}));
+    }
+    function renderNaiProviderStatus() {
+      window.AppI18n.setText(providerStatus, () => providerSelect.value === "novelai"
+        ? naiText(providerCapabilities?.default_dry_run ? "providerDry" : naiTokenConfigured ? "providerReady" : "providerToken")
+        : tr("로컬 Anima"));
+      providerStatus.lang = window.AppI18n.language;
     }
     function syncProviderControls() {
       const isNovelAI = providerSelect.value === "novelai";
       novelAISettings.hidden = !isNovelAI;
       novelAISettings.querySelectorAll("input, select, textarea").forEach((input) => { input.disabled = !isNovelAI; });
-      naiAddCharacter.disabled = !isNovelAI || naiCharacters.children.length >= 5;
+      syncCharacterControls();
       naiInpaintInputs.hidden = !isNovelAI || naiOperation.value === "generate";
       document.getElementById("nai-img2img-options").hidden = naiOperation.value !== "img2img";
       document.getElementById("nai-mask-controls").hidden = !["infill", "focused_infill"].includes(naiOperation.value);
-      document.getElementById("nai-input-help").textContent = naiOperation.value === "img2img"
-        ? "입력 이미지를 생성 크기로 Lanczos 리사이즈합니다. Opus 보호 모드를 직접 해제해야 합니다."
-        : naiOperation.value === "detail" ? "입력 이미지와 생성 크기를 같게 지정하세요. 검출 영역을 순차 보정합니다."
-        : "입력·마스크·생성 크기는 같아야 합니다. 그린 마스크를 저장하세요. 일반 인페인트는 Opus 보호에서 차단하며 Focused는 작은 크롭만 허용합니다.";
+      naiBind(document.getElementById("nai-input-help"), naiOperation.value === "img2img" ? "inputImg2img" : naiOperation.value === "detail" ? "inputDetail" : "inputInfill");
       naiInpaintInputs.querySelectorAll("input, select, button").forEach((input) => { input.disabled = naiInpaintInputs.hidden; });
       [document.getElementById("local-model-settings"), loraImportForm,
        document.getElementById("local-sampling-controls"), document.getElementById("local-memory-controls"),
@@ -2696,9 +2862,7 @@
       }
       form.elements.steps.max = isNovelAI ? "50" : "100";
       form.elements.seed.max = isNovelAI ? "4294967295" : String(animaDefaults.limits.max_seed_safe);
-      providerStatus.textContent = isNovelAI
-        ? (providerCapabilities?.default_dry_run ? "NovelAI 드라이런 · 네트워크 요청 없음" : naiTokenConfigured ? "NovelAI · 토큰 설정됨" : "NAI_ACCESS_TOKEN 환경변수를 설정하고 서버를 시작하세요.")
-        : "로컬 Anima";
+      renderNaiProviderStatus();
       sam3Tools.hidden = isNovelAI || !currentOutputUrl || currentManifest?.provider === "novelai";
       if (!isNovelAI) syncLoraRemoveButtons();
       syncGenerationResourceValidity();
@@ -2709,10 +2873,12 @@
     }
     function applyPreset(item) {
       if (loraUploadInFlight) {
-        setResultMessage("LoRA 업로드가 끝난 뒤 설정을 불러와 주세요.");
+        setResultMessage(tr("LoRA 업로드가 끝난 뒤 설정을 불러와 주세요."));
         return false;
       }
-      const request = item.request || {};
+      const request = item.request?.workflow_base_request || item.request?.authoring_request || item.request || {};
+      window.animaAuthoring?.apply(request);
+      window.animaWorkflow?.apply(request.workflow);
       providerSelect.value = request.provider || "local";
       const naiSettings = request.novelai?.effective || request;
       setNaiDetailer(naiSettings.nai_detailer || naiSettings.detailer || {});
@@ -2735,7 +2901,15 @@
       form.elements.nai_variety_boost.checked = naiSettings.nai_variety_boost ?? request.variety_boost ?? true;
       form.elements.nai_limit_opus_free.checked = naiSettings.nai_limit_opus_free ?? request.limit_opus_free ?? true;
       const originalCharacters = request.wildcards?.characters?.map((item) => item.original);
-      setNaiCharacters(originalCharacters || naiSettings.nai_characters || request.characters || []);
+      const savedSlots = request.novelai?.requested?.nai_character_slots || naiSettings.nai_character_slots || request.character_slots;
+      if (savedSlots && originalCharacters) {
+        let active = 0;
+        const count = naiSettings.nai_character_count ?? request.character_count ?? savedSlots.length;
+        setNaiCharacters(savedSlots.map((s, i) => i < count && s.enabled ? {...s, ...originalCharacters[active++]} : s), count);
+      } else {
+        setNaiCharacters(savedSlots || originalCharacters || naiSettings.nai_characters || request.characters || [],
+          naiSettings.nai_character_count ?? request.character_count);
+      }
       naiUseCoords.checked = naiSettings.nai_use_coords ?? request.use_coords ?? true;
       naiUseOrder.checked = naiSettings.nai_use_order ?? request.use_order ?? true;
       const wildcardInfo = request.wildcards || {};
@@ -2788,6 +2962,7 @@
       syncStartingPointSelectionFromInputs();
       syncGenerationResourceValidity();
       loadReadiness().catch((error) => setResultPayload({error: String(error)}));
+      window.dispatchEvent(new Event("authoring-changed"));
       return true;
     }
     function syncStartingPointSelectionFromInputs() {
@@ -2853,6 +3028,32 @@
         button.setAttribute("aria-pressed", String(selected));
       });
     }
+    window.animaLibraryReadDraft = () => ({
+      prompt: form.elements.prompt.value, negative_prompt: form.elements.negative_prompt.value,
+      ...window.animaAuthoring?.context(),
+    });
+    window.animaLibraryApply = (request, mode) => {
+      if (queueRunning || !uploadsAreIdle()) throw new Error(tr("생성·업로드가 끝난 뒤 적용해 주세요."));
+      if (mode === "all") {
+        if (request.provider === "novelai" && !(request.nai_model || request.model || request.novelai?.effective?.nai_model)) {
+          throw new Error(tr("기록에서 모델을 확인할 수 없습니다. 프롬프트만 적용하고 모델을 직접 선택해 주세요."));
+        }
+        const cap = form.elements.nai_limit_opus_free.checked;
+        applyPreset({name: tr("라이브러리"), request});
+        form.elements.nai_limit_opus_free.checked = cap;
+      } else if (mode === "artists") {
+        form.elements.prompt.value = [form.elements.prompt.value.trim(), request.prompt].filter(Boolean).join(", ");
+      } else {
+        form.elements.prompt.value = request.prompt || "";
+        if (mode === "prompt") form.elements.negative_prompt.value = request.negative_prompt || "";
+      }
+      window.animaAuthoring?.apply(request);
+      window.dispatchEvent(new Event("authoring-changed"));
+      form.elements.prompt.focus();
+      form.elements.prompt.scrollIntoView({block: "center"});
+      syncProviderControls();
+      setResultMessage(tr("라이브러리 내용을 적용했습니다. 생성 조건을 확인해 주세요."));
+    };
     function applyManifest() {
       if (currentManifest) {
         applyPreset({name: currentManifest.prompt || "manifest", request: currentManifest});
@@ -2866,7 +3067,7 @@
       return Boolean(queueInfiniteInput.checked);
     }
     function queueTotalLabel(total) {
-      return total === null ? "무한" : String(total);
+      return total === null ? tr("무한") : String(total);
     }
     function queueDelaySeconds() {
       const value = Number(queueDelayInput.value || 0);
@@ -2874,7 +3075,7 @@
     }
     function setQueueStatus(message) {
       if (queueStatus.textContent !== message) {
-        queueStatus.textContent = message;
+        window.AppI18n.setText(queueStatus, () => message);
       }
     }
     function setQueueControlsRunning(running) {
@@ -2916,9 +3117,9 @@
       const summary = queueSummaryForJobs(items);
       const active = items.find((item) => item.status === "running") || items.find((item) => item.status === "waiting") || items.find((item) => item.status === "queued");
       const total = items.length;
-      setQueueStatus(`등록 ${summary.queued}, 대기 ${summary.waiting}, 실행 ${summary.running}, 완료 ${summary.completed}, 실패 ${summary.failed}, 취소 ${summary.cancelled}`);
+      setQueueStatus(tr`등록 ${summary.queued}, 대기 ${summary.waiting}, 실행 ${summary.running}, 완료 ${summary.completed}, 실패 ${summary.failed}, 취소 ${summary.cancelled}`);
       if (active?.request?.provider === "novelai" && active.cancel_requested) {
-        setQueueStatus("다음 작업 예약 중지 · 이미 전송한 NovelAI 응답을 기다립니다.");
+        setQueueStatus(tr("다음 작업 예약 중지 · 이미 전송한 NovelAI 응답을 기다립니다."));
       }
       if (active?.progress_id && active.status === "running" && active.progress_id !== activeProgressId) {
         startStageProgress(buildGenerationStages(active.request || {}));
@@ -2951,7 +3152,7 @@
       const response = await fetch("/api/jobs", {cache: "no-store"});
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || "큐 상태 확인 실패");
+        throw new Error(payload.error || tr("큐 상태 확인 실패"));
       }
       const rendered = renderServerQueueStatus(payload);
       await showLatestQueueResult(rendered.items);
@@ -2960,10 +3161,10 @@
         stopServerQueuePolling();
         const failed = rendered.summary.failed;
         const cancelled = rendered.summary.cancelled;
-        setQueueStatus(`큐 완료. 완료 ${rendered.summary.completed}, 실패 ${failed}, 취소 ${cancelled}.`);
+        setQueueStatus(tr`큐 완료. 완료 ${rendered.summary.completed}, 실패 ${failed}, 취소 ${cancelled}.`);
         if (!activeProgressId) {
           const finalState = failed ? "failed" : (cancelled ? "cancelled" : "completed");
-          const message = failed ? "하나 이상의 작업 실패" : (cancelled ? "작업이 취소되었습니다." : "");
+          const message = failed ? tr("하나 이상의 작업 실패") : (cancelled ? tr("작업이 취소되었습니다.") : "");
           finishGenerationStages({}, finalState, message);
         }
         activeQueueBatchId = "";
@@ -2980,7 +3181,7 @@
       const response = await fetch("/api/jobs", {cache: "no-store"});
       const payload = await response.json();
       if (!response.ok || payload.error) {
-        throw new Error(payload.error || "큐 상태 복구 실패");
+        throw new Error(payload.error || tr("큐 상태 복구 실패"));
       }
       const activeItems = (payload.items || []).filter((item) => ["running", "waiting", "queued"].includes(item.status));
       const activeJob = activeItems.find((item) => item.status === "running")
@@ -2992,7 +3193,7 @@
       activeQueueBatchId = activeJob.batch_id || "";
       lastQueueResultJobId = "";
       setQueueControlsRunning(true);
-      setResultMessage("진행 중인 서버 작업에 다시 연결했습니다.");
+      setResultMessage(tr("진행 중인 서버 작업에 다시 연결했습니다."));
       startStageProgress(buildGenerationStages(activeJob.request || {}));
       renderServerQueueStatus(payload);
       startServerQueuePolling();
@@ -3018,7 +3219,7 @@
       });
       const payload = await response.json();
       if (!response.ok || payload.error) {
-        throw new Error(payload.error || "큐 등록 실패");
+        throw window.NaiErrors.asError(payload, tr("큐 등록 실패"));
       }
       activeQueueBatchId = payload.batch_id || "";
       lastQueueResultJobId = "";
@@ -3032,7 +3233,7 @@
       });
       const payload = await response.json();
       if (!response.ok || payload.error) {
-        throw new Error(payload.error || "작업 취소 실패");
+        throw new Error(payload.error || tr("작업 취소 실패"));
       }
       return payload;
     }
@@ -3044,16 +3245,16 @@
       setQueueControlsRunning(true);
       currentManifest = null;
       clearOutputPreview();
-      setResultMessage("생성 작업 등록 중...");
+      setResultMessage(tr("생성 작업 등록 중..."));
       startStageProgress(buildGenerationStages(baseData));
       try {
         await enqueueServerJobs(baseData, 1, false, "fixed", 0);
-        setQueueStatus("단일 생성 실행 중");
+        setQueueStatus(tr("단일 생성 실행 중"));
         startServerQueuePolling();
       } catch (error) {
         setQueueControlsRunning(false);
         finishGenerationStages({}, "failed", String(error));
-        setResultPayload({error: String(error)});
+        setResultPayload(error.payload || {error: String(error)});
         setQueueStatus(String(error));
       }
     }
@@ -3069,16 +3270,16 @@
       const baseData = buildRequestData();
       setQueueControlsRunning(true);
       clearOutputPreview();
-      setResultMessage(infinite ? "무한 큐 준비 중..." : `${total}개 작업 큐 등록 중...`);
+      setResultMessage(infinite ? tr("무한 큐 준비 중...") : tr`${total}개 작업 큐 등록 중...`);
       startStageProgress(buildGenerationStages(baseData));
       try {
         const queued = await enqueueServerJobs(baseData, total, infinite);
-        setQueueStatus(infinite ? "서버 큐 실행 중: 무한 모드" : `서버 큐 ${queued.count} / ${queueTotalLabel(total)}개 등록됨`);
+        setQueueStatus(infinite ? tr("서버 큐 실행 중: 무한 모드") : tr`서버 큐 ${queued.count} / ${queueTotalLabel(total)}개 등록됨`);
         startServerQueuePolling();
       } catch (error) {
         setQueueControlsRunning(false);
         finishGenerationStages({}, "failed", String(error));
-        setResultPayload({error: String(error)});
+        setResultPayload(error.payload || {error: String(error)});
         setQueueStatus(String(error));
       }
     }
@@ -3087,12 +3288,12 @@
         return;
       }
       stopQueueButton.disabled = true;
-      setQueueStatus("서버 큐 정지 중...");
+      setQueueStatus(tr("서버 큐 정지 중..."));
       try {
         const response = await fetch("/api/jobs", {cache: "no-store"});
         const payload = await response.json();
         if (!response.ok || payload.error) {
-          throw new Error(payload.error || "큐 상태 확인 실패");
+          throw new Error(payload.error || tr("큐 상태 확인 실패"));
         }
         const jobs = jobsForActiveBatch(payload).filter((item) => ["queued", "waiting", "running"].includes(item.status));
         await Promise.all(jobs.map((item) => cancelServerJob(item.id)));
@@ -3127,19 +3328,19 @@
       const payload = await response.json();
       if (!response.ok || payload.error) {
         setResultPayload(payload);
-        setPresetStatus(`저장 실패: ${payload.error || "알 수 없는 오류"}`);
+        setPresetStatus(tr`저장 실패: ${payload.error || tr("알 수 없는 오류")}`);
         return;
       }
       setResultPayload({status: "settings_saved", ...payload});
       await loadPresets();
       presetSelect.value = payload.slug || "";
       syncPresetSelectionControls();
-      setPresetStatus(`${payload.name} 저장됨`);
+      setPresetStatus(tr`${payload.name} 저장됨`);
     });
     applyPresetButton.addEventListener("click", () => {
       const item = presets.find((preset) => preset.slug === presetSelect.value);
       if (item && applyPreset(item)) {
-        setPresetStatus(`${item.name} 불러옴`);
+        setPresetStatus(tr`${item.name} 불러옴`);
       }
     });
     checkpointSelect.addEventListener("change", () => {
@@ -3187,8 +3388,8 @@
     startQueueButton.addEventListener("click", () => {
       startAutoQueue().catch((error) => {
         setQueueControlsRunning(false);
-        setQueueStatus(`큐 실패: ${String(error)}`);
-        setResultPayload({error: String(error)});
+        setQueueStatus(tr`큐 실패: ${String(error)}`);
+        setResultPayload(error.payload || {error: String(error)});
       });
     });
     stopQueueButton.addEventListener("click", stopAutoQueue);
@@ -3223,20 +3424,20 @@
       event.preventDefault();
       const file = loraFileInput.files?.[0];
       if (!file) {
-        loraUploadStatus.textContent = "LoRA 파일을 선택해 주세요.";
+        window.AppI18n.setText(loraUploadStatus, () => tr("LoRA 파일을 선택해 주세요."));
         loraFileInput.focus();
         return;
       }
       try {
         await uploadLoraFile(file);
       } catch (error) {
-        loraUploadStatus.textContent = String(error);
-        setResultPayload({error: String(error)});
+        window.AppI18n.setText(loraUploadStatus, () => String(error));
+        setResultPayload(error.payload || {error: String(error)});
       }
     });
     setupSingleFileDropZone(
       naiMetadataDropZone, naiMetadataFile, readNaiMetadata,
-      (error) => { naiMetadataStatus.textContent = String(error); }
+      (error) => { window.AppI18n.setText(naiMetadataStatus, () => String(error)); window.NaiErrors.render("nai-metadata-error-guide", error.payload); }
     );
     naiMetadataModel.addEventListener("change", syncGenerationControls);
     applyNaiMetadataButton.addEventListener("click", applyNaiMetadata);
@@ -3245,8 +3446,8 @@
       referenceFileInput,
       uploadReferenceFile,
       (error) => {
-        referenceUploadStatus.textContent = String(error);
-        setResultPayload({error: String(error)});
+        window.AppI18n.setText(referenceUploadStatus, () => String(error));
+        setResultPayload(error.payload || {error: String(error)});
       }
     );
     setupSingleFileDropZone(
@@ -3260,21 +3461,21 @@
         }
       },
       (error) => {
-        loraUploadStatus.textContent = String(error);
-        setResultPayload({error: String(error)});
+        window.AppI18n.setText(loraUploadStatus, () => String(error));
+        setResultPayload(error.payload || {error: String(error)});
       },
       false
     );
     loraFileInput.addEventListener("change", () => {
       try {
         if (loraFileInput.files?.length !== 1) {
-          throw new Error("파일은 한 번에 한 개만 선택해 주세요.");
+          throw new Error(tr("파일은 한 번에 한 개만 선택해 주세요."));
         }
         validateUploadFile(loraFileInput.files[0], "lora");
-        loraUploadStatus.textContent = `선택됨: ${loraFileInput.files[0].name}`;
+        window.AppI18n.setText(loraUploadStatus, () => tr`선택됨: ${loraFileInput.files[0].name}`);
       } catch (error) {
         loraFileInput.value = "";
-        loraUploadStatus.textContent = String(error);
+        window.AppI18n.setText(loraUploadStatus, () => String(error));
       }
     });
     removeReferenceButton.addEventListener("click", () => {
@@ -3284,13 +3485,17 @@
     window.addEventListener("beforeunload", revokeReferencePreviewUrl);
     addLoraRow();
     providerSelect.addEventListener("change", syncProviderControls);
+    document.getElementById("nai-tagger-prepare").addEventListener("click", () => controlTagger("prepare"));
+    document.getElementById("nai-tagger-cancel").addEventListener("click", () => controlTagger("cancel"));
+    document.getElementById("nai-detailer-wd_model").addEventListener("change", syncTaggerControls);
+    refreshTagger();
     form.elements.nai_model.addEventListener("change", syncGenerationResourceValidity);
     naiOperation.addEventListener("change", () => { renderNovelAIOptions(); syncProviderControls(); });
     for (const id of ["nai-reference-panel", "nai-detailer-panel"]) {
       document.getElementById(id).addEventListener("input", () => { syncGenerationResourceValidity(); syncGenerationControls(); });
       document.getElementById(id).addEventListener("change", () => { syncGenerationResourceValidity(); syncGenerationControls(); });
     }
-    const reportNaiInputError = (error) => { naiInpaintStatus.textContent = String(error); };
+    const reportNaiInputError = (error) => { window.AppI18n.setText(naiInpaintStatus, () => String(error)); };
     document.getElementById("nai-input-file").addEventListener("change", (event) => {
       if (event.target.files.length === 1) uploadNaiInput(event.target.files[0]).catch(reportNaiInputError);
       event.target.value = "";
@@ -3303,13 +3508,13 @@
       if (queueRunning || !uploadsAreIdle() || !currentOutputUrl) return;
       try {
         const url = new URL(currentOutputUrl, location.href);
-        if (url.origin !== location.origin || !/^\/outputs\/images\/[^/]+$/.test(url.pathname)) throw new Error("관리된 결과 이미지만 사용할 수 있습니다.");
+        if (url.origin !== location.origin || !/^\/outputs\/images\/[^/]+$/.test(url.pathname)) throw new Error(tr("관리된 결과 이미지만 사용할 수 있습니다."));
         resetNaiEditor();
         form.elements.input_image.value = "outputs/images/" + decodeURIComponent(url.pathname.split("/").pop());
         form.elements.mask_image.value = "";
         setUploadActive(true);
         await showNaiInput(url.href);
-        naiInpaintStatus.textContent = "현재 결과를 입력으로 지정했습니다. 마스크를 칠하고 저장하세요.";
+        window.AppI18n.setText(naiInpaintStatus, () => tr("현재 결과를 입력으로 지정했습니다. 마스크를 칠하고 저장하세요."));
       } catch (error) { form.elements.input_image.value = ""; reportNaiInputError(error); }
       finally { setUploadActive(false); syncGenerationResourceValidity(); syncGenerationControls(); }
     });
@@ -3342,7 +3547,7 @@
       context.fill();
       naiMaskPointer = {...point, pointerId: event.pointerId};
       form.elements.mask_image.value = "";
-      naiInpaintStatus.textContent = "마스크를 수정했습니다. 그린 마스크 저장을 눌러주세요.";
+      window.AppI18n.setText(naiInpaintStatus, () => tr("마스크를 수정했습니다. 그린 마스크 저장을 눌러주세요."));
       redrawNaiMask();
       syncGenerationControls();
     }
@@ -3360,16 +3565,22 @@
     ["nai_limit_opus_free", "steps"].forEach((name) => {
       form.elements[name].addEventListener("input", syncGenerationResourceValidity);
     });
+    window.addEventListener("nai-language-change", () => {
+      // Refresh text without recreating input cards or clearing conversion previews.
+      syncCharacterControls(false); refreshConvertFields(false);
+      renderNovelAIEffective(); syncTaggerControls(); renderNaiProviderStatus();
+      syncGenerationResourceValidity();
+    });
     syncProviderControls();
     form.elements.face_mask_backend.addEventListener("change", syncSam3DetailerControls);
     syncSam3DetailerControls();
     renderSam3Presets();
     function reportStartupError(label, error) {
-      setResultPayload({status: "startup_error", error: `${label} 불러오기 실패: ${String(error)}`});
+      setResultPayload({status: "startup_error", error: tr`${label} 불러오기 실패: ${String(error)}`});
     }
-    loadStatus().catch((error) => reportStartupError("상태", error));
-    loadHistory().catch((error) => reportStartupError("기록", error));
-    loadPresets().catch((error) => reportStartupError("설정", error));
-    loadWildcards().catch((error) => reportStartupError("와일드카드", error));
-    restoreServerQueue().catch((error) => setQueueStatus(`큐 상태 복구 실패: ${String(error)}`));
+    loadStatus().catch((error) => reportStartupError(tr("상태"), error));
+    loadHistory().catch((error) => reportStartupError(tr("기록"), error));
+    loadPresets().catch((error) => reportStartupError(tr("설정"), error));
+    loadWildcards().catch((error) => reportStartupError(tr("와일드카드"), error));
+    restoreServerQueue().catch((error) => setQueueStatus(tr`큐 상태 복구 실패: ${String(error)}`));
     renderResultSummary();

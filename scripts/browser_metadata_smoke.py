@@ -39,7 +39,7 @@ def main() -> None:
         try:
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
-                page = browser.new_page(viewport={"width": 1600, "height": 1100})
+                page = browser.new_page(locale="ko-KR", viewport={"width": 1600, "height": 1100})
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.on("request", lambda request: generation_posts.append(request.url)
                         if request.method == "POST" and urlparse(request.url).path in {"/api/jobs", "/api/generate"} else None)

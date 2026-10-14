@@ -1,6 +1,6 @@
 # Anima APP 상세 사용 가이드 (한국어)
 
-이 문서는 Windows와 PowerShell에서 Anima APP을 설치하고, 모델을 준비하고, 브라우저 GUI·CLI·AI 에이전트 API로 사용하는 전체 흐름을 설명합니다.
+이 문서는 Windows/PowerShell을 중심으로 Anima APP을 설치하고, 모델을 준비하고, 브라우저 GUI·CLI·AI 에이전트 API로 사용하는 전체 흐름을 설명합니다.
 
 Anima APP은 프로젝트 내부의 `models` 폴더를 사용하는 로컬 이미지 생성 앱입니다. 일반 생성 과정에서 별도의 ComfyUI 서버를 실행하지 않습니다. AI 에이전트 API도 외부 서비스가 아니라 같은 로컬 Anima APP 서버에서 제공됩니다.
 
@@ -19,7 +19,13 @@ Anima APP은 프로젝트 내부의 `models` 폴더를 사용하는 로컬 이�
 
 관련 문서: [README](../README.md), [소스와 모델 참조](REFERENCES.md), [기능 수용 기준](ACCEPTANCE.md), [현재 릴리스 안내](RELEASE_0.5.0.md), [NovelAI 엔진 안내](NOVELAI_PROVIDER.md), [제3자 구성요소 고지](../NOTICE.md)
 
-0.5.0의 NovelAI 엔진은 공통 큐·프리셋·히스토리에서 T2I·Img2Img·일반 / Focused 인페인트·Vibe·Precise·자동 디테일러를 제공합니다. 캐릭터 5명·가중치 변환 6종·선택 WD 매칭도 지원합니다. Opus 보호는 계정 자격과 요청 조건을 확인하며, 참조·Img2Img·일반 인페인트는 사용자가 보호를 직접 해제해야 합니다. 선택 모델 준비와 검증 범위는 [NovelAI 엔진 안내](NOVELAI_PROVIDER.md)를 참고하세요.
+0.5.0 기반 개발 브랜치의 NovelAI 엔진은 공통 큐·프리셋·히스토리에서 T2I·Img2Img·일반 / Focused 인페인트·Vibe·Precise·자동 디테일러를 제공합니다. 캐릭터 슬롯 최대 22개(V5 활성 22명, V4/V4.5 활성 6명)·숨기기/사용 해제/접기·가중치 변환 6종·선택 WD/PixAI 매칭도 지원합니다. 숨긴 슬롯도 프리셋·히스토리·앱 PNG에 보존합니다. Opus 보호는 계정 자격과 요청 조건을 확인하며, 참조·Img2Img·일반 인페인트는 사용자가 보호를 직접 해제해야 합니다. 선택 모델 준비와 검증 범위는 [NovelAI 엔진 안내](NOVELAI_PROVIDER.md)를 참고하세요.
+
+화면 상단 **앱 언어**에서 English / 한국어 / 日本語를 선택합니다. 메인 화면과 이미지 작업실 문구를 즉시 바꾸며 작성 중인 프롬프트·작업 순서·초안은 유지합니다. 원문 프롬프트와 기술 오류 상세는 번역 대상이 아닙니다. [언어 설정](LOCALES.md)을 참고하세요.
+
+**처음 생성한다면 [이미지 생성 따라하기](IMAGE_GENERATION_KO.md)부터 보세요.** 현재 화면의 버튼 순서, NAI 한 장 생성, Anima 모델 준비, 양방향 디테일러, 원본/중간 결과 비교와 사례 재사용을 자세히 설명합니다. [English](IMAGE_GENERATION_EN.md)와 [日本語](IMAGE_GENERATION_JA.md)도 제공합니다.
+
+**NAI 토큰 입력칸은 웹 화면에 없습니다.** 앱을 실행할 터미널에서 `NAI_ACCESS_TOKEN`을 설정합니다. [숨김 입력 명령과 연결 확인](NAI_TOKEN_SETUP.md)을 먼저 따르고 같은 터미널에서 앱을 시작하세요. 토큰 변경 후에는 서버 재시작이 필요합니다.
 
 ## 1. 가장 빠른 시작
 
@@ -679,13 +685,15 @@ HTTP 생성 요청의 `loras[].path`에는 응답의 `relative_path`를 사용�
 5. `queued`, `waiting`, `running` 동안 상태를 폴링한다.
 6. 사용자가 중지를 요청하면 cancel 엔드포인트를 호출한다.
 7. `completed`일 때 `manifest_name`으로 manifest를 읽는다.
-8. `failed` 또는 HTTP 오류에서는 `error_code`, `error`, `http_status`를 보존해 사용자에게 보고한다.
+8. `failed` 또는 HTTP 오류에서는 `error_code`, `error`, `http_status`를 보존해 사용자에게 보고한다. NAI의 `error_detail`이 있으면 원인·단계·원격 HTTP 코드·언어별 다음 조치도 함께 사용한다. `remote_outcome_unknown`이면 자동 재전송하지 않는다.
 
 현재 POST 요청은 `Idempotency-Key`를 지원하지 않습니다. 동일한 등록 요청을 재전송하면 중복 생성될 수 있습니다.
 
 현재 OpenAPI에서 health, readiness, progress, manifest 같은 일부 조회 응답은 `GenericObject`로 표현됩니다. 클라이언트는 응답에 새 필드가 추가될 수 있다고 가정하고 필요한 키만 읽어야 합니다.
 
 ## 8. 오류와 해결 방법
+
+메인 화면의 **작업 순서**에서 NAI와 Anima의 생성·디테일러를 연결하고 후처리 순서를 바꿀 수 있습니다. 단계별 설정, 모델 준비, 크롭 오류와 부분 결과 보존은 [생성 작업실 가이드](GENERATION_WORKSPACE_KO.md)를 참고하세요.
 
 | 증상 또는 코드 | 의미 | 조치 |
 |---|---|---|

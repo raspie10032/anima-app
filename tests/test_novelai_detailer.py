@@ -176,7 +176,11 @@ def test_failure_after_base_preserves_base_and_durable_crop(tmp_path, monkeypatc
     status, response = server.handle_generate(payload, paths=AppPaths(tmp_path))
     assert status == 200, response
     manifest = json.loads(next(AppPaths(tmp_path).manifest_root.glob("*.json")).read_text())
-    assert manifest["novelai"]["detailer_failure"] == {"code": "nai_timeout", "remote_outcome_unknown": True}
+    failure = manifest["novelai"]["detailer_failure"]
+    assert failure["code"] == "nai_timeout" and failure["remote_outcome_unknown"]
+    assert failure["error_detail"]["code"] == "NAI_TIMEOUT"
+    assert failure["error_detail"]["stage"] == "detailer"
+    assert response["detailer_failure"] == failure
     assert manifest["stages"]["face_detailer"]["status"] == "failed"
     assert manifest["warnings"]
     assert len(list(AppPaths(tmp_path).image_root.glob("*-composite.png"))) == 1

@@ -118,58 +118,72 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
     positive = _encode_prompt(clip, request.prompt)
     negative = _encode_prompt(clip, request.negative_prompt)
     metrics.record("text_encode", stage_started)
-    stage_started = time.perf_counter()
-    latent, denoise = _make_initial_latent(request, vae, paths)
-    metrics.record("initial_latent", stage_started)
-    stage_started = time.perf_counter()
-    sampled = _sample_latent(
-        model,
-        positive,
-        negative,
-        latent,
-        request=request,
-        steps=request.steps,
-        denoise=denoise,
-    )
-    metrics.record("base_sample", stage_started)
     output_path = allocate_output_path(request, paths=paths, status="generated")
     variants: dict[str, Path] = {}
-    if request.upscale.enabled:
-        stage_started = time.perf_counter()
-        original_decoded, _ = _decode_samples(vae, sampled["samples"], request.vae_decode)
-        original_path = _variant_output_path(output_path, "original")
-        _save_image_tensor(original_decoded, original_path)
-        variants["original"] = original_path
-        metrics.record("original_decode_save", stage_started)
-        stage_started = time.perf_counter()
-        sampled = _upscale_latent_samples(
-            sampled,
-            request.upscale.scale,
-            request.upscale.method,
-            tiled=request.upscale.tiled,
-            tile_size=request.upscale.tile_size,
-            overlap=request.upscale.overlap,
-        )
-        metrics.record("latent_upscale", stage_started)
-        stage_started = time.perf_counter()
-        sampled = _sample_latent(
-            model,
-            positive,
-            negative,
-            sampled,
-            request=request,
-            steps=request.upscale.steps,
-            denoise=request.upscale.denoise,
-        )
-        metrics.record("highres_sample", stage_started)
-    stage_started = time.perf_counter()
-    decoded, vae_decode_method = _decode_samples(vae, sampled["samples"], request.vae_decode)
-    _save_image_tensor(decoded, output_path)
-    metrics.record("vae_decode_save", stage_started)
-    if request.upscale.enabled:
-        variants["upscale"] = output_path
-    else:
+    if request.operation == "detail":
+        # Preserve the full input; only the selected crops enter diffusion below.
+        source = resolve_managed_reference_path(request.i2i.image_path, paths)
+        with Image.open(source) as image:
+            if image.size != (request.width, request.height):
+                raise ValueError("detailer input dimensions must match the request")
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            image.convert("RGB").save(output_path)
         variants["original"] = output_path
+        vae_decode_method = "not_required"
+    else:
+        stage_started = time.perf_counter()
+        latent, denoise = _make_initial_latent(request, vae, paths)
+        metrics.record("initial_latent", stage_started)
+        stage_started = time.perf_counter()
+        if request.operation == "upscale":
+            sampled = latent
+        else:
+            sampled = _sample_latent(
+                model,
+                positive,
+                negative,
+                latent,
+                request=request,
+                steps=request.steps,
+                denoise=denoise,
+            )
+        metrics.record("base_sample", stage_started)
+        if request.upscale.enabled:
+            stage_started = time.perf_counter()
+            original_decoded, _ = _decode_samples(vae, sampled["samples"], request.vae_decode)
+            original_path = _variant_output_path(output_path, "original")
+            _save_image_tensor(original_decoded, original_path)
+            variants["original"] = original_path
+            metrics.record("original_decode_save", stage_started)
+            stage_started = time.perf_counter()
+            sampled = _upscale_latent_samples(
+                sampled,
+                request.upscale.scale,
+                request.upscale.method,
+                tiled=request.upscale.tiled,
+                tile_size=request.upscale.tile_size,
+                overlap=request.upscale.overlap,
+            )
+            metrics.record("latent_upscale", stage_started)
+            stage_started = time.perf_counter()
+            sampled = _sample_latent(
+                model,
+                positive,
+                negative,
+                sampled,
+                request=request,
+                steps=request.upscale.steps,
+                denoise=request.upscale.denoise,
+            )
+            metrics.record("highres_sample", stage_started)
+        stage_started = time.perf_counter()
+        decoded, vae_decode_method = _decode_samples(vae, sampled["samples"], request.vae_decode)
+        _save_image_tensor(decoded, output_path)
+        metrics.record("vae_decode_save", stage_started)
+        if request.upscale.enabled:
+            variants["upscale"] = output_path
+        else:
+            variants["original"] = output_path
     face_detailer_stage: dict[str, object] | None = None
     detailer_stages: dict[str, dict[str, object]] = {}
     warnings: tuple[str, ...] = ()
@@ -661,7 +675,8 @@ def _build_renderer_stages(
             "output_height": round(request.height * request.upscale.scale) if request.upscale.enabled else request.height,
         },
         "base_t2i": {
-            "status": "completed",
+            "status": "completed" if request.operation == "generate" else "skipped",
+            "operation": request.operation,
             "checkpoint": request.checkpoint,
             "steps": request.steps,
             "cfg": request.cfg,

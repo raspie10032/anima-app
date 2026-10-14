@@ -1,6 +1,9 @@
-# Anima APP v0.5.0 source-checkout beta candidate
+# Anima APP v0.5.0 source-checkout beta and 2.4.6 update candidate
 
-This candidate integrates the existing RS_NAI generation, references and detailing features into the 0.4.0 server queue and local-runtime foundation.
+> Current main source includes the [2026-10-14 workspace, workflow, locale and documentation update](MAIN_UPDATE_2026-10-14.md). Version remains 0.5.0. Dated acceptance and artifact entries below describe their original validation snapshots, not a new published binary.
+
+
+The original 0.5.0 integration was published at app commit `b3635050980518242923eb486847b7bfe90b744a`. The subsequent local candidate adds RS NAI 2.4.6 features at source commit `4de914676de8ca313b8389f4303754045a6a9cfb` without changing the app version. The current candidate has not been published. It adds Medium Effort, conversion/region diagnostics, three native taggers with explicit preparation, 22 saved character slots with model-specific limits, Korean/Japanese guidance, and 52 cause-specific errors. See [the incremental acceptance and package record](NAI_NODE_UPDATE_2.4.6.md). The source's later 2.5.0 inset/asset feature is outside this pin.
 
 ## Behavior
 
@@ -19,7 +22,7 @@ This candidate integrates the existing RS_NAI generation, references and detaili
 
 ## Verification boundary
 
-The character and converter migration is implemented: up to five character prompts/negative prompts with normalized coordinates and order flags across V4/V5 generation, infill, presets, queue requests, wildcard provenance, manifests and PNG/WebP metadata import. Six local ComfyUI/NAI V4/old NAI weight conversions use explicit preview/apply, with warnings for approximations and node-specific fallback behavior. Tests and mock browser acceptance cover these paths; live multi-character generation remains unverified.
+The current candidate keeps up to 22 saved character prompts/negative prompts with normalized coordinates and order flags across generation, infill, presets, queue requests, wildcard provenance, manifests and PNG/WebP metadata import. V5 permits 22 active characters; V4/V4.5 and V5 Curated's V4.5 infill fallback permit six; V3 does not support separate character prompts. Hiding/disabling preserves editor values; collapse does not disable a character. Six local ComfyUI/NAI V4/old NAI weight conversions use explicit preview/apply, with warnings for approximations and node-specific fallback behavior. Tests and mock browser acceptance cover these paths; live multi-character generation remains unverified.
 
 The implementation is tested using deterministic synthetic transport, temporary local model fixtures and a mock local renderer. Optional `scripts/browser_provider_smoke.py` exercises Chromium provider switching, preset restoration, queue recovery after refresh, remote cancellation, result retention, zero seed/CFG restoration and local operation without a NovelAI token. It also checks that V5 allowance 1 percent is blocked before generation and 2 percent permits the mocked request under the shared lock. External subscription and generation transports are disabled.
 

@@ -35,6 +35,7 @@ from anima_app.requests import (
 from anima_app.wildcards import WILDCARD_MODES
 from anima_app.providers.novelai.models import MODEL_IDS, SAMPLERS, SCHEDULERS, SUPPORTED_INPAINT_MODEL_IDS
 from anima_app.providers.novelai.requests import MAX_NAI_SEED
+from anima_app.providers.novelai.wd_tagger import DEFAULT_MODEL, MODELS as TAGGER_MODELS
 
 
 def _schema_ref(name: str) -> dict[str, str]:
@@ -110,6 +111,11 @@ def build_openapi_document(
                 "error": {"type": "string"},
                 "provider": {"type": "string", "enum": ["local", "novelai"]},
                 "remote_outcome_unknown": {"type": "boolean"},
+                "error_detail": {"type": "object", "description": "NovelAI cause code, execution stage, optional upstream HTTP status, sanitized details and en/ko/ja [cause, next action]. Display language never changes the generation request.",
+                                 "properties": {"code": {"type": "string"}, "stage": {"type": "string"},
+                                                "http_status": {"type": ["integer", "null"]},
+                                                "exception_type": {"type": "string"}, "details": {"type": "string"},
+                                                "messages": {"type": "object"}}},
                 "missing_files": {"type": "array", "items": {"type": "string"}},
                 "invalid_files": {"type": "array", "items": {"type": "string"}},
             },
@@ -296,6 +302,9 @@ def build_openapi_document(
             ),
             "properties": {
                 "provider": {"type": "string", "const": "local", "default": "local"},
+                "operation": {"type": "string", "enum": ["generate", "detail", "upscale"], "default": "generate",
+                              "description": "Detail/upscale require a managed i2i input and the corresponding post-processing settings."},
+                "workflow": _schema_ref("GenerationWorkflow"),
                 "prompt": {
                     "type": "string",
                     "minLength": 1,
@@ -388,6 +397,7 @@ def build_openapi_document(
             "description": "NovelAI T2I or infill. Infill requires managed input/mask paths matching the requested size, a dedicated inpainting model and nai_limit_opus_free=false. Credentials come from the server environment.",
             "properties": {
                 "provider": {"type": "string", "const": "novelai"},
+                "workflow": _schema_ref("GenerationWorkflow"),
                 "prompt": {"type": "string", "minLength": 1, "maxLength": MAX_PROMPT_CHARACTERS, "pattern": "\\S"},
                 "negative_prompt": {"type": "string", "maxLength": MAX_PROMPT_CHARACTERS, "default": ""},
                 "width": {"type": "integer", "minimum": 64, "maximum": MAX_GENERATION_DIMENSION, "multipleOf": 64, "default": 832},
@@ -406,8 +416,19 @@ def build_openapi_document(
                 "nai_scheduler": {"type": "string", "enum": sorted(SCHEDULERS), "default": "karras"},
                 "nai_cfg_rescale": {"type": "number", "minimum": 0, "maximum": 1, "default": 0},
                 "nai_prefer_brownian": {"type": "boolean", "default": False},
-                "nai_characters": {"type": "array", "maxItems": 5, "items": _schema_ref("NovelAICharacter"), "default": [],
-                                   "description": "V4/V5 only; one normalized center per character."},
+                "nai_characters": {"type": "array", "maxItems": 22, "items": _schema_ref("NovelAICharacter"), "default": [],
+                                   "description": "Active prompts: V5 max 22; V4/V4.5 max 6; V3 zero. V5 Curated infill routes to V4.5 (6). If slots are supplied this list must match their enabled visible entries, or may be omitted."},
+                "nai_character_slots": {"type": "array", "maxItems": 22, "items": {
+                    "type": "object", "additionalProperties": False, "properties": {
+                        "prompt": {"type": "string", "maxLength": MAX_PROMPT_CHARACTERS, "default": ""},
+                        "negative_prompt": {"type": "string", "maxLength": MAX_PROMPT_CHARACTERS, "default": ""},
+                        "x": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.5},
+                        "y": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.5},
+                        "enabled": {"type": "boolean", "default": True},
+                        "collapsed": {"type": "boolean", "default": False}}},
+                    "description": "Optional saved slots, including hidden/disabled values; never sent to NovelAI."},
+                "nai_character_count": {"type": "integer", "minimum": 0, "maximum": 22,
+                    "description": "Visible prefix of saved slots (default all). Entries after this count are retained but excluded from generation."},
                 "nai_use_coords": {"type": "boolean", "default": True},
                 "nai_use_order": {"type": "boolean", "default": True},
                 "nai_vibes": {"type": "array", "maxItems": 16, "items": {"type": "object", "additionalProperties": False,
@@ -437,6 +458,24 @@ def build_openapi_document(
                 "wildcard_mode": {"type": "string", "enum": sorted(WILDCARD_MODES), "default": "random"},
                 "dry_run": {"type": "boolean", "default": default_dry_run},
             },
+        },
+        "GenerationWorkflow": {
+            "type": "object", "additionalProperties": False, "required": ["steps"],
+            "properties": {
+                "version": {"type": "integer", "const": 1, "default": 1},
+                "steps": {"type": "array", "minItems": 1, "maxItems": 6, "items": _schema_ref("GenerationWorkflowStep")},
+            },
+            "description": "Ordered post-processing after the base request. Intermediate images and a workflow journal are retained. Dry-run validates all stages without generating images.",
+        },
+        "GenerationWorkflowStep": {
+            "type": "object", "additionalProperties": False, "required": ["provider", "operation"],
+            "properties": {
+                "provider": {"type": "string", "enum": ["local", "novelai"]},
+                "operation": {"type": "string", "enum": ["detail", "upscale"]},
+                "inherit_prompt": {"type": "boolean", "default": True},
+                "request": {"type": "object", "description": "Partial provider settings. Previous output supplies the input and size. Nested workflows, credentials, dry_run and progress_id are rejected."},
+            },
+            "description": "Anima supports detail/upscale; NovelAI supports detail only. Up to six post-processing stages, plus the base generation.",
         },
         "GenerationRequest": {"oneOf": [_schema_ref("T2IRequest"), _schema_ref("NovelAIRequest")]},
         "Variant": {
@@ -562,9 +601,40 @@ def build_openapi_document(
         },
     }
 
+    for provider_schema in ("T2IRequest", "NovelAIRequest"):
+        schemas[provider_schema]["properties"].update({
+            "prompt_routing": {"type": "object", "additionalProperties": False, "required": ["source"],
+                "properties": {"source": {"enum": ["auto", "native", "comfyui", "naiv4", "oldnai"]}},
+                "description": "Optional provider-specific adaptation; omitted API setting preserves native text. Whole bare artist tags are matched offline against the local catalog."},
+            "generation_sources": {"type": "array", "maxItems": 16, "items": {"type": "object", "additionalProperties": False,
+                "required": ["asset_id", "record_id", "scope"], "properties": {
+                    "asset_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "record_id": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                    "scope": {"enum": ["artists", "prompt", "all"]}}}},
+        })
+
     paths: dict[str, Any] = {
+        "/api/prompts/plan": {"post": {
+            "operationId": "previewGenerationPrompts", "summary": "Preview each stage's prompt syntax, artist recognition, and warnings without generating",
+            "requestBody": {"required": True, "content": {"application/json": {"schema": _schema_ref("GenerationRequest")}}},
+            "responses": {"200": generic_response, "400": error_response, "403": error_response},
+        }},
         "/api/providers": {"get": {"operationId": "getProviders", "summary": "Discover provider capabilities and dry-run policy", "tags": ["Discovery"], "responses": {"200": generic_response}}},
         "/api/nai/status": {"get": {"operationId": "getNovelAIStatus", "summary": "Check server token presence without exposing credentials", "tags": ["Discovery"], "responses": {"200": generic_response}}},
+        "/api/nai/tagger": {"get": {"operationId": "getTaggerPreparation", "summary": "Pinned tagger models and current local preparation/download progress (no network lookup)", "responses": {"200": generic_response}}},
+        "/api/nai/tagger/prepare": {"post": {
+            "operationId": "prepareTagger", "summary": "Download selected pinned tagger from Hugging Face and validate local load; no NAI request",
+            "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                "type": "object", "additionalProperties": False, "properties": {
+                    "model_name": {"type": "string", "enum": list(TAGGER_MODELS), "default": DEFAULT_MODEL},
+                    "device": {"type": "string", "enum": ["auto", "cpu"], "default": "auto"},
+                    "batch_size": {"type": "integer", "minimum": 1, "maximum": 16, "default": 4},
+                }}}}}, "responses": {"202": generic_response, "400": error_response, "409": error_response}}},
+        "/api/nai/tagger/cancel": {"post": {
+            "operationId": "cancelTaggerPreparation", "summary": "Cooperatively cancel the identified preparation; poll until terminal",
+            "requestBody": {"required": True, "content": {"application/json": {"schema": {
+                "type": "object", "required": ["job_id"], "properties": {"job_id": {"type": "string"}}}}}},
+            "responses": {"202": generic_response, "404": error_response}}},
         "/api/openapi.json": {
             "get": {
                 "operationId": "getOpenApiDocument",
@@ -771,6 +841,39 @@ def build_openapi_document(
         },
     }
 
+    for suffix, method, operation_id, summary in (
+        ('status', 'get', 'libraryStatus', 'Local library capacity, encoder and import status'),
+        ('items', 'get', 'libraryItems', 'Browse prompt, annotation and combination records'),
+        ('item/{asset_id}', 'get', 'libraryItem', 'Read saved generation evidence and source locations'),
+        ('thumbnail/{asset_id}', 'get', 'libraryThumbnail', 'Read a library thumbnail'),
+        ('preview/{asset_id}', 'get', 'libraryPreview', 'Read a metadata-free JPEG preview bounded to 1600 pixels'),
+        ('search', 'post', 'librarySearch', 'Find pixel-derived neighbors for an indexed image'),
+        ('query-image', 'post', 'libraryQueryImage', 'Find neighbors from a local image upload'),
+        ('import', 'post', 'libraryImport', 'Import folders, sync manifests, or build VRS features'),
+        ('cancel', 'post', 'libraryCancel', 'Cancel the current library background job'),
+        ('annotate', 'post', 'libraryAnnotate', 'Update favorites, tags, collection and note'),
+        ('feedback', 'post', 'libraryFeedback', 'Record similarity and reuse evaluations without training'),
+        ('compare', 'post', 'libraryCompare', 'Record a relative visual judgment between two results of the same query'),
+        ('compare/undo', 'post', 'libraryCompareUndo', 'Undo a comparison while retaining its audit record'),
+    ):
+        operation = {'operationId': operation_id, 'summary': summary, 'tags': ['Library'],
+                     'responses': {'200': generic_response, '400': error_response, '403': error_response,
+                                   '404': error_response, '409': error_response}}
+        if '{asset_id}' in suffix:
+            operation['parameters'] = [_path_parameter('asset_id', 'SHA-256 image identifier')]
+        if method == 'post':
+            content = {'application/json': {'schema': {'type': 'object'}}}
+            if suffix == 'query-image':
+                content = {media: {'schema': {'type': 'string', 'format': 'binary'}}
+                           for media in ('image/png', 'image/jpeg', 'image/webp')}
+                operation['parameters'] = [{'name': 'mode', 'in': 'query',
+                    'schema': {'type': 'string', 'enum': ['visual', 'vrs'], 'default': 'visual'}}]
+            operation['requestBody'] = {'required': True, 'content': content}
+        if suffix.startswith(('thumbnail/', 'preview/')):
+            operation['responses']['200'] = {'description': 'Local JPEG preview',
+                'content': {'image/jpeg': {'schema': {'type': 'string', 'format': 'binary'}}}}
+        paths['/api/library/' + suffix] = {method: operation}
+
     return {
         "openapi": "3.1.0",
         "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
@@ -788,6 +891,7 @@ def build_openapi_document(
             {"name": "Generation"},
             {"name": "Jobs"},
             {"name": "Results"},
+            {"name": "Library"},
         ],
         "paths": paths,
         "components": {"schemas": schemas},

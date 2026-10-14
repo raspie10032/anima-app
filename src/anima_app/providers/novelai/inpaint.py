@@ -1,6 +1,8 @@
 """Managed inpaint inputs and deterministic preservation outside the mask."""
 from __future__ import annotations
 
+from anima_app.providers.novelai.errors import invalid
+
 import base64
 import hashlib
 import io
@@ -23,13 +25,13 @@ def read_inputs(request: NovelAIRequest, paths: AppPaths) -> tuple[Image.Image, 
         for part in Path(value).parts:
             current /= part
             if current.is_symlink():
-                raise ValueError("인페인트 입력에는 심볼릭 링크를 사용할 수 없습니다.")
+                raise invalid("IMAGE_INPUT", "인페인트 입력에는 심볼릭 링크를 사용할 수 없습니다.")
     source_path = resolve_managed_reference_path(request.input_image, paths)
     mask_path = resolve_managed_reference_path(request.mask_image, paths)
     source, source_hash = _read_image(source_path, "RGB", request)
     mask, mask_hash = _read_image(mask_path, "L", request)
     if not mask.getbbox():
-        raise ValueError("인페인트 마스크가 비어 있습니다. 수정 영역을 흰색으로 표시해 주세요.")
+        raise invalid("MASK_EMPTY", "인페인트 마스크가 비어 있습니다. 수정 영역을 흰색으로 표시해 주세요.")
     return source, mask, {"input_sha256": source_hash, "mask_sha256": mask_hash,
                           "mask_convention": "white=repaint; black=preserve", "outside_mask_preserved": True}
 
@@ -39,14 +41,14 @@ def read_img2img_input(request: NovelAIRequest, paths: AppPaths) -> tuple[Image.
     for part in Path(request.input_image).parts:
         current /= part
         if current.is_symlink():
-            raise ValueError("Img2Img 입력에는 심볼릭 링크를 사용할 수 없습니다.")
+            raise invalid("IMAGE_INPUT", "Img2Img 입력에는 심볼릭 링크를 사용할 수 없습니다.")
     path = resolve_managed_reference_path(request.input_image, paths)
     data = path.read_bytes()
     with Image.open(io.BytesIO(data)) as opened:
         image = ImageOps.exif_transpose(opened)
         original_size = image.size
         if request.operation == "detail" and original_size != (request.width, request.height):
-            raise ValueError("디테일러 입력 크기는 생성 크기와 같아야 합니다.")
+            raise invalid("IMAGE_INPUT", "디테일러 입력 크기는 생성 크기와 같아야 합니다.")
         rgba = image.convert("RGBA")
         image = Image.new("RGB", rgba.size, "white")
         image.paste(rgba, mask=rgba.getchannel("A"))
@@ -60,7 +62,7 @@ def _read_image(path: Path, mode: str, request: NovelAIRequest) -> tuple[Image.I
     with Image.open(io.BytesIO(data)) as image:
         image = ImageOps.exif_transpose(image)
         if image.size != (request.width, request.height):
-            raise ValueError("입력 이미지와 마스크 크기는 생성 크기와 같아야 합니다. 자동 크기 변경은 하지 않습니다.")
+            raise invalid("MASK_INPUT", "입력 이미지와 마스크 크기는 생성 크기와 같아야 합니다. 자동 크기 변경은 하지 않습니다.")
         # Transparent pixels must not become a white repaint mask or hidden RGB input.
         if mode == "L" and image.mode in {"RGBA", "LA", "P"}:
             rgba = image.convert("RGBA")

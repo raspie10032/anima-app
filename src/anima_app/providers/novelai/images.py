@@ -1,16 +1,32 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import tempfile
 import warnings
 import zipfile
+import zlib
 from pathlib import Path
 
 from PIL import Image
 
 from anima_app.providers.novelai.client import MAX_RESPONSE_BYTES
 from anima_app.providers.novelai.errors import NovelAIError
+
+
+def with_character_slots(data: bytes, slots, count: int) -> bytes:
+    """Append app-only iTXt; preserve all original PNG chunks and decoded pixels."""
+    verify_png_bytes(data)
+    end = 8
+    while data[end + 4:end + 8] != b"IEND":
+        end += 12 + int.from_bytes(data[end:end + 4], "big")
+        if end + 12 > len(data):
+            raise ValueError("PNG is missing IEND")
+    text = json.dumps({"slots": slots, "count": count}, ensure_ascii=False).encode("utf-8")
+    body = b"iTXt" + b"anima_app_character_slots\x00\x00\x00\x00\x00" + text
+    chunk = (len(body) - 4).to_bytes(4, "big") + body + (zlib.crc32(body) & 0xffffffff).to_bytes(4, "big")
+    return data[:end] + chunk + data[end:]
 
 
 def first_png_from_zip(data: bytes) -> bytes:
@@ -28,7 +44,7 @@ def first_png_from_zip(data: bytes) -> bytes:
             if len(candidates) != 1 or candidates[0].file_size > MAX_RESPONSE_BYTES:
                 raise ValueError("expected one bounded PNG")
             png = archive.read(candidates[0])
-    except (OSError, RuntimeError, ValueError, zipfile.BadZipFile):
+    except (EOFError, NotImplementedError, OSError, RuntimeError, ValueError, zipfile.BadZipFile):
         raise NovelAIError("nai_response_invalid", "NovelAI response was not a valid PNG archive", unknown=True) from None
     verify_png_bytes(png)
     return png

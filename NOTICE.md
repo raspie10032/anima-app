@@ -18,6 +18,24 @@ https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request. Ported modules retain
 `SPDX-License-Identifier: GPL-3.0-only` notices. ComfyUI graph interfaces are replaced by
 standalone request, managed-input and queue contracts. NovelAI is an external service;
 this app is not an official NovelAI client or a guarantee of account billing behavior.
+The incremental 2026-10-11 update uses source commit
+`4de914676de8ca313b8389f4303754045a6a9cfb` (2.4.6), including request-local
+conversion notices, detailer diagnostics, WD/PixAI tagger selection and download
+progress. Korean/Japanese guidance in `static/nai-i18n.js` is adapted from the
+same commit's `locales/ko/nodeDefs.json` and `locales/ja/nodeDefs.json`, retaining
+GPL-3.0-only attribution and documenting app-specific behavior.
+Cause-specific errors in `providers/novelai/errors.py`, `static/nai-errors.js`
+and `static/nai-error-messages.json` derive from the same pin's `errors.py`,
+`web/errors.js`, `web/error_messages.json` and `runtime_control.py` and are
+GPL-3.0-only. The catalog's 45 source causes are adapted for app controls with
+seven app additions. JSON attribution is recorded here and in `docs/REFERENCES.md`.
+The optional WD ViT/EVA02 and PixAI model assets are separately fetched
+from their pinned Hugging Face repositories (Apache-2.0 model cards); their
+weights are not bundled. PixAI's custom loader code is checksum-verified before
+execution. See `docs/REFERENCES.md` for exact revisions and code SHA-256.
+This pin describes the incremental
+update, not the unidentified original snapshot for every earlier 0.5.0 port.
+See `docs/NAI_NODE_UPDATE_2.4.6.md` for per-feature implementation and evidence status.
 
 ## Vendored Python Packages
 

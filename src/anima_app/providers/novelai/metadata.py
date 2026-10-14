@@ -7,6 +7,7 @@ import json
 import math
 import re
 import warnings
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +15,10 @@ from PIL import Image, UnidentifiedImageError
 
 from anima_app.providers.novelai.models import (
     INPAINT_MODEL_IDS, INPAINT_MODELS, MODEL_IDS, SAMPLERS, SCHEDULERS,
-    SUPPORTED_INPAINT_MODEL_IDS, default_skip_cfg_above_sigma,
+    MAX_CHARACTER_SLOTS, SUPPORTED_INPAINT_MODEL_IDS, character_limit, default_skip_cfg_above_sigma,
 )
 from anima_app.requests import MAX_CFG, MAX_GENERATION_DIMENSION, MAX_PROMPT_CHARACTERS
-from anima_app.providers.novelai.requests import validate_characters
+from anima_app.providers.novelai.requests import active_characters, validate_characters, validate_character_slots
 
 MAX_METADATA_BYTES = 1024 * 1024
 MAX_METADATA_IMAGE_PIXELS = 16 * 1024 * 1024
@@ -28,6 +29,8 @@ MAX_METADATA_IMAGE_PIXELS = 16 * 1024 * 1024
 MODEL_HASHES = {
     **dict.fromkeys(("DB276663",), "nai-diffusion-5-curated"),
     **dict.fromkeys(("657484A5", "0ADF9AB7"), "nai-diffusion-5-full"),
+    # Official web hash-family map, checked 2026-10-11. request_type decides infill.
+    **dict.fromkeys(("93F4BD30", "70AB5786"), "nai-diffusion-5-full-medium"),
     **dict.fromkeys(("4BDE2A90", "1229B44F", "B9F340FD", "F3D95188"), "nai-diffusion-4-5-full"),
     **dict.fromkeys(("C02D4F98", "5AB81C7C", "B5A2A797"), "nai-diffusion-4-5-curated"),
     **dict.fromkeys(("37442FCA", "4F49EC75", "CA4B7203", "79F47848", "F6302A9D"), "nai-diffusion-4-full"),
@@ -37,7 +40,7 @@ MODEL_HASHES = {
 }
 # The website collapses these variants into a model family. Without request_type
 # that alone cannot establish whether a file used T2I or a dedicated infill model.
-MODEL_FAMILY_ONLY_HASHES = {"1229B44F", "B9F340FD", "F3D95188"}
+MODEL_FAMILY_ONLY_HASHES = {"1229B44F", "B9F340FD", "F3D95188", "93F4BD30", "70AB5786"}
 REQUEST_MODES = {"PromptGenerateRequest": "t2i", "Img2ImgRequest": "i2i", "NativeInfillingRequest": "inpaint"}
 
 
@@ -54,7 +57,7 @@ def _character_fields(comment: dict[str, Any]) -> dict[str, Any]:
     coords, order = positive.get("use_coords", False), positive.get("use_order", True)
     if type(coords) is not bool or type(order) is not bool:
         raise ValueError("invalid character flags")
-    if not isinstance(pos, list) or not isinstance(neg, list) or len(pos) > 5 or neg and len(pos) != len(neg):
+    if not isinstance(pos, list) or not isinstance(neg, list) or len(pos) > MAX_CHARACTER_SLOTS or neg and len(pos) != len(neg):
         raise ValueError("unsupported character count")
     characters = []
     for index, item in enumerate(pos):
@@ -106,13 +109,13 @@ def _alpha_metadata(image: Image.Image) -> dict[str, Any] | None:
         if len(decoded) > MAX_METADATA_BYTES:
             raise ValueError("NAI 메타데이터가 너무 큽니다.")
         return _json_object(decoded.decode("utf-8"))
-    except (OSError, EOFError, UnicodeError):
+    except (OSError, EOFError, UnicodeError, zlib.error):
         raise ValueError("숨겨진 NAI 메타데이터를 읽을 수 없습니다.") from None
 
 
 def _file_metadata(image: Image.Image) -> dict[str, Any]:
     if image.format == "PNG":
-        return {name: image.info[name] for name in ("Comment", "Description", "Source", "Software") if name in image.info}
+        return {name: image.info[name] for name in ("Comment", "Description", "Source", "Software", "anima_app_character_slots") if name in image.info}
     exif = image.getexif()
     result = {name: exif[tag] for tag, name in ((270, "Description"), (305, "Source")) if tag in exif}
     comment = exif.get_ifd(34665).get(37510) if exif else None
@@ -140,7 +143,7 @@ def read_image_metadata(path: Path) -> dict[str, Any]:
                 metadata = _file_metadata(image)
                 location = "png_text" if image.format == "PNG" else "webp_exif"
                 if "Comment" not in metadata:
-                    metadata = _alpha_metadata(image) or {}
+                    metadata = {**metadata, **(_alpha_metadata(image) or {})}
                     location = "alpha"
                 if "Comment" not in metadata:
                     raise ValueError("NAI 생성 메타데이터가 없습니다. 원본 파일을 사용해 주세요.")
@@ -298,7 +301,21 @@ def normalize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     except ValueError:
         # Do not partially import or silently truncate a character layout.
         request["nai_characters"] = []
-        unsupported.append("캐릭터별 프롬프트와 좌표 (최대 5명, 캐릭터당 좌표 1개; 원본 구조를 확인하세요)")
+        unsupported.append("캐릭터별 프롬프트와 좌표 (최대 22명, 캐릭터당 좌표 1개; 원본 구조를 확인하세요)")
+    if "anima_app_character_slots" in metadata:
+        try:
+            saved = _json_object(metadata["anima_app_character_slots"])
+            if saved.keys() - {"slots", "count"}:
+                raise ValueError("Invalid slot metadata")
+            slots, count = validate_character_slots(saved.get("slots"), saved.get("count"))
+            request.update(nai_character_slots=list(slots), nai_character_count=count,
+                           nai_characters=list(active_characters(slots, count)))
+            notices.append("앱에 저장한 캐릭터 슬롯·숨김·사용 여부·접기 상태를 복원합니다. 와일드카드와 Medium 적용 전 입력값이며 NAI 서명 정보가 아닙니다.")
+        except ValueError:
+            invalid.append("nai_character_slots")
+    selected_model = request.get("nai_model")
+    if selected_model and len(request.get("nai_characters", [])) > character_limit(selected_model):
+        notices.append(f"이 모델은 활성 캐릭터 {character_limit(selected_model)}명까지 지원합니다. 가져온 값은 보존하며, 생성 전에 슬롯 수를 줄이거나 사용을 해제하세요.")
     if metadata.get("Software") == "Anima APP" and isinstance(comment.get("anima_app_detailer"), dict):
         from anima_app.providers.novelai.detailer import validate_settings
         try:

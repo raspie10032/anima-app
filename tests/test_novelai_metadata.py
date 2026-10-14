@@ -100,6 +100,15 @@ def test_alpha_decompression_is_bounded(tmp_path, monkeypatch):
         read_image_metadata(path)
 
 
+def test_corrupt_alpha_deflate_is_reported_as_invalid_metadata(tmp_path):
+    # Valid gzip header, reserved DEFLATE block type, and an empty trailer.
+    payload = b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff\x07" + b"\x00" * 8
+    path = tmp_path / "corrupt-alpha.png"
+    path.write_bytes(_stealth_bytes({}, payload=payload))
+    with pytest.raises(ValueError, match="숨겨진 NAI 메타데이터를 읽을 수 없습니다"):
+        read_image_metadata(path)
+
+
 @pytest.mark.parametrize("changes", [
     {"model_hash": "DEADBEEF"}, {"model_hash": "0ADF9AB7"},
     {"model": "nai-diffusion-5-full"}, {"model_hash": ["bad"], "model_name": {}},
@@ -217,6 +226,9 @@ def test_http_import_is_tokenless_does_not_generate_and_cleans_uploads(tmp_path,
                 assert payload["request"]["seed"] == 0
             else:
                 assert payload["error_code"] == "nai_metadata_invalid"
+                assert payload["error_detail"]["code"] == "METADATA_INPUT"
+                assert payload["error_detail"]["stage"] == "metadata_import"
+                assert set(payload["error_detail"]["messages"]) == {"en", "ko", "ja"}
             connection.close()
             assert not list(paths.input_root.rglob("*.upload"))
         assert not list(paths.output_root.glob("manifests/*.json"))

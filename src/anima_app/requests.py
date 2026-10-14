@@ -122,8 +122,17 @@ class T2IRequest:
     upscale: UpscaleSettings = UpscaleSettings()
     face_detailer: FaceDetailerSettings = FaceDetailerSettings()
     vae_decode: VaeDecodeSettings = VaeDecodeSettings()
+    operation: str = "generate"
 
     def __post_init__(self) -> None:
+        if self.operation not in {"generate", "detail", "upscale"}:
+            raise ValueError("local operation must be generate, detail or upscale")
+        if self.operation != "generate" and not self.i2i.enabled:
+            raise ValueError("post-processing requires an input image")
+        if self.operation == "detail" and (not self.face_detailer.enabled or self.upscale.enabled):
+            raise ValueError("detail operation requires only the face detailer")
+        if self.operation == "upscale" and (not self.upscale.enabled or self.face_detailer.enabled):
+            raise ValueError("upscale operation requires only upscaling")
         memory_profile = str(self.memory_profile or "auto").strip() or "auto"
         object.__setattr__(self, "memory_profile", memory_profile)
         if self.memory_profile not in MEMORY_PROFILES:
@@ -151,8 +160,9 @@ class T2IRequest:
             raise ValueError(f"width and height must be <= {MAX_GENERATION_DIMENSION}")
         if self.width % 8 or self.height % 8:
             raise ValueError("width and height must be divisible by 8")
-        if self.width * self.height > MAX_BASE_IMAGE_PIXELS:
-            raise ValueError(f"base image must not exceed {MAX_BASE_IMAGE_PIXELS} pixels")
+        pixel_limit = MAX_BASE_IMAGE_PIXELS if self.operation == "generate" else MAX_OUTPUT_IMAGE_PIXELS
+        if self.width * self.height > pixel_limit:
+            raise ValueError(f"base image must not exceed {pixel_limit} pixels")
         _validate_steps(self.steps, "steps")
         _validate_finite_range(self.cfg, "cfg", minimum=0.0, maximum=MAX_CFG)
         if self.sampler not in CFG_PP_SAMPLERS:

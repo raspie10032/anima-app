@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from PIL import Image
 
 from anima_app.providers.novelai.errors import NovelAIError
+from anima_app.providers.novelai.medium import is_medium, valid_medium_payload
 from anima_app.providers.novelai.models import MODEL_IDS, OPUS_FREE_MAX_PIXELS, OPUS_FREE_MAX_STEPS, SUPPORTED_INPAINT_MODEL_IDS
 
 OPUS_V5_MIN_REMAINING_PERCENT = 2
@@ -32,7 +33,7 @@ class FocusedContext:
 def validate_opus_free_payload(payload: dict[str, object], *, focused_context: FocusedContext | None = None) -> None:
     parameters = payload.get("parameters")
     focused = isinstance(focused_context, FocusedContext)
-    allowed = OPUS_FREE_PARAMETER_KEYS | {"image", "mask", "inpaintImg2ImgStrength", "noise"} if focused else OPUS_FREE_PARAMETER_KEYS
+    allowed = OPUS_FREE_PARAMETER_KEYS | {"image", "mask", "inpaintImg2ImgStrength", "noise", "img2img"} if focused else OPUS_FREE_PARAMETER_KEYS
     if (
         payload.keys() - {"input", "model", "action", "parameters"}
         or not isinstance(payload.get("model"), str)
@@ -42,6 +43,8 @@ def validate_opus_free_payload(payload: dict[str, object], *, focused_context: F
         or parameters.keys() - allowed
     ):
         raise NovelAIError("nai_opus_request_blocked", "Opus 보호 모드에서 확인할 수 없는 모델·동작·이미지 참조 요청을 차단했습니다.", 400)
+    if is_medium(payload["model"]) and not valid_medium_payload(payload):
+        raise NovelAIError("nai_opus_request_blocked", "Medium Effort의 고정 샘플링·네거티브 조건을 확인할 수 없어 전송을 차단했습니다.", 400)
     width, height, steps = (parameters.get(name) for name in ("width", "height", "steps"))
     if (
         type(width) is not int or type(height) is not int or type(steps) is not int
@@ -61,6 +64,15 @@ def validate_opus_free_payload(payload: dict[str, object], *, focused_context: F
             or type(strength) not in (int, float) or not math.isfinite(strength) or not 0 <= strength <= 1
             or type(noise) not in (int, float) or not math.isfinite(noise) or noise != 0):
             raise NovelAIError("nai_opus_request_blocked", "Focused crop 조건을 확인할 수 없어 전송을 차단했습니다.", 400)
+        nested = parameters.get("img2img")
+        partial = payload["model"].startswith(("nai-diffusion-4", "nai-diffusion-5")) and strength < 1
+        if partial:
+            if (not isinstance(nested, dict) or set(nested) != {"strength", "color_correct"}
+                or type(nested.get("strength")) not in (int, float) or nested["strength"] != strength
+                or nested.get("color_correct") is not True):
+                raise NovelAIError("nai_opus_request_blocked", "Focused 부분 강도가 API 설정과 일치하지 않아 전송을 차단했습니다.", 400)
+        elif "img2img" in parameters:
+            raise NovelAIError("nai_opus_request_blocked", "Focused 요청에 지원하지 않는 부분 강도 설정이 있습니다.", 400)
         for key in ("image", "mask"):
             try:
                 value = parameters.get(key)

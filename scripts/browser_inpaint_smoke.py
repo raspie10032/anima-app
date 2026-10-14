@@ -77,7 +77,7 @@ def main():
             address = f"http://127.0.0.1:{server.server_address[1]}"
             with sync_playwright() as playwright:
                 browser = playwright.chromium.launch(headless=True)
-                page = browser.new_page(viewport={"width": 1600, "height": 1100})
+                page = browser.new_page(locale="ko-KR", viewport={"width": 1600, "height": 1100})
                 page.on("pageerror", lambda error: errors.append(str(error)))
                 page.route("**/*", lambda route: route.continue_() if urlparse(route.request.url).hostname == "127.0.0.1" else route.abort())
                 page.goto(address, wait_until="networkidle")

@@ -113,7 +113,7 @@ def test_v5_preflight_whitelists_safe_summary_and_runs_under_lock(clock, percent
     assert "private-data" not in json.dumps(audit)
 
 
-@pytest.mark.parametrize("model", sorted(novelai.MODEL_IDS - {"nai-diffusion-5-full", "nai-diffusion-5-curated"}))
+@pytest.mark.parametrize("model", sorted(model for model in novelai.MODEL_IDS if not model.startswith("nai-diffusion-5")))
 def test_older_models_need_opus_but_not_v5_usage(model):
     assert verify_opus_state(account(usage=None), model) == {"status": "verified", "active": True, "tier": 3}
 
