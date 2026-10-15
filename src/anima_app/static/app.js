@@ -370,7 +370,7 @@ const tr = window.AppI18n.msg;
         : (blocked ? (providerSelect.value === "novelai" ? tr("NAI_ACCESS_TOKEN 환경변수와 엔진 상태를 확인하세요.") : tr("선택한 체크포인트의 필수 모델 파일을 먼저 준비하세요.")) : "");
       window.AppI18n.setProperty(generateButton, "title", () => explanation);
       window.AppI18n.setProperty(startQueueButton, "title", () => explanation);
-      providerSelect.disabled = queueRunning || uploadBlocked;
+      providerSelect.disabled = queueRunning || uploadBlocked || Boolean(window.animaProviderSettings?.switching);
       applyNaiMetadataButton.disabled = queueRunning || uploadBlocked || !naiMetadata || naiMetadata.can_apply === false
         || (metadataSelected("model") && !naiMetadataModel.value)
         || !Object.keys(metadataGroups).some(metadataSelected);

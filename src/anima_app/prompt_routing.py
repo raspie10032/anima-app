@@ -90,6 +90,40 @@ def route_text(text, source, target, *, catalog=None, inferred=None):
     return normalized, warnings, detected
 
 
+def adapt_editor(payload, *, paths=None):
+    """Convert editor text atomically without validating or running generation."""
+    reject_credentials(payload)
+    if payload.keys() - {"source", "target", "texts"}:
+        raise ValueError("Unexpected prompt editor fields")
+    source = normalize_routing({"source": payload.get("source")})["source"]
+    target, texts = payload.get("target"), payload.get("texts")
+    if target not in {"comfyui", "naiv4", "oldnai"}:
+        raise ValueError("Invalid target prompt format")
+    # Common positive/negative plus all 22 saved character slots.
+    if not isinstance(texts, list) or not 2 <= len(texts) <= 46 or len(texts) % 2:
+        raise ValueError("Invalid prompt editor field count")
+    if any(not isinstance(text, str) or len(text) > MAX_PROMPT_CHARACTERS for text in texts):
+        raise ValueError("Invalid prompt editor text")
+    if source == "native":
+        return {"texts": texts[:], "source": source, "warnings": []}
+    from anima_app.wildcards import WILDCARD_TOKEN_PATTERN
+    if any(WILDCARD_TOKEN_PATTERN.search(text) for text in texts):
+        # A wildcard can expand into weighted text in the original syntax. Keep
+        # the entire source format until execution expands and routes it once.
+        return {"texts": texts[:], "source": source, "warnings": [
+            "와일드카드가 있는 초안은 입력 표기를 유지하고 생성 시 펼친 뒤 변환합니다."]}
+    from anima_app.artist_catalog import load_catalog
+    catalog = load_catalog(paths)
+    converted, warnings = [], []
+    for text in texts:
+        result, notices, _ = route_text(text, source, target, catalog=catalog)
+        converted.append(result)
+        warnings.extend(notices)
+    # Auto recognizes the displayed syntax, including later pasted text, and
+    # prevents converting an already converted editor a second time at submit.
+    return {"texts": converted, "source": "auto", "warnings": list(dict.fromkeys(warnings))}
+
+
 def route_request(payload, *, paths=None):
     """Return an independent provider payload and a bounded conversion receipt."""
     reject_credentials(payload)

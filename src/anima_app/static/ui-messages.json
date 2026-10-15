@@ -3958,5 +3958,33 @@
   "엔진별 마지막 설정 복원 · 프롬프트와 작업 순서는 이어서 사용합니다.": {
     "en": "Last engine settings restored · Your prompt and workflow stay with you.",
     "ja": "エンジンごとの前回の設定を復元 · プロンプトと処理順は引き継ぎます。"
+  },
+  "엔진을 바꾸면 입력창의 가중치와 작가 표기도 전환합니다. 수정 없이 돌아가면 원문을 복원합니다.": {
+    "en": "Switching engines also converts weights and artist markers in the editor. Switching back without edits restores the original text.",
+    "ja": "エンジンを切り替えると入力欄の重みと作家表記も変換します。編集せずに戻すと原文を復元します。"
+  },
+  "프롬프트 표기를 전환하지 못했습니다.": {
+    "en": "Could not convert prompt syntax.",
+    "ja": "プロンプト表記を変換できませんでした。"
+  },
+  "변환 중 초안이 바뀌었습니다. 다시 전환해 주세요.": {
+    "en": "The draft changed during conversion. Please switch engines again.",
+    "ja": "変換中に下書きが変わりました。もう一度切り替えてください。"
+  },
+  "프롬프트·네거티브·캐릭터 표기 전환 완료 · 수정 없이 돌아가면 원문을 복원합니다.": {
+    "en": "Prompt, negative and character syntax converted. Switching back without edits restores the original text.",
+    "ja": "プロンプト・ネガティブ・キャラクターの表記を変換しました。編集せずに戻すと原文を復元します。"
+  },
+  "엔진에 맞춰 프롬프트 표기를 전환하고 있습니다…": {
+    "en": "Converting prompt syntax for this engine…",
+    "ja": "エンジンに合わせてプロンプト表記を変換しています…"
+  },
+  "엔진 전환을 멈췄습니다. 입력 내용은 유지됩니다.": {
+    "en": "Engine switch stopped. Your input is unchanged.",
+    "ja": "エンジンの切り替えを中止しました。入力内容は保持されています。"
+  },
+  "와일드카드가 있는 초안은 입력 표기를 유지하고 생성 시 펼친 뒤 변환합니다.": {
+    "en": "Drafts with wildcards keep their input syntax; conversion runs after expansion during generation.",
+    "ja": "ワイルドカードのある下書きは入力表記を保持し、生成時に展開してから変換します。"
   }
 }

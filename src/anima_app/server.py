@@ -1964,6 +1964,7 @@ APP_JS += "\n" + (Path(__file__).with_name("static") / "library.js").read_text(e
 APP_JS += "\n" + (Path(__file__).with_name("static") / "generation.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "workflow.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "authoring.js").read_text(encoding="utf-8")
+APP_JS += "\n" + (Path(__file__).with_name("static") / "prompt-switch.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "setup.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "barracks.js").read_text(encoding="utf-8")
 UI_MESSAGES = json.loads((Path(__file__).with_name("static") / "ui-messages.json").read_text(encoding="utf-8"))
@@ -3966,6 +3967,7 @@ def create_http_server(
                 "/api/metadata/novelai",
                 "/api/prompts/convert",
                 "/api/prompts/plan",
+                "/api/prompts/adapt-editor",
                 "/api/loras/import",
                 "/api/loras/upload",
                 "/api/presets",
@@ -3999,10 +4001,11 @@ def create_http_server(
                     status, response = exc.status, exc.payload()
             elif parsed.path == "/api/loras/import":
                 status, response = handle_lora_import(payload, paths=paths)
-            elif parsed.path == "/api/prompts/plan":
-                from anima_app.prompt_routing import preview_plan
+            elif parsed.path in {"/api/prompts/plan", "/api/prompts/adapt-editor"}:
+                from anima_app.prompt_routing import adapt_editor, preview_plan
                 try:
-                    status, response = HTTPStatus.OK, preview_plan(payload, paths=paths)
+                    handler = adapt_editor if parsed.path.endswith("/adapt-editor") else preview_plan
+                    status, response = HTTPStatus.OK, handler(payload, paths=paths)
                 except (ValueError, TypeError, AttributeError, OverflowError, RecursionError) as exc:
                     status, response = HTTPStatus.BAD_REQUEST, {"error": str(exc)}
             elif parsed.path == "/api/prompts/convert":

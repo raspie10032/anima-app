@@ -68,7 +68,9 @@ The Aesthetic checkpoint is optional. The base profile includes shared text enco
 
 Expand folded panels for model options and presets. On narrow screens the areas stack vertically.
 
-Switching engines restores **the last settings for that engine**. On first use, Anima starts at 832×1216, 20 steps, CFG 3.5, Euler Ancestral CFG++ / SGM Uniform; NAI starts at 832×1216, 28 steps, CFG 6, Euler / Karras. Model, LoRA, size, steps, CFG, seed, references and detailer settings are remembered separately. The shared prompt, negative prompt and workflow stay in place, with existing automatic weight/artist syntax conversion.
+Switching engines restores **the last settings for that engine**. On first use, Anima starts at 832×1216, 20 steps, CFG 3.5, Euler Ancestral CFG++ / SGM Uniform; NAI starts at 832×1216, 28 steps, CFG 6, Euler / Karras. Model, LoRA, size, steps, CFG, seed, references and detailer settings are remembered separately. Weights and artist markers in the shared prompt, negative prompt and character slots **also change visibly in the editor when you switch engines**. For example, Anima `(@artist_name:1.2)` becomes NAI `1.2::artist:artist_name ::`. Switching back without edits restores the original grouping and whitespace. Edits carry the latest text into the other engine. Original text survives reloads, and the workflow stays in place.
+
+The **No conversion** source option keeps text verbatim. Drafts containing wildcards keep their input syntax until generation expands the choices and converts them. A conversion error or an edit made during conversion stops the switch and preserves the previous engine and input.
 
 Engine settings are saved with the draft in **this browser at the same app address** and survive a reload. Loading a preset or history entry preserves the other engine’s settings. Selective image-metadata import still changes only checked fields. Switching or restoring does not start generation.
 

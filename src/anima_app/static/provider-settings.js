@@ -13,7 +13,7 @@
       .filter(input => input.type !== 'file' && !input.closest('.lora-row, #nai-characters, #nai-vibes, #nai-references, #nai-detailer-panel')
         && (input.form === form || ['nai-character-count', 'nai-use-coords', 'nai-use-order', 'nai-normalize-vibes'].includes(input.id)))
   ]));
-  let active = providerSelect.value, profiles = {}, initialized = false;
+  let active = providerSelect.value, profiles = {}, initialized = false, switching = false;
   const hint = document.createElement('p');
   hint.id = 'provider-settings-status'; hint.className = 'queue-status'; hint.setAttribute('role', 'status');
   providerStatus.after(hint);
@@ -77,21 +77,38 @@
       : tr('엔진별 마지막 설정 복원 · 프롬프트와 작업 순서는 이어서 사용합니다.'));
   }
   window.animaProviderSettings = {
-    switch() {
+    get switching() { return switching; },
+    async switch() {
       const next = providerSelect.value;
+      if (switching) { providerSelect.value = active; return; }
       if (next === active) { syncProviderControls(); return; }
       if (queueRunning || !uploadsAreIdle()) { providerSelect.value = active; return; }
+      providerSelect.value = active;
       remember();
       const isDefault = !profiles[next];
-      active = next;
-      restore(active, profiles[active] || defaults(active));
-      syncProviderControls(); syncStartingPointSelectionFromInputs();
-      loadReadiness().catch(error => setResultPayload({error: String(error)}));
-      report(isDefault);
-      window.dispatchEvent(new Event('generation-settings-applied'));
-      window.dispatchEvent(new Event('authoring-changed'));
+      const state = profiles[next] || defaults(next);
+      switching = true; providerSelect.disabled = true;
+      window.AppI18n.setText(hint, () => tr('엔진에 맞춰 프롬프트 표기를 전환하고 있습니다…'));
+      try {
+        const applyPrompts = await window.animaPromptSwitch.prepare(
+          window.animaPromptSwitch.target(active), window.animaPromptSwitch.target(next, state.fields.nai_model));
+        if (queueRunning || !uploadsAreIdle()) { report(); return; }
+        remember();
+        active = next; providerSelect.value = next;
+        restore(active, state); applyPrompts();
+        syncProviderControls(); syncStartingPointSelectionFromInputs();
+        loadReadiness().catch(error => setResultPayload({error: String(error)}));
+        report(isDefault);
+        window.dispatchEvent(new Event('generation-settings-applied'));
+        window.dispatchEvent(new Event('authoring-changed'));
+      } catch (error) {
+        window.AppI18n.setText(hint, () => tr('엔진 전환을 멈췄습니다. 입력 내용은 유지됩니다.') + ' ' + error.message);
+      } finally {
+        switching = false; syncGenerationControls();
+      }
     },
     beforeApply(next) {
+      window.animaPromptSwitch?.reset();
       remember();
       const other = next === 'novelai' ? 'local' : 'novelai';
       if (!profiles[other]) profiles[other] = defaults(other);
@@ -102,7 +119,16 @@
       restore(other, profiles[other], false);
       remember(); syncProviderControls(); report();
     },
-    snapshot() { remember(); return clone(profiles); },
+    snapshot() {
+      remember();
+      const saved = clone(profiles);
+      if (saved.novelai) {
+        // Hidden slots also carry the current editor syntax while using Anima.
+        saved.novelai.characters = readNaiCharacterSlots();
+        saved.novelai.fields['nai-character-count'] = naiCharacterCount.value;
+      }
+      return saved;
+    },
     restoreSaved(saved) {
       // The explicit draft is authoritative for its active engine.
       const other = active === 'novelai' ? 'local' : 'novelai';

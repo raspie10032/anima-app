@@ -19,7 +19,7 @@
     const option = make("option", name); option.value = value; format.append(option);
   }
   label.append(format); panel.append(label);
-  panel.append(make("p", tr("NAI에는 가중치::와 artist:, Anima에는 (태그:가중치)와 @를 전달합니다. 작성 원문은 유지합니다.")));
+  panel.append(make("p", tr("엔진을 바꾸면 입력창의 가중치와 작가 표기도 전환합니다. 수정 없이 돌아가면 원문을 복원합니다.")));
   panel.append(make("p", tr("접두사 없는 태그만 로컬 단보루 작가 목록과 정확히 대조합니다. 일치하지 않으면 그대로 둡니다.")));
   const actions = make("div"); actions.className = "authoring-actions";
   const status = make("span", tr("이 브라우저에 작업 초안 자동 저장"), "authoring-status"); status.setAttribute("role", "status");
@@ -90,7 +90,8 @@
     try {
       const request = window.animaGenerationDraft();
       const engine_profiles = window.animaProviderSettings.snapshot();
-      localStorage.setItem(key, JSON.stringify({version: 1, saved_at: Date.now(), request, engine_profiles}));
+      const prompt_versions = window.animaPromptSwitch.snapshot();
+      localStorage.setItem(key, JSON.stringify({version: 1, saved_at: Date.now(), request, engine_profiles, prompt_versions}));
       window.AppI18n.setText(status, () => tr("작업 초안 저장됨 · 새로고침 후에도 복원"));
       restore.hidden = forget.hidden = false;
     } catch (_) {window.AppI18n.setText(status, () => tr("초안을 저장하지 못했습니다. 브라우저 저장 공간을 확인해 주세요."));}
@@ -104,6 +105,7 @@
     restoring = true;
     try {
       if (window.animaRestoreGeneration(saved.request, saved.engine_profiles) === false) return;
+      window.animaPromptSwitch.restore(saved.prompt_versions);
       window.AppI18n.setText(status, () => tr("이전 작업을 복원했습니다 · 실행 버튼을 눌러야 생성됩니다."));
       dirty = false;
     } catch (_) {window.AppI18n.setText(status, () => tr("저장된 초안을 불러오지 못했습니다."));}
@@ -128,6 +130,7 @@
   window.animaAuthoring = {
     context: () => ({prompt_routing: {source: format.value}, generation_sources: clone(sources)}),
     apply(request) {
+      window.animaPromptSwitch?.reset();
       format.value = request.prompt_routing?.source || "auto";
       if (!format.value) format.value = "auto";
       sources = clone(request.generation_sources || []); renderSources();
