@@ -68,6 +68,10 @@ The Aesthetic checkpoint is optional. The base profile includes shared text enco
 
 Expand folded panels for model options and presets. On narrow screens the areas stack vertically.
 
+Switching engines restores **the last settings for that engine**. On first use, Anima starts at 832×1216, 20 steps, CFG 3.5, Euler Ancestral CFG++ / SGM Uniform; NAI starts at 832×1216, 28 steps, CFG 6, Euler / Karras. Model, LoRA, size, steps, CFG, seed, references and detailer settings are remembered separately. The shared prompt, negative prompt and workflow stay in place, with existing automatic weight/artist syntax conversion.
+
+Engine settings are saved with the draft in **this browser at the same app address** and survive a reload. Loading a preset or history entry preserves the other engine’s settings. Selective image-metadata import still changes only checked fields. Switching or restoring does not start generation.
+
 ## 3. Generate one NAI image
 
 1. Choose **NovelAI** in the generation-engine selector. Check the status underneath. `/api/nai/status` reports configuration, not whether the token is valid.

@@ -1445,6 +1445,7 @@ const tr = window.AppI18n.msg;
       // Apply only recognized fields. Missing fields and the user's cost cap stay unchanged.
       const selected = new Set(Object.entries(metadataGroups).filter(([group]) => metadataSelected(group)).flatMap(([, [, keys]]) => keys));
       const request = Object.fromEntries(Object.entries(naiMetadata.request).filter(([key]) => selected.has(key)));
+      window.animaProviderSettings?.beforeApply("novelai");
       providerSelect.value = "novelai";
       if (metadataSelected("model")) naiOperation.value = request.operation || "generate";
       renderNovelAIOptions();
@@ -1466,6 +1467,7 @@ const tr = window.AppI18n.msg;
       syncStartingPointSelectionFromInputs();
       syncProviderControls();
       if (request.operation && request.operation !== "generate") resetNaiEditor();
+      window.animaProviderSettings?.afterApply();
       window.AppI18n.setText(naiMetadataStatus, () => tr("NAI 생성 조건을 적용했습니다. 전송 설정을 확인하고 생성하기를 누르세요."));
       form.elements.prompt.focus();
     }
@@ -2405,7 +2407,11 @@ const tr = window.AppI18n.msg;
       const steps = window.animaWorkflow?.snapshot() || [];
       return steps.length ? {...request, workflow: {version: 1, steps}} : request;
     };
-    window.animaRestoreGeneration = request => applyPreset({name: tr("작업 초안"), request});
+    window.animaRestoreGeneration = (request, profiles) => {
+      const applied = applyPreset({name: tr("작업 초안"), request});
+      if (applied && profiles) window.animaProviderSettings?.restoreSaved(profiles);
+      return applied;
+    };
     function buildRequestData(includeWorkflow = true, validate = true) {
       if (validate && !generationFormIsValid()) {
         throw new Error(tr("생성 설정 값을 확인해 주세요."));
@@ -2912,6 +2918,7 @@ const tr = window.AppI18n.msg;
         return false;
       }
       const request = item.request?.workflow_base_request || item.request?.authoring_request || item.request || {};
+      window.animaProviderSettings?.beforeApply(request.provider || "local");
       window.animaAuthoring?.apply(request);
       window.animaWorkflow?.apply(request.workflow);
       providerSelect.value = request.provider || "local";
@@ -2953,10 +2960,13 @@ const tr = window.AppI18n.msg;
       const wildcardInfo = request.wildcards || {};
       form.elements.prompt.value = wildcardInfo.original_prompt || request.prompt || "";
       form.elements.negative_prompt.value = wildcardInfo.original_negative_prompt || request.negative_prompt || "";
-      form.elements.width.value = request.width || animaDefaults.width;
-      form.elements.height.value = request.height || animaDefaults.height;
-      form.elements.steps.value = request.steps || animaDefaults.steps;
-      form.elements.cfg.value = request.cfg ?? animaDefaults.cfg;
+      const engineDefaults = request.provider === "novelai"
+        ? providerCapabilities?.providers.find(item => item.id === "novelai")?.defaults || {width: 832, height: 1216, steps: 28, cfg: 6}
+        : animaDefaults;
+      form.elements.width.value = request.width || engineDefaults.width;
+      form.elements.height.value = request.height || engineDefaults.height;
+      form.elements.steps.value = request.steps || engineDefaults.steps;
+      form.elements.cfg.value = request.cfg ?? engineDefaults.cfg;
       form.elements.sampler.value = request.sampler || animaDefaults.sampler;
       form.elements.scheduler.value = request.scheduler || animaDefaults.scheduler;
       form.elements.seed.value = request.seed ?? "";
@@ -2995,6 +3005,7 @@ const tr = window.AppI18n.msg;
       referenceImageSection.open = Boolean(request.i2i?.image_path || request.upscale?.enabled || request.upscale?.tiled || (request.vae_decode?.mode && request.vae_decode.mode !== "auto"));
       faceDetailerSection.open = Boolean(request.face_detailer?.enabled);
       setLoraRows(request.loras || []);
+      window.animaProviderSettings?.afterApply();
       syncProviderControls();
       presetName.value = item.name || "";
       syncStartingPointSelectionFromInputs();
@@ -3522,7 +3533,7 @@ const tr = window.AppI18n.msg;
     });
     window.addEventListener("beforeunload", revokeReferencePreviewUrl);
     addLoraRow();
-    providerSelect.addEventListener("change", syncProviderControls);
+    providerSelect.addEventListener("change", () => window.animaProviderSettings.switch());
     document.getElementById("nai-tagger-prepare").addEventListener("click", () => controlTagger("prepare"));
     document.getElementById("nai-tagger-cancel").addEventListener("click", () => controlTagger("cancel"));
     document.getElementById("nai-detailer-wd_model").addEventListener("change", syncTaggerControls);

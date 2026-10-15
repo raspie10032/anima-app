@@ -661,7 +661,7 @@
   },
   "캐릭터 {0} ({1}, {2})\n{3}\n네거티브: {4}": {
     "en": "Character {0} ({1}, {2})\n{3}\nNegative: {4}",
-    "ja": "キャラクター{0}（{1}, {2}）\n{3}\nネガティブ: {4}"
+    "ja": "キャラクター {0} ({1}, {2})\n{3}\nネガティブ: {4}"
   },
   "인페인트 조건 적용": {
     "en": "Apply inpainting settings",
@@ -3947,12 +3947,16 @@
     "en": "Opus protection keeps its current setting. Check the actual request dimensions and steps.",
     "ja": "Opus保護は現在の設定を保持します。実際の送信サイズとステップ数を確認してください。"
   },
-  "캐릭터 {0} ({1}, {2})\n{3}\n네거티브: {4}": {
-    "en": "Character {0} ({1}, {2})\n{3}\nNegative: {4}",
-    "ja": "キャラクター {0} ({1}, {2})\n{3}\nネガティブ: {4}"
-  },
   "WebP 저장에 실패하여 PNG 원본을 보존했습니다.": {
     "en": "WebP export failed; the original PNG has been preserved.",
     "ja": "WebP保存に失敗したため、元のPNGを保存しました。"
+  },
+  "엔진 기본 설정 적용 · 이후에는 각 엔진에서 쓰던 설정을 복원합니다.": {
+    "en": "Engine defaults applied · Switching back restores the settings used for each engine.",
+    "ja": "エンジンの初期設定を適用 · 次回から各エンジンで使った設定を復元します。"
+  },
+  "엔진별 마지막 설정 복원 · 프롬프트와 작업 순서는 이어서 사용합니다.": {
+    "en": "Last engine settings restored · Your prompt and workflow stay with you.",
+    "ja": "エンジンごとの前回の設定を復元 · プロンプトと処理順は引き継ぎます。"
   }
 }

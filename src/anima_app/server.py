@@ -1959,6 +1959,7 @@ INDEX_HTML = INDEX_HTML.replace(
     (Path(__file__).with_name("static") / "generation.css").read_text(encoding="utf-8"),
 )
 APP_JS = (Path(__file__).with_name("static") / "app.js").read_text(encoding="utf-8")
+APP_JS += "\n" + (Path(__file__).with_name("static") / "provider-settings.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "library.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "generation.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "workflow.js").read_text(encoding="utf-8")

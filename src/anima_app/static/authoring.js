@@ -89,7 +89,8 @@
     if (!ready || restoring || !dirty) return;
     try {
       const request = window.animaGenerationDraft();
-      localStorage.setItem(key, JSON.stringify({version: 1, saved_at: Date.now(), request}));
+      const engine_profiles = window.animaProviderSettings.snapshot();
+      localStorage.setItem(key, JSON.stringify({version: 1, saved_at: Date.now(), request, engine_profiles}));
       window.AppI18n.setText(status, () => tr("작업 초안 저장됨 · 새로고침 후에도 복원"));
       restore.hidden = forget.hidden = false;
     } catch (_) {window.AppI18n.setText(status, () => tr("초안을 저장하지 못했습니다. 브라우저 저장 공간을 확인해 주세요."));}
@@ -102,7 +103,7 @@
     const saved = readSaved(); if (!saved) return;
     restoring = true;
     try {
-      if (window.animaRestoreGeneration(saved.request) === false) return;
+      if (window.animaRestoreGeneration(saved.request, saved.engine_profiles) === false) return;
       window.AppI18n.setText(status, () => tr("이전 작업을 복원했습니다 · 실행 버튼을 눌러야 생성됩니다."));
       dirty = false;
     } catch (_) {window.AppI18n.setText(status, () => tr("저장된 초안을 불러오지 못했습니다."));}

@@ -4859,10 +4859,10 @@ def test_index_html_loads_history_panel():
     assert "이 결과 설정 불러오기" in INDEX_HTML
     assert "단계 비교" in INDEX_HTML
     assert "primary-action" in INDEX_HTML
-    assert "request.width || animaDefaults.width" in INDEX_HTML
-    assert "request.height || animaDefaults.height" in INDEX_HTML
-    assert "request.steps || animaDefaults.steps" in INDEX_HTML
-    assert "request.cfg ?? animaDefaults.cfg" in INDEX_HTML
+    assert "request.width || engineDefaults.width" in INDEX_HTML
+    assert "request.height || engineDefaults.height" in INDEX_HTML
+    assert "request.steps || engineDefaults.steps" in INDEX_HTML
+    assert "request.cfg ?? engineDefaults.cfg" in INDEX_HTML
     assert "form.elements.sampler.value = request.sampler || animaDefaults.sampler" in INDEX_HTML
     assert "form.elements.scheduler.value = request.scheduler || animaDefaults.scheduler" in INDEX_HTML
     assert "setSelectValue(checkpointSelect, request.checkpoint || animaDefaults.checkpoint)" in INDEX_HTML

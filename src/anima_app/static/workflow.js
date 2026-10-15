@@ -37,7 +37,9 @@
     return {provider, operation, inherit_prompt: true, request};
   };
   const disableInline = () => {
-    for (const id of ["upscale-enabled", "face-detailer-enabled", "nai-detailer-enabled"]) {
+    const ids = $("provider-select").value === "novelai"
+      ? ["nai-detailer-enabled"] : ["upscale-enabled", "face-detailer-enabled"];
+    for (const id of ids) {
       if ($(id)) { $(id).checked = false; $(id).dispatchEvent(new Event("change", {bubbles: true})); }
     }
   };
