@@ -17,6 +17,8 @@ from anima_app.providers.novelai.requests import reject_credentials
 
 MAX_STEPS = 6
 PREVIOUS_IMAGE = "inputs/references/workflow-previous.png"
+CONTEXT_SETTINGS = frozenset(("nai_model", "cfg", "steps", "nai_sampler", "nai_scheduler",
+                              "nai_cfg_rescale", "nai_prefer_brownian", "nai_variety_boost"))
 
 
 def has_local_step(payload):
@@ -44,10 +46,20 @@ def stage_request(step, base, size, input_image=PREVIOUS_IMAGE):
         request.update(prompt=base["prompt"], negative_prompt=base.get("negative_prompt", ""))
         if "prompt_routing" in base:
             request["prompt_routing"] = copy.deepcopy(base["prompt_routing"])
+        if step["provider"] == "novelai" and base.get("provider") == "novelai":
+            for key in ("nai_characters", "nai_character_slots", "nai_character_count", "nai_use_coords", "nai_use_order"):
+                request.pop(key, None)
+                if key in base:
+                    request[key] = copy.deepcopy(base[key])
     elif "prompt_routing" not in request and "prompt_routing" in base:
         request["prompt_routing"] = {"source": "auto"}
     if "generation_sources" in base:
         request["generation_sources"] = copy.deepcopy(base["generation_sources"])
+    for key in step.get("inherit_settings", []):
+        if key in base:
+            request[key] = copy.deepcopy(base[key])
+            if key == "steps" and step["operation"] == "detail":
+                request["nai_detailer"] = {**request.get("nai_detailer", {}), "steps": base[key]}
     if step["provider"] == "local":
         request["i2i"] = {"enabled": True, "image_path": input_image, "denoise": 0}
     else:
@@ -65,7 +77,7 @@ def normalize_workflow(value, base):
         raise ValueError(f"workflow requires 1 to {MAX_STEPS} post-processing steps")
     normalized, size = [], output_size(base)
     for index, raw in enumerate(steps):
-        if not isinstance(raw, dict) or raw.keys() - {"provider", "operation", "request", "inherit_prompt"}:
+        if not isinstance(raw, dict) or raw.keys() - {"provider", "operation", "request", "inherit_prompt", "inherit_settings"}:
             raise ValueError(f"workflow step {index + 2}: invalid fields")
         provider, operation = raw.get("provider"), raw.get("operation")
         if (provider, operation) not in {("local", "detail"), ("local", "upscale"), ("novelai", "detail")}:
@@ -73,6 +85,12 @@ def normalize_workflow(value, base):
         inherit = raw.get("inherit_prompt", True)
         if type(inherit) is not bool:
             raise ValueError("inherit_prompt must be a boolean")
+        inherit_settings = raw.get("inherit_settings", [])
+        if (not isinstance(inherit_settings, list) or any(not isinstance(key, str) or key not in CONTEXT_SETTINGS for key in inherit_settings)
+                or len(inherit_settings) != len(set(inherit_settings))):
+            raise ValueError("unsupported inherited NAI settings")
+        if inherit_settings and (provider != "novelai" or base.get("provider") != "novelai"):
+            raise ValueError("inherited NAI settings require a NovelAI first step and receiving step")
         request = copy.deepcopy(raw.get("request", {}))
         if not isinstance(request, dict) or any(k in request for k in ("workflow", "workflow_base_request", "dry_run", "progress_id")):
             raise ValueError("workflow step cannot contain nested workflows or execution overrides")
@@ -81,9 +99,13 @@ def normalize_workflow(value, base):
             request["face_detailer"] = {**request.get("face_detailer", {}), "enabled": operation == "detail"}
         else:
             request["nai_detailer"] = {**request.get("nai_detailer", {}), "enabled": True}
+            if inherit and base.get("provider") == "novelai" and len(base.get("nai_characters", [])) > 1:
+                request["nai_detailer"].setdefault("matching", "wd14")
             if request["nai_detailer"].get("preview_only"):
                 raise ValueError("workflow detailer must render; use standalone preview to inspect masks")
         step = {"provider": provider, "operation": operation, "inherit_prompt": inherit, "request": request}
+        if inherit_settings:
+            step["inherit_settings"] = inherit_settings
         effective = _normalized_preset_request(stage_request(step, base, size))
         # A whole-canvas size change during detail would violate the chain contract.
         if provider == "novelai" and output_size(effective) != size:
@@ -94,6 +116,11 @@ def normalize_workflow(value, base):
         else:
             effective["input_image"] = ""
         step["request"] = effective
+        for key in inherit_settings:
+            if key in request:
+                step["request"][key] = copy.deepcopy(request[key])
+        if "steps" in inherit_settings and "nai_detailer" in request:
+            step["request"]["nai_detailer"]["steps"] = request["nai_detailer"].get("steps", 28)
         normalized.append(step)
     return {"version": 1, "steps": normalized}
 
@@ -104,7 +131,7 @@ def preflight(payload, paths, *, dry_run):
                                   _validate_managed_generation_inputs, request_from_payload)
     from anima_app.runtime.comfy_t2i import resolve_managed_lora_path
     from anima_app.runtime.face_detailer import missing_detector_paths
-    from anima_app.requests import FaceDetailerSettings
+    from anima_app.providers.novelai.detailer import Detector
     from anima_app.providers.novelai.references import validate_managed_references
     base = _normalized_preset_request({k: v for k, v in payload.items() if k != "workflow"})
     workflow = normalize_workflow(payload["workflow"], base)
@@ -123,8 +150,8 @@ def preflight(payload, paths, *, dry_run):
             if not dry_run and not novelai.token_status()["configured"]:
                 raise NovelAIError("nai_token_missing", f"{index + 1}단계: NAI_ACCESS_TOKEN 설정이 필요합니다.", 409)
             detail = parsed.detailer
-            settings = FaceDetailerSettings(enabled=detail["enabled"], mask_backend=detail["backend"],
-                                          sam3_hands="hands" in detail["concepts"])
+            if not dry_run and detail["enabled"] and parsed.operation != "focused_infill":
+                Detector(paths, detail).preflight()
         else:
             parsed = request_from_payload(request)
             if index == 0:
@@ -136,8 +163,8 @@ def preflight(payload, paths, *, dry_run):
                 if not ready["ready"]:
                     raise ValueError(f"{index + 1}단계: Anima 모델 파일이 준비되지 않았습니다.")
             settings = parsed.face_detailer
-        if not dry_run and settings.enabled and missing_detector_paths(paths, settings):
-            raise ValueError(f"{index + 1}단계: 디테일러 검출 / 마스크 모델이 준비되지 않았습니다.")
+            if not dry_run and settings.enabled and missing_detector_paths(paths, settings):
+                raise ValueError(f"{index + 1}단계: 디테일러 검출 / 마스크 모델이 준비되지 않았습니다.")
     return base, workflow, planned
 
 
@@ -221,6 +248,19 @@ def run_workflow(payload, *, paths, renderer, default_dry_run, progress_store=No
             resolved = manifest.get("wildcards", {})
             base_resolved = {**base, "prompt": resolved.get("prompt", base["prompt"]),
                              "negative_prompt": resolved.get("negative_prompt", base.get("negative_prompt", ""))}
+            if base.get("provider") == "novelai":
+                # Use resolved character wildcards, while keeping prompt routing in
+                # its original syntax so it is converted exactly once per stage.
+                characters = resolved.get("characters")
+                if characters:
+                    parsed = novelai.request_from_payload(base_resolved)
+                    from anima_app.providers.novelai.requests import replace_characters
+                    updated = replace_characters(parsed, [{**item["original"], "prompt": item["prompt"],
+                                                          "negative_prompt": item["negative_prompt"]}
+                                                         for item in characters]).to_payload()
+                    for key in ("nai_characters", "nai_character_slots", "nai_character_count"):
+                        if key in updated:
+                            base_resolved[key] = updated[key]
         if result.get("stop_scheduling") or result.get("cancellation_requested"):
             entry["status"] = "partial"
             run["status"] = "cancelled" if result.get("cancellation_requested") else "failed"

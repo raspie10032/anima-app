@@ -2256,7 +2256,7 @@
     "ja": "キャラクターを削除"
   },
   "공통 프롬프트": {
-    "en": "Common prompt",
+    "en": "Base prompt",
     "ja": "共通プロンプト"
   },
   "공통 네거티브": {
@@ -3822,5 +3822,137 @@
   "이미지 태그 분석 모델 원본": {
     "en": "Original image tagging model",
     "ja": "画像タグ解析モデルの配布元"
+  },
+  "적용할 항목": {
+    "en": "Fields to apply",
+    "ja": "適用する項目"
+  },
+  "캐릭터별 프롬프트 · 좌표": {
+    "en": "Character prompts and positions",
+    "ja": "キャラクター別プロンプト・位置"
+  },
+  "모델 · 생성 방식": {
+    "en": "Model and generation mode",
+    "ja": "モデル・生成方式"
+  },
+  "샘플링 조건": {
+    "en": "Sampling settings",
+    "ja": "サンプリング設定"
+  },
+  "디테일러 설정": {
+    "en": "Detailer settings",
+    "ja": "ディテーラー設定"
+  },
+  "얼굴별 보정 기록": {
+    "en": "Per-region edit history",
+    "ja": "領域ごとの補正履歴"
+  },
+  "캐릭터: {0}명": {
+    "en": "Characters: {0}",
+    "ja": "キャラクター: {0}人"
+  },
+  "캐릭터 연결": {
+    "en": "Character matching",
+    "ja": "キャラクター対応"
+  },
+  "자동 (여러 캐릭터: WD)": {
+    "en": "Automatic (multiple characters: WD)",
+    "ja": "自動（複数キャラクター: WD）"
+  },
+  "공통 / 단일 캐릭터": {
+    "en": "Shared / single character",
+    "ja": "共通・単一キャラクター"
+  },
+  "WD 태그로 캐릭터 연결": {
+    "en": "Match characters using WD tags",
+    "ja": "WDタグでキャラクターを対応"
+  },
+  "얼굴 검출기": {
+    "en": "Face detector",
+    "ja": "顔検出器"
+  },
+  "눈 검출기": {
+    "en": "Eye detector",
+    "ja": "目検出器"
+  },
+  "손 검출기": {
+    "en": "Hand detector",
+    "ja": "手検出器"
+  },
+  "저장 형식": {
+    "en": "Output format",
+    "ja": "保存形式"
+  },
+  "WebP 무손실": {
+    "en": "Lossless WebP",
+    "ja": "可逆圧縮WebP"
+  },
+  "WebP 손실": {
+    "en": "Lossy WebP",
+    "ja": "非可逆圧縮WebP"
+  },
+  "WebP 품질": {
+    "en": "WebP quality",
+    "ja": "WebP品質"
+  },
+  "응답 대기 시간 (초)": {
+    "en": "Response timeout (seconds)",
+    "ja": "応答タイムアウト（秒）"
+  },
+  "첫 NAI 단계에서 이어받기": {
+    "en": "Inherit from the first NAI step",
+    "ja": "最初のNAIステップから引き継ぐ"
+  },
+  "체크한 조건은 첫 NAI 단계에서 가져옵니다. 나머지는 이 단계의 설정을 사용합니다.": {
+    "en": "Checked settings come from the first NAI step. Other settings use this step’s values.",
+    "ja": "チェックした設定は最初のNAIステップから引き継ぎます。他はこのステップの設定を使用します。"
+  },
+  "첫 단계 프롬프트 · 캐릭터 사용": {
+    "en": "Use first-step prompts and characters",
+    "ja": "最初のステップのプロンプト・キャラクターを使用"
+  },
+  "참조 이미지가 사용된 기록입니다. 참조 이미지는 다시 지정해 주세요.": {
+    "en": "This record used reference images. Select the references again.",
+    "ja": "参照画像を使用した記録です。参照画像を再指定してください。"
+  },
+  "RS NAI 생성 기록이 손상되었거나 지원하지 않는 버전입니다. 이미지 검색은 사용할 수 있습니다.": {
+    "en": "The RS NAI record is damaged or uses an unsupported version. Image search is still available.",
+    "ja": "RS NAIの生成記録が破損しているか未対応のバージョンです。画像検索は利用できます。"
+  },
+  "그림 전체의 생성 조건이 없는 디테일러 결과입니다. 얼굴 보정 기록은 전체 프롬프트로 적용하지 않습니다.": {
+    "en": "This detailer result has no original full-image settings. Region edits are not applied as the full-image prompt.",
+    "ja": "画像全体の生成条件がないディテーラー結果です。領域の補正履歴は全体プロンプトに適用しません。"
+  },
+  "원본 그림의 생성 조건을 복원했습니다. 얼굴별 보정 기록은 별도로 표시합니다.": {
+    "en": "Restored the original image settings. Region edits are shown separately.",
+    "ja": "元画像の生成条件を復元しました。領域ごとの補正履歴は別に表示します。"
+  },
+  "RS NAI 생성 조건을 복원할 수 없습니다. 이미지 검색은 사용할 수 있습니다.": {
+    "en": "Unable to restore RS NAI settings. Image search is still available.",
+    "ja": "RS NAIの生成条件を復元できません。画像検索は利用できます。"
+  },
+  "인셋 그림은 원본 참조 캔버스가 필요합니다. 프롬프트는 확인할 수 있지만 생성 조건은 자동 적용하지 않습니다.": {
+    "en": "Inset images require the original reference canvas. The prompt is visible, but settings cannot be applied automatically.",
+    "ja": "インセット画像には元の参照キャンバスが必要です。プロンプトは確認できますが、生成条件は自動適用しません。"
+  },
+  "메타데이터에 없거나 적용할 수 없는 항목은 현재 폼 값을 유지합니다: {0}": {
+    "en": "Missing or unsupported fields keep their current values: {0}",
+    "ja": "未記録または未対応の項目は現在の値を保持します: {0}"
+  },
+  "지원 범위를 벗어나 적용하지 않는 값: {0}": {
+    "en": "Values outside the supported range are not applied: {0}",
+    "ja": "対応範囲外の値は適用しません: {0}"
+  },
+  "Opus 요청 한도는 현재 설정을 유지합니다. 실제 전송 크기와 스텝을 확인해 주세요.": {
+    "en": "Opus protection keeps its current setting. Check the actual request dimensions and steps.",
+    "ja": "Opus保護は現在の設定を保持します。実際の送信サイズとステップ数を確認してください。"
+  },
+  "캐릭터 {0} ({1}, {2})\n{3}\n네거티브: {4}": {
+    "en": "Character {0} ({1}, {2})\n{3}\nNegative: {4}",
+    "ja": "キャラクター {0} ({1}, {2})\n{3}\nネガティブ: {4}"
+  },
+  "WebP 저장에 실패하여 PNG 원본을 보존했습니다.": {
+    "en": "WebP export failed; the original PNG has been preserved.",
+    "ja": "WebP保存に失敗したため、元のPNGを保存しました。"
   }
 }

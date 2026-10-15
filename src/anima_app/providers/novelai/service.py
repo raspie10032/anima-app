@@ -104,6 +104,7 @@ def generate(
                 audit=audit,
                 limit_opus_free=effective.limit_opus_free,
                 subscription_transport=subscription_transport,
+                timeout=effective.request_timeout,
             )
             mark_stage("response", unknown=True)
             png_bytes = first_png_from_zip(response)
@@ -161,6 +162,16 @@ def generate(
             output_path = saved_path
             audit["png_sha256"] = hashlib.sha256(saved_png).hexdigest()
         status = "previewed" if preview else "generated"
+        if effective.save_format != "png":
+            from anima_app.providers.novelai.images import save_webp
+            png_path = output_path
+            try:
+                output_path = save_webp(png_path, lossless=effective.save_format == "webp_lossless",
+                                        quality=effective.webp_quality)
+                variants["png_original"] = str(png_path)
+                audit["output_sha256"] = hashlib.sha256(output_path.read_bytes()).hexdigest()
+            except (OSError, ValueError) as exc:
+                audit["output_conversion_failed"] = type(exc).__name__
     cancellation_requested = cancelled()
     mark_stage("metadata_save")
     manifest_path = _write_manifest(
@@ -206,6 +217,8 @@ def _write_manifest(
         unique_suffix=(current_account() or {}).get("job_id", ""),
     )
     warnings = []
+    if audit.get("output_conversion_failed"):
+        warnings.append("WebP 저장에 실패하여 PNG 원본을 보존했습니다.")
     limits_applied = (
         requested.limit_opus_free and requested.operation == "generate"
         and (requested.width, requested.height, requested.steps)

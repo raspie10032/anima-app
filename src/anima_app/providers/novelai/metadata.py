@@ -22,6 +22,8 @@ from anima_app.providers.novelai.requests import active_characters, validate_cha
 
 MAX_METADATA_BYTES = 1024 * 1024
 MAX_METADATA_IMAGE_PIXELS = 16 * 1024 * 1024
+METADATA_FIELDS = ("Comment", "Description", "Source", "Software", "anima_app_character_slots",
+                   "rs_nai", "rs_detailer_regions", "rs_nai_inset")
 
 # NovelAI /image frontend, pages/_app-b1c0ffe38c343809.js, 2026-10-09.
 # DB276663 also matches this app's V5 Curated live acceptance.
@@ -115,17 +117,27 @@ def _alpha_metadata(image: Image.Image) -> dict[str, Any] | None:
 
 def _file_metadata(image: Image.Image) -> dict[str, Any]:
     if image.format == "PNG":
-        return {name: image.info[name] for name in ("Comment", "Description", "Source", "Software", "anima_app_character_slots") if name in image.info}
+        return {name: image.info[name] for name in METADATA_FIELDS if name in image.info}
     exif = image.getexif()
     result = {name: exif[tag] for tag, name in ((270, "Description"), (305, "Source")) if tag in exif}
-    comment = exif.get_ifd(34665).get(37510) if exif else None
+    comment = exif.get_ifd(34665).get(37510) if 34665 in exif else exif.get(37510)
     if isinstance(comment, bytes):
         if comment.startswith(b"ASCII\x00\x00\x00"):
             comment = comment[8:].rstrip(b"\x00").decode("utf-8")
+        elif comment.startswith(b"UNICODE\x00"):
+            comment = comment[8:].decode("utf-16").rstrip("\x00")
         else:
             raise ValueError("지원하지 않는 WebP 메타데이터 인코딩입니다.")
     if comment is not None:
         result["Comment"] = comment
+    if 37395 in exif:
+        # RS NAI stores PNG-equivalent fields in ImageHistory on WebP.
+        try:
+            extra = _json_object(exif[37395])
+            result.update({key: value for key, value in extra.items() if key in METADATA_FIELDS})
+        except (ValueError, RecursionError):
+            # Do not fall back to a possibly stale crop Comment after a broken record.
+            result["rs_nai"] = "invalid"
     return result
 
 
@@ -142,10 +154,10 @@ def read_image_metadata(path: Path) -> dict[str, Any]:
                 image.load()
                 metadata = _file_metadata(image)
                 location = "png_text" if image.format == "PNG" else "webp_exif"
-                if "Comment" not in metadata:
+                if not any(key in metadata for key in ("Comment", "rs_nai", "rs_detailer_regions")):
                     metadata = {**metadata, **(_alpha_metadata(image) or {})}
                     location = "alpha"
-                if "Comment" not in metadata:
+                if not any(key in metadata for key in ("Comment", "rs_nai", "rs_detailer_regions")):
                     raise ValueError("NAI 생성 메타데이터가 없습니다. 원본 파일을 사용해 주세요.")
                 result = normalize_metadata(metadata)
                 result.update(metadata_source=location, image_width=image.width, image_height=image.height)
@@ -158,6 +170,9 @@ def read_image_metadata(path: Path) -> dict[str, Any]:
 
 
 def normalize_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
+    if any(key in metadata for key in ("rs_nai", "rs_detailer_regions", "rs_nai_inset")):
+        from anima_app.providers.novelai.rs_metadata import normalize_record
+        return normalize_record(metadata)
     comment = _json_object(metadata.get("Comment"))
     source = metadata.get("Source", "")
     source = source if isinstance(source, str) else ""

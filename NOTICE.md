@@ -54,6 +54,13 @@ weights are not bundled. PixAI's custom loader code is checksum-verified before
 execution. See `docs/REFERENCES.md` for exact revisions and code SHA-256.
 This pin describes the incremental
 update, not the unidentified original snapshot for every earlier 0.5.0 port.
+
+The subsequent RS NAI 2.9.0 compatibility update is based on
+`a1c7d40bd40598665ab52d869968ccfe3fe1a07a` of the same GPL-3.0-only project.
+Its `rs_nai` original-generation/edit record and WebP EXIF conventions inform
+`providers/novelai/rs_metadata.py`, `metadata.py` and `images.py`. Workflow
+inheritance, output settings and detector selection are adapted to the app's
+existing request and history model. See `docs/NAI_NODE_UPDATE_2.9.0.md` for scope.
 See `docs/NAI_NODE_UPDATE_2.4.6.md` for per-feature implementation and evidence status.
 
 ## Vendored Python Packages

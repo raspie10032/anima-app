@@ -77,7 +77,7 @@ def main():
                 stage = page.locator('.workflow-step').first
                 stage.locator('summary').click()
                 stage.get_by_label('변경 강도', exact=True).fill('0.31')
-                stage.get_by_label('첫 단계 프롬프트 사용', exact=True).uncheck()
+                stage.get_by_label('첫 단계 프롬프트 · 캐릭터 사용', exact=True).uncheck()
                 stage.get_by_label('이 단계 프롬프트', exact=True).fill('specific detail prompt')
                 snapshot = page.evaluate('animaWorkflow.snapshot()')
                 assert snapshot[0]['request']['nai_detailer']['strength'] == .31

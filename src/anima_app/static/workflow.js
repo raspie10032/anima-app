@@ -61,6 +61,7 @@
   controls.append(choice, add); body.append(controls, error);
 
   function labelControl(parent, text, control) {
+    window.AppI18n.setAttribute(control, "aria-label", text);
     const label = make("label", text); label.append(control); parent.append(label); return control;
   }
   function number(parent, text, value, min, max, step, set) {
@@ -81,6 +82,7 @@
     return `${stage.provider === "local" ? "Anima" : "NAI"} ${stage.operation === "upscale" ? tr("업스케일") : tr("디테일러")}`;
   }
   function updateFirst() {
+    for (const fields of list.querySelectorAll(".workflow-nai-inheritance")) fields.disabled = $("provider-select").value !== "novelai";
     const first = list.querySelector(".workflow-first");
     if (first) {
       const engine = $("provider-select").value === "novelai" ? "NAI" : "Anima";
@@ -129,13 +131,34 @@
         number(grid, tr("크롭 여백(px)"), settings.padding ?? 32, 0, 256, 1, value => { settings.padding = value; });
       }
       if (stage.provider === "novelai") {
+        select(grid, tr("캐릭터 연결"), [["auto", tr("자동 (여러 캐릭터: WD)")], ["shared", tr("공통 / 단일 캐릭터")], ["wd14", tr("WD 태그로 캐릭터 연결")]],
+          settings.matching || "auto", value => { if (value === "auto") delete settings.matching; else settings.matching = value; });
+        for (const [key, label, names] of [["face_detector", tr("얼굴 검출기"), ["face_yolov8n.pt", "face_yolov8m.pt"]],
+          ["eyes_detector", tr("눈 검출기"), ["full_eyes_detect_v1.pt"]], ["hands_detector", tr("손 검출기"), ["hand_yolov8n.pt", "hand_yolov8s.pt"]]]) {
+          select(grid, label, [["auto", tr("자동")], ...names.map(name => [name, name])], settings[key] || "auto", value => { settings[key] = value; });
+        }
+        select(grid, tr("저장 형식"), [["png", "PNG"], ["webp_lossless", tr("WebP 무손실")], ["webp_lossy", tr("WebP 손실")]], request.nai_save_format || "png", value => { request.nai_save_format = value; });
+        number(grid, tr("WebP 품질"), request.nai_webp_quality ?? 90, 1, 100, 1, value => { request.nai_webp_quality = value; });
+        number(grid, tr("응답 대기 시간 (초)"), request.nai_request_timeout ?? 300, 30, 1800, 1, value => { request.nai_request_timeout = value; });
+        const inheritFields = make("fieldset", "", "workflow-nai-inheritance");
+        inheritFields.disabled = $("provider-select").value !== "novelai";
+        inheritFields.append(make("legend", tr("첫 NAI 단계에서 이어받기")));
+        for (const [key, label] of [["nai_model", tr("모델")], ["cfg", "CFG"], ["steps", tr("보정 스텝")],
+          ["nai_sampler", tr("샘플러")], ["nai_scheduler", tr("스케줄러")], ["nai_cfg_rescale", "CFG rescale"],
+          ["nai_prefer_brownian", "Brownian"], ["nai_variety_boost", "Variety boost"]]) {
+          const input = make("input"); input.type = "checkbox"; input.checked = stage.inherit_settings?.includes(key) || false;
+          input.addEventListener("change", () => { stage.inherit_settings = [...new Set([...(stage.inherit_settings || []).filter(k => k !== key), ...(input.checked ? [key] : [])])]; });
+          labelControl(inheritFields, label, input);
+        }
+        details.append(inheritFields);
+        details.append(make("p", tr("체크한 조건은 첫 NAI 단계에서 가져옵니다. 나머지는 이 단계의 설정을 사용합니다."), "queue-status"));
         const guard = make("input"); guard.type = "checkbox"; guard.checked = request.nai_limit_opus_free !== false;
         guard.addEventListener("change", () => { request.nai_limit_opus_free = guard.checked; });
         labelControl(details, tr("Opus 무료 범위 보호"), guard).parentElement.className = "workflow-check";
         details.append(make("p", tr("얼굴이 큰 그림에서는 크롭 범위·여백을 줄여 주세요. 보호 모드에서는 원본 전체를 덮는 크롭을 전송하지 않습니다."), "queue-status"));
       }
       const inherit = make("input"); inherit.type = "checkbox"; inherit.checked = stage.inherit_prompt;
-      labelControl(details, tr("첫 단계 프롬프트 사용"), inherit).parentElement.className = "workflow-check";
+      labelControl(details, tr("첫 단계 프롬프트 · 캐릭터 사용"), inherit).parentElement.className = "workflow-check";
       const prompts = make("div", "", "workflow-prompts"); prompts.hidden = stage.inherit_prompt;
       select(prompts, tr("이 단계 입력 표기"), [["auto", tr("자동 감지")], ["comfyui", "Anima / ComfyUI"], ["naiv4", "NAI V4 / V5"], ["oldnai", tr("구형 NAI")], ["native", tr("변환 안 함")]],
         request.prompt_routing?.source || "auto", value => { request.prompt_routing = {source: value}; });
@@ -159,7 +182,9 @@
       for (const input of panel.querySelectorAll("input[type=number]")) {
         if (!input.checkValidity()) { panel.open = true; input.closest("details").open = true; input.reportValidity(); throw new Error(tr("작업 단계의 조건을 확인해 주세요.")); }
       }
-      return {...request, workflow: {version: 1, steps: clone(steps)}};
+      const effectiveSteps = clone(steps);
+      if (request.provider !== "novelai") for (const step of effectiveSteps) delete step.inherit_settings;
+      return {...request, workflow: {version: 1, steps: effectiveSteps}};
     },
     apply(workflow) { steps = clone(workflow?.steps || []); panel.open = steps.length > 0; report(""); render(); },
     snapshot() { return clone(steps); }

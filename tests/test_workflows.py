@@ -43,6 +43,35 @@ def plan(base="novelai", steps=("local",)):
     }
 
 
+def test_nai_workflow_keeps_character_coordinates_wildcards_and_selected_settings(harness):
+    paths, calls, local = harness
+    payload = plan(steps=("local", "novelai"))
+    payload.update(cfg=4, steps=17, nai_sampler="k_euler_ancestral", nai_use_coords=True,
+                   nai_characters=[{"prompt": "{red|green} hair", "negative_prompt": "hat", "x": .2, "y": .5},
+                                   {"prompt": "blue hair", "negative_prompt": "ribbon", "x": .8, "y": .5}])
+    step = payload["workflow"]["steps"][1]
+    step["inherit_settings"] = ["cfg", "steps"]
+    step["request"].update(cfg=8, nai_sampler="k_euler", nai_detailer={"steps": 24})
+    status, result = server.handle_generate(payload, paths=paths, renderer=local)
+    assert status == 200, result
+    detail = calls[-1][3]
+    assert detail.cfg == 4 and detail.detailer["steps"] == 17
+    assert detail.sampler == "k_euler"
+    assert detail.detailer["matching"] == "wd14"
+    assert detail.characters[0]["x"] == .2 and detail.characters[1]["negative_prompt"] == "ribbon"
+    assert detail.characters[0]["prompt"] == calls[0][3]["parameters"]["v4_prompt"]["caption"]["char_captions"][0]["char_caption"]
+
+
+@pytest.mark.parametrize("fields", [["token"], ["cfg", "cfg"], "cfg", ["seed"], [None]])
+def test_workflow_rejects_invalid_inherited_settings(harness, fields):
+    paths, calls, local = harness
+    payload = plan(steps=("novelai",))
+    payload["workflow"]["steps"][0]["inherit_settings"] = fields
+    status, result = server.handle_generate(payload, paths=paths, renderer=local)
+    assert status == 400, result
+    assert not calls
+
+
 @pytest.fixture
 def harness(tmp_path, monkeypatch):
     paths = AppPaths(project_root=tmp_path)
@@ -58,6 +87,7 @@ def harness(tmp_path, monkeypatch):
     from anima_app.providers.novelai import detailer
 
     monkeypatch.setattr(detailer, "preflight", lambda *a, **kw: None)
+    monkeypatch.setattr(detailer.Detector, "preflight", lambda *a: None)
 
     def repaint(source, request, paths, **kwargs):
         calls.append(("novelai", "detail", source.copy(), request))
@@ -271,6 +301,25 @@ def test_preflight_blocks_paid_base_when_downstream_models_are_missing(
     )
     status, result = server.handle_generate(plan(), paths=paths, renderer=local)
     assert status == 400 and "2단계" in result["error"]
+    assert not calls
+
+
+def test_selected_nai_detector_checked_before_paid_first_step(tmp_path, monkeypatch):
+    import sys
+    paths = AppPaths(project_root=tmp_path, face_detailer_detector_source=tmp_path / "external_detectors",
+                     face_detailer_detector_fallback_sources=())
+    models = paths.model_root / "detectors"
+    models.mkdir(parents=True)
+    for name in ("sam_b.pt", "face_yolov8n.pt", "full_eyes_detect_v1.pt"):
+        (models / name).write_bytes(b"synthetic placeholder")
+    monkeypatch.setattr(novelai, "token_status", lambda: {"configured": True})
+    monkeypatch.setitem(sys.modules, "ultralytics", SimpleNamespace(SAM=lambda: None, YOLO=lambda: None))
+    calls = []
+    monkeypatch.setattr(novelai, "generate", lambda *a, **kw: calls.append(1))
+    payload = plan(steps=("novelai",))
+    payload["workflow"]["steps"][0]["request"]["nai_detailer"] = {"face_detector": "face_yolov8m.pt"}
+    status, result = server.handle_generate(payload, paths=paths)
+    assert status == 400 and "face_yolov8m.pt" in result["error"]
     assert not calls
 
 

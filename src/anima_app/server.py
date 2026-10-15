@@ -1310,6 +1310,8 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 <label for="nai-metadata-model">복원할 모델</label>
                 <select id="nai-metadata-model"></select>
                 <p id="nai-metadata-warnings" class="upload-status" style="white-space: pre-line"></p>
+                <details id="nai-metadata-history" hidden><summary>얼굴별 보정 기록</summary><pre id="nai-metadata-history-text" class="wildcard-preview"></pre></details>
+                <fieldset id="nai-metadata-fields"><legend>적용할 항목</legend></fieldset>
                 <button id="apply-nai-metadata" type="button" class="secondary-button" disabled>생성 조건 적용</button>
               </div>
             </section>
@@ -1451,6 +1453,9 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 <label>영역 <select id="nai-detailer-mode"><option value="all">모든 영역</option><option value="first">첫 영역만</option></select></label>
                 <label>캐릭터 선택 <select id="nai-detailer-matching"><option value="shared">공통 / 캐릭터 1명</option><option value="wd14">WD 원본 캐릭터 매칭</option></select></label>
                 <label>마스크 <select id="nai-detailer-backend"><option value="sam_b">YOLO + SAM B</option><option value="sam3">SAM3 텍스트 검출</option></select></label>
+                <label>얼굴 검출기 <select id="nai-detailer-face_detector"><option value="auto">자동</option><option>face_yolov8n.pt</option><option>face_yolov8m.pt</option></select></label>
+                <label>눈 검출기 <select id="nai-detailer-eyes_detector"><option value="auto">자동</option><option>full_eyes_detect_v1.pt</option></select></label>
+                <label>손 검출기 <select id="nai-detailer-hands_detector"><option value="auto">자동</option><option>hand_yolov8n.pt</option><option>hand_yolov8s.pt</option></select></label>
                 <label><input class="nai-detailer-concept" type="checkbox" value="face" checked> 얼굴</label>
                 <label><input class="nai-detailer-concept" type="checkbox" value="eyes" checked> 눈</label>
                 <label><input class="nai-detailer-concept" type="checkbox" value="hands"> 손</label>
@@ -1477,6 +1482,12 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                 <p>검출 모델은 models/detectors, WD 모델은 models/rs_wd_tagger에 준비하세요. 2명 이상은 WD 매칭이 필요합니다.
                 원본 캐릭터 프롬프트만 사용하며 불확실한 매칭은 건너뜁니다. Focused 모드는 원본보다 작은 크롭만 Opus 보호에서 허용합니다.</p>
               </details>
+              <label for="nai-save-format">저장 형식</label>
+              <select id="nai-save-format" name="nai_save_format" form="generate-form"><option value="png">PNG</option><option value="webp_lossless">WebP 무손실</option><option value="webp_lossy">WebP 손실</option></select>
+              <label for="nai-webp-quality">WebP 품질</label>
+              <input id="nai-webp-quality" name="nai_webp_quality" type="number" min="1" max="100" value="90" form="generate-form">
+              <label for="nai-request-timeout">응답 대기 시간 (초)</label>
+              <input id="nai-request-timeout" name="nai_request_timeout" type="number" min="30" max="1800" value="300" form="generate-form">
               <label for="nai-sampler">샘플러</label>
               <select id="nai-sampler" name="nai_sampler" form="generate-form"></select>
               <label for="nai-scheduler">스케줄러</label>
@@ -4424,7 +4435,7 @@ def create_http_server(
                 status = HTTPStatus.NOT_FOUND if reason == "missing" else HTTPStatus.FORBIDDEN
                 self._send_json(status, {"error": "image not found" if status == 404 else "forbidden"})
                 return
-            self._send_bytes(HTTPStatus.OK, image_path.read_bytes(), "image/png")
+            self._send_bytes(HTTPStatus.OK, image_path.read_bytes(), "image/webp" if image_path.suffix.lower() == ".webp" else "image/png")
 
         def _send_thumbnail(self, name: str) -> None:
             try:

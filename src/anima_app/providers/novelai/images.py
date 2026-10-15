@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 import io
 import json
 import os
@@ -81,3 +80,38 @@ def write_verified_png(path: Path, data: bytes) -> None:
     finally:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
+
+
+def save_webp(png_path, *, lossless, quality):
+    """Write a verified WebP alongside the durable PNG, preserving readable metadata."""
+    from anima_app.output_names import _with_collision_suffix
+    from anima_app.providers.novelai.metadata import _file_metadata, _alpha_metadata
+    target = _with_collision_suffix(png_path.with_suffix(".webp"))
+    with Image.open(png_path) as image:
+        fields = _file_metadata(image)
+        if not any(key in fields for key in ("Comment", "rs_nai", "rs_detailer_regions")):
+            fields.update(_alpha_metadata(image) or {})
+        exif = Image.Exif()
+        for tag, key in ((270, "Description"), (305, "Source")):
+            if key in fields:
+                exif[tag] = fields[key]
+        if "Comment" in fields:
+            comment = fields["Comment"]
+            if isinstance(comment, str):
+                comment = json.loads(comment)
+            exif[34665] = {37510: b"ASCII\0\0\0" + json.dumps(comment, ensure_ascii=True).encode("ascii")}
+        exif[37395] = json.dumps(fields, ensure_ascii=True)
+        expected = image.size
+        with tempfile.NamedTemporaryFile(dir=target.parent, suffix=".webp", delete=False) as stream:
+            temporary = stream.name
+        try:
+            image.save(temporary, format="WEBP", lossless=lossless, quality=quality, exif=exif)
+            with Image.open(temporary) as saved:
+                saved.load()
+                if saved.size != expected or saved.format != "WEBP":
+                    raise ValueError("invalid WebP output")
+            os.replace(temporary, target)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+    return target

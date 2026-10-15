@@ -131,6 +131,10 @@ Add Anima upscale/detail or NAI detail stages with the stage selector and move t
 
 ## 8. Save, compare and reuse
 
+The current development version reads RS NAI 2.9.0 PNG/WebP files and separates original generation settings from region edit history. Open **Import generation settings from image** and choose the **Fields to apply**. Uncheck size and seed to keep their current values while importing prompts and character positions. Detailer files without original context cannot overwrite the full-image prompt with crop settings.
+
+In a NAI workflow step, **Use first-step prompts and characters** passes characters and coordinates across intermediate Anima stages. **Inherit from the first NAI step** selects model/sampling settings individually. NAI settings also provide detector selection, PNG/WebP output and response timeout. See [scope and verification](NAI_NODE_UPDATE_2.9.0.md). These changes follow the published v0.6.1 release.
+
 - Images and intermediate outputs: `outputs/images`. Generation records: `outputs/manifests`. Ordered-workflow journals: `outputs/workflows`.
 - Save a named preset to retain settings and stage order. Restoring a history item prefers the saved authoring text and workflow.
 - Drafts restore in the same browser and origin. They do not start generation. Presets do not contain model weights or reference image files; keep the referenced files available.

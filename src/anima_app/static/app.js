@@ -75,6 +75,23 @@ const tr = window.AppI18n.msg;
     const naiMetadataPreview = document.getElementById("nai-metadata-preview");
     const naiMetadataModel = document.getElementById("nai-metadata-model");
     const applyNaiMetadataButton = document.getElementById("apply-nai-metadata");
+    const metadataGroups = {
+      prompt: ["공통 프롬프트", ["prompt"]],
+      negative: ["네거티브 프롬프트", ["negative_prompt"]],
+      characters: ["캐릭터별 프롬프트 · 좌표", ["nai_characters", "nai_character_slots", "nai_character_count", "nai_use_coords", "nai_use_order"]],
+      model: ["모델 · 생성 방식", ["nai_model", "operation", "input_image", "mask_image", "inpaint_strength", "img2img_strength", "img2img_noise"]],
+      size: ["크기", ["width", "height"]], seed: ["시드", ["seed"]],
+      sampling: ["샘플링 조건", ["steps", "cfg", "nai_sampler", "nai_scheduler", "nai_cfg_rescale", "nai_prefer_brownian", "nai_variety_boost"]],
+      detailer: ["디테일러 설정", ["nai_detailer"]]
+    };
+    const metadataSelected = group => document.getElementById(`nai-metadata-use-${group}`)?.checked;
+    for (const [group, [label]] of Object.entries(metadataGroups)) {
+      const row = document.createElement("label"), input = document.createElement("input"), caption = document.createElement("span");
+      input.type = "checkbox"; input.id = `nai-metadata-use-${group}`; input.checked = true;
+      input.addEventListener("change", syncGenerationControls);
+      window.AppI18n.setText(caption, () => tr(label)); row.append(input, caption);
+      document.getElementById("nai-metadata-fields").append(row);
+    }
     let naiMetadata = null;
     let naiMetadataRevision = 0;
     const naiOperation = document.getElementById("nai-operation");
@@ -354,7 +371,9 @@ const tr = window.AppI18n.msg;
       window.AppI18n.setProperty(generateButton, "title", () => explanation);
       window.AppI18n.setProperty(startQueueButton, "title", () => explanation);
       providerSelect.disabled = queueRunning || uploadBlocked;
-      applyNaiMetadataButton.disabled = queueRunning || uploadBlocked || !naiMetadata || !naiMetadataModel.value;
+      applyNaiMetadataButton.disabled = queueRunning || uploadBlocked || !naiMetadata || naiMetadata.can_apply === false
+        || (metadataSelected("model") && !naiMetadataModel.value)
+        || !Object.keys(metadataGroups).some(metadataSelected);
       naiOperation.disabled = providerSelect.value !== "novelai" || queueRunning || uploadBlocked;
       naiInpaintInputs.querySelectorAll("input, select, button").forEach((input) => {
         input.disabled = naiInpaintInputs.hidden || queueRunning || uploadBlocked;
@@ -1305,14 +1324,22 @@ const tr = window.AppI18n.msg;
           tr`스텝: ${request.steps ?? tr("미기록")} · CFG: ${request.cfg ?? tr("미기록")} · 시드: ${request.seed ?? tr("미기록")}`,
           tr`샘플러: ${request.nai_sampler ?? tr("미기록")} · 스케줄러: ${request.nai_scheduler ?? tr("미기록")}`,
           `CFG rescale: ${request.nai_cfg_rescale ?? tr("미기록")} · Brownian: ${request.nai_prefer_brownian ?? tr("미기록")} · Variety boost: ${request.nai_variety_boost ?? tr("미기록")}`,
-          "", tr("프롬프트"), request.prompt ?? tr("미기록"), "", tr("네거티브 프롬프트"), request.negative_prompt ?? tr("미기록")
+          "", tr("프롬프트"), request.prompt ?? tr("미기록"), "", tr("네거티브 프롬프트"), request.negative_prompt ?? tr("미기록"),
+          "", tr`캐릭터: ${request.nai_characters?.length ?? 0}명`,
+          ...(request.nai_characters || []).map((c, index) => tr`캐릭터 ${index + 1} (${c.x}, ${c.y})\n${c.prompt}\n네거티브: ${c.negative_prompt}`)
         ].join("\n"));
         naiMetadataModel.replaceChildren(new Option(tr("모델을 확인하고 선택하세요"), ""),
           ...payload.model_candidates.map((value) => new Option(value, value)));
-        document.getElementById("nai-metadata-summary").textContent += tr`\n\n캐릭터: ${request.nai_characters?.length ?? 0}명\n` +
-          (request.nai_characters || []).map((c, index) => tr`캐릭터 ${index + 1} (${c.x}, ${c.y})\n${c.prompt}\n네거티브: ${c.negative_prompt}`).join("\n");
         naiMetadataModel.value = request.nai_model || "";
-        window.AppI18n.setText(document.getElementById("nai-metadata-warnings"), () => payload.warnings.join("\n"));
+        const history = payload.correction_history || [];
+        document.getElementById("nai-metadata-history").hidden = !history.length;
+        document.getElementById("nai-metadata-history-text").textContent = history.map(item =>
+          `${item.region} · ${item.request.nai_model || ""}\n${item.request.prompt || ""}\n${item.request.negative_prompt || ""}`).join("\n\n");
+        window.AppI18n.setText(document.getElementById("nai-metadata-warnings"), () => payload.warnings.map(value => {
+          const prefix = ["메타데이터에 없거나 적용할 수 없는 항목은 현재 폼 값을 유지합니다: ",
+            "지원 범위를 벗어나 적용하지 않는 값: "].find(item => value.startsWith(item));
+          return prefix ? tr(prefix + "{0}", {0: value.slice(prefix.length)}) : tr(value);
+        }).join("\n"));
         naiMetadataPreview.hidden = false;
         window.AppI18n.setText(applyNaiMetadataButton, () => payload.generation_mode === "inpaint"
           ? tr("인페인트 조건 적용") : payload.generation_mode === "i2i" ? tr("Img2Img 조건 적용") : tr("생성 조건 적용"));
@@ -1414,13 +1441,14 @@ const tr = window.AppI18n.msg;
       } finally { setUploadActive(false); syncGenerationResourceValidity(); syncGenerationControls(); }
     }
     function applyNaiMetadata() {
-      if (!naiMetadata || !naiMetadataModel.value || queueRunning || !uploadsAreIdle()) return;
+      if (applyNaiMetadataButton.disabled || !naiMetadata || naiMetadata.can_apply === false || queueRunning || !uploadsAreIdle()) return;
       // Apply only recognized fields. Missing fields and the user's cost cap stay unchanged.
-      const request = naiMetadata.request;
+      const selected = new Set(Object.entries(metadataGroups).filter(([group]) => metadataSelected(group)).flatMap(([, [, keys]]) => keys));
+      const request = Object.fromEntries(Object.entries(naiMetadata.request).filter(([key]) => selected.has(key)));
       providerSelect.value = "novelai";
-      naiOperation.value = request.operation || "generate";
+      if (metadataSelected("model")) naiOperation.value = request.operation || "generate";
       renderNovelAIOptions();
-      setSelectValue(form.elements.nai_model, naiMetadataModel.value);
+      if (metadataSelected("model")) setSelectValue(form.elements.nai_model, naiMetadataModel.value);
       for (const [key, value] of Object.entries(request)) {
         if (["provider", "nai_model", "nai_characters", "nai_use_coords", "nai_use_order"].includes(key)) continue;
         const input = form.elements[key];
@@ -1429,11 +1457,12 @@ const tr = window.AppI18n.msg;
         else if (input.tagName === "SELECT") setSelectValue(input, value);
         else input.value = value;
       }
-      setNaiCharacters(request.nai_character_slots || request.nai_characters || [], request.nai_character_count);
-      setNaiReferences([], []);
-      setNaiDetailer(request.nai_detailer || {});
-      naiUseCoords.checked = request.nai_use_coords ?? true;
-      naiUseOrder.checked = request.nai_use_order ?? true;
+      if (metadataSelected("characters") && (request.nai_character_slots || request.nai_characters)) {
+        setNaiCharacters(request.nai_character_slots || request.nai_characters, request.nai_character_count);
+      }
+      if (request.nai_detailer) setNaiDetailer(request.nai_detailer);
+      if ("nai_use_coords" in request) naiUseCoords.checked = request.nai_use_coords;
+      if ("nai_use_order" in request) naiUseOrder.checked = request.nai_use_order;
       syncStartingPointSelectionFromInputs();
       syncProviderControls();
       if (request.operation && request.operation !== "generate") resetNaiEditor();
@@ -2392,6 +2421,8 @@ const tr = window.AppI18n.msg;
           width: data.width, height: data.height, steps: data.steps, cfg: data.cfg,
           wildcard_mode: data.wildcard_mode, nai_model: data.nai_model,
           nai_sampler: data.nai_sampler, nai_scheduler: data.nai_scheduler,
+          nai_request_timeout: Number(data.nai_request_timeout || 300), nai_save_format: data.nai_save_format || "png",
+          nai_webp_quality: Number(data.nai_webp_quality || 90),
           nai_cfg_rescale: Number(data.nai_cfg_rescale || 0),
           nai_prefer_brownian: form.elements.nai_prefer_brownian.checked,
           nai_variety_boost: form.elements.nai_variety_boost.checked,
@@ -2527,7 +2558,7 @@ const tr = window.AppI18n.msg;
       const settings = {enabled: document.getElementById("nai-detailer-enabled").checked || naiOperation.value === "detail",
         preview_only: document.getElementById("nai-detailer-preview").checked,
         concepts: [...document.querySelectorAll(".nai-detailer-concept:checked")].map((input) => input.value)};
-      for (const key of ["mode", "matching", "backend", "wd_device", "wd_model"]) settings[key] = document.getElementById(`nai-detailer-${key}`).value;
+      for (const key of ["mode", "matching", "backend", "wd_device", "wd_model", "face_detector", "eyes_detector", "hands_detector"]) settings[key] = document.getElementById(`nai-detailer-${key}`).value;
       for (const key of ["threshold", "mask_threshold", "crop_factor", "padding", "dilation", "strength", "steps", "max_regions", "match_min_score", "match_min_margin", "match_crop_factor", "wd_batch_size"]) {
         settings[key] = Number(document.getElementById(`nai-detailer-${key}`).value);
       }
@@ -2537,7 +2568,7 @@ const tr = window.AppI18n.msg;
       const defaults = {enabled: false, preview_only: false, mode: "all", matching: "shared", backend: "sam_b",
         threshold: .5, mask_threshold: .3, crop_factor: 2, padding: 32, dilation: 0, strength: .55, steps: 28,
         max_regions: 16, match_min_score: .25, match_min_margin: .08, match_crop_factor: 2, wd_device: "auto", wd_batch_size: 4,
-        wd_model: "WD ViT v3"};
+        wd_model: "WD ViT v3", face_detector: "auto", eyes_detector: "auto", hands_detector: "auto"};
       for (const [key, initial] of Object.entries(defaults)) {
         const input = document.getElementById(`nai-detailer-${key === "preview_only" ? "preview" : key}`);
         if (input.type === "checkbox") input.checked = value[key] ?? initial;
@@ -2901,6 +2932,9 @@ const tr = window.AppI18n.msg;
           {model: "nai-diffusion-5-curated", sampler: "k_euler", scheduler: "karras"}[name]);
       }
       form.elements.nai_cfg_rescale.value = naiSettings.nai_cfg_rescale ?? request.cfg_rescale ?? 0;
+      for (const [key, fallback] of Object.entries({request_timeout: 300, save_format: "png", webp_quality: 90})) {
+        form.elements[`nai_${key}`].value = naiSettings[`nai_${key}`] ?? request[key] ?? fallback;
+      }
       form.elements.nai_prefer_brownian.checked = naiSettings.nai_prefer_brownian ?? request.prefer_brownian ?? false;
       form.elements.nai_variety_boost.checked = naiSettings.nai_variety_boost ?? request.variety_boost ?? true;
       form.elements.nai_limit_opus_free.checked = naiSettings.nai_limit_opus_free ?? request.limit_opus_free ?? true;

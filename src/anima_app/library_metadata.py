@@ -38,7 +38,8 @@ def request_snapshot(manifest):
     if not isinstance(manifest, dict):
         return {}
     return clean({k: v for k, v in manifest.items() if isinstance(k, str) and (k in REQUEST_KEYS or k.startswith("nai_") or k in {
-        "workflow", "workflow_base_request", "authoring_request", "prompt_routing", "generation_sources"})})
+        "workflow", "workflow_base_request", "authoring_request", "prompt_routing", "generation_sources",
+        "correction_history", "metadata_context"})})
 
 
 def metadata(path: Path, manifest=None):
@@ -46,7 +47,12 @@ def metadata(path: Path, manifest=None):
         return request_snapshot(manifest), "anima_manifest", []
     try:
         result = read_image_metadata(path)
-        return request_snapshot(result["request"]), "novelai_" + result["metadata_source"], result["warnings"]
+        request = request_snapshot(result["request"])
+        if result.get("correction_history"):
+            request["correction_history"] = clean(result["correction_history"])
+        if "can_apply" in result:
+            request["metadata_context"] = {"can_apply": result["can_apply"], "origin": result.get("settings_origin")}
+        return request, "novelai_" + result["metadata_source"], result["warnings"]
     except (ValueError, TypeError, AttributeError, KeyError, OverflowError, RecursionError, OSError, UnicodeError):
         pass
     with Image.open(path) as image:

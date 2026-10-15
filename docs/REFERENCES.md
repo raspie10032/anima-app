@@ -23,6 +23,14 @@ The final upstream check found 2.5.0 at
 one commit after this fixed target. Its reference inset and portable character
 asset additions are not part of the 2.4.6 candidate. Do not call this candidate
 complete parity with moving upstream `main`.
+
+The subsequent [RS NAI 2.9.0 compatibility update](NAI_NODE_UPDATE_2.9.0.md) is pinned to
+[`a1c7d40bd40598665ab52d869968ccfe3fe1a07a`](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/tree/a1c7d40bd40598665ab52d869968ccfe3fe1a07a).
+Its [image metadata contract](https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request/blob/a1c7d40bd40598665ab52d869968ccfe3fe1a07a/docs/image-metadata.md)
+defines original-generation context, region edit history and PNG/WebP storage.
+The app reads that contract and adds selective restoration, workflow character
+inheritance, detector choices, output formats and request timeouts. The guide
+records the synthetic/mock/browser evidence and the remaining feature boundary.
 Medium Effort rules come from `nai_api.py`, `generators.py` and `detailer.py`, with
 GPL-3.0-only attribution retained in the new rule module.
 See [NovelAI's official Effort documentation](https://docs.novelai.net/en/image/effort/).

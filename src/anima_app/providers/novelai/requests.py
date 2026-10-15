@@ -117,8 +117,17 @@ class NovelAIRequest:
     references: tuple[dict[str, object], ...] = ()
     normalize_vibe_strengths: bool = True
     detailer: dict[str, object] | None = None
+    request_timeout: int = 300
+    save_format: str = "png"
+    webp_quality: int = 90
 
     def __post_init__(self) -> None:
+        if type(self.request_timeout) is not int or not 30 <= self.request_timeout <= 1800:
+            raise invalid("REQUEST_INPUT", "NovelAI timeout must be between 30 and 1800 seconds")
+        if self.save_format not in ("png", "webp_lossless", "webp_lossy"):
+            raise invalid("REQUEST_INPUT", "Unsupported NovelAI save format")
+        if type(self.webp_quality) is not int or not 1 <= self.webp_quality <= 100:
+            raise invalid("REQUEST_INPUT", "WebP quality must be between 1 and 100")
         for label, value in (("prompt", self.prompt), ("negative prompt", self.negative_prompt)):
             if not isinstance(value, str) or len(value) > MAX_PROMPT_CHARACTERS:
                 raise invalid("REQUEST_INPUT", f"{label} must be text with at most {MAX_PROMPT_CHARACTERS} characters")
@@ -216,7 +225,8 @@ class NovelAIRequest:
     def to_payload(self) -> dict[str, object]:
         values = asdict(self)
         for name in ("model", "sampler", "scheduler", "cfg_rescale", "prefer_brownian", "variety_boost", "limit_opus_free",
-                     "characters", "character_slots", "character_count", "use_coords", "use_order", "vibes", "references", "normalize_vibe_strengths", "detailer"):
+                     "characters", "character_slots", "character_count", "use_coords", "use_order", "vibes", "references", "normalize_vibe_strengths", "detailer",
+                     "request_timeout", "save_format", "webp_quality"):
             values[f"nai_{name}"] = values.pop(name)
         values["nai_characters"] = list(values["nai_characters"])
         if self.character_slots is None:
@@ -278,4 +288,7 @@ def request_from_payload(payload: dict[str, object]) -> NovelAIRequest:
         references=payload.get("nai_references", payload.get("references", [])),
         normalize_vibe_strengths=payload.get("nai_normalize_vibe_strengths", True),
         detailer=payload.get("nai_detailer", payload.get("detailer", {})),
+        request_timeout=payload.get("nai_request_timeout", payload.get("request_timeout", 300)),
+        save_format=payload.get("nai_save_format", payload.get("save_format", "png")),
+        webp_quality=payload.get("nai_webp_quality", payload.get("webp_quality", 90)),
     )

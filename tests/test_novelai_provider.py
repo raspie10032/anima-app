@@ -86,6 +86,53 @@ def test_generate_preserves_novelai_png_bytes(tmp_path, monkeypatch):
     assert result.output_path.read_bytes() == expected
 
 
+@pytest.mark.parametrize("save_format", ["png", "webp_lossless", "webp_lossy"])
+def test_output_format_and_timeout_survive_payload_and_manifest(tmp_path, monkeypatch, save_format):
+    monkeypatch.setenv("NAI_ACCESS_TOKEN", "synthetic-token")
+    captured = []
+
+    def transport(url, headers, body, timeout):
+        captured.append((json.loads(body), timeout))
+        return _png_zip((512, 512))
+
+    request = novelai.request_from_payload({"prompt": "test", "width": 512, "height": 512,
+                                           "nai_save_format": save_format, "nai_webp_quality": 84,
+                                           "nai_request_timeout": 450})
+    assert novelai.request_from_payload(request.to_payload()) == request
+    result = novelai.generate(request, paths=AppPaths(tmp_path), transport=transport)
+    manifest = json.loads(result.manifest_path.read_text())
+    assert captured[0][1] == 450
+    assert not any(key in captured[0][0]["parameters"] for key in ("save_format", "webp_quality", "request_timeout"))
+    assert manifest["save_format"] == save_format
+    assert result.output_path.suffix == (".png" if save_format == "png" else ".webp")
+    if save_format != "png":
+        assert manifest["variants"]["png_original"].endswith(".png")
+
+
+def test_webp_failure_keeps_successful_generation_without_retry(tmp_path, monkeypatch):
+    from anima_app.providers.novelai import images
+    monkeypatch.setenv("NAI_ACCESS_TOKEN", "synthetic-token")
+    calls = []
+
+    def failure(*args, **kwargs):
+        raise OSError("disk")
+
+    monkeypatch.setattr(images, "save_webp", failure)
+    result = novelai.generate(novelai.NovelAIRequest(prompt="test", width=512, height=512, save_format="webp_lossless"),
+                             paths=AppPaths(tmp_path), transport=lambda *args: calls.append(1) or _png_zip((512, 512)))
+    assert calls == [1] and result.status == "generated"
+    assert result.output_path.suffix == ".png" and result.output_path.is_file()
+    assert json.loads(result.manifest_path.read_text())["novelai"]["output_conversion_failed"] == "OSError"
+
+
+@pytest.mark.parametrize("settings", [{"nai_save_format": "jpg"}, {"nai_webp_quality": True},
+                                       {"nai_webp_quality": 0}, {"nai_request_timeout": 0},
+                                       {"nai_request_timeout": float("nan")}, {"nai_request_timeout": True}])
+def test_invalid_export_and_timeout_rejected(settings):
+    with pytest.raises(ValueError):
+        novelai.request_from_payload({"prompt": "test", **settings})
+
+
 def test_generate_rejects_invalid_response_archive(tmp_path, monkeypatch):
     monkeypatch.setenv("NAI_ACCESS_TOKEN", "token")
 

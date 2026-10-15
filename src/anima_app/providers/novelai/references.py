@@ -81,7 +81,7 @@ def validate_managed_references(request, paths):
         read_reference_image(item["image"], paths)
 
 
-def _encoding(image, model, information, paths, token, transport, sleep, cancelled):
+def _encoding(image, model, information, paths, token, transport, sleep, cancelled, timeout=300):
     key = hashlib.sha256(json.dumps([1, model, float(information).hex(), image], separators=(",", ":")).encode()).hexdigest()
     root = paths.output_root / "nai-vibe-cache"
     path = root / f"{key}.json"
@@ -108,7 +108,7 @@ def _encoding(image, model, information, paths, token, transport, sleep, cancell
                 mark_stage("vibe_encoding", unknown=True)
                 raw = client.post_json(ENCODE_VIBE_URL, token=token,
                                        payload={"image": image, "information_extracted": information, "model": model},
-                                       transport=transport, sleep=sleep, cancelled=cancelled)
+                                       transport=transport, sleep=sleep, cancelled=cancelled, timeout=timeout)
                 if not raw:
                     raise NovelAIError("nai_vibe_encoding_invalid", "NovelAI가 빈 Vibe 인코딩을 반환했습니다.", unknown=True)
                 encoding = base64.b64encode(raw).decode("ascii")
@@ -157,7 +157,7 @@ def reference_parameters(request, paths, *, token, transport, sleep, cancelled):
             image, digest = read_reference_image(reference["image"], paths)
             entry = {"type": "vibe", "input_sha256": digest}
             if model.startswith("nai-diffusion-4"):
-                encoded, cache = _encoding(encode_png(image), model, reference["information_extracted"], paths, token, transport, sleep, cancelled)
+                encoded, cache = _encoding(encode_png(image), model, reference["information_extracted"], paths, token, transport, sleep, cancelled, request.request_timeout)
                 entry.update(cache)
             else:
                 encoded = encode_png(ImageOps.pad(image, (448, 448), method=Image.Resampling.LANCZOS, color="black"))

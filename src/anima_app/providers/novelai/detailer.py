@@ -30,13 +30,19 @@ DEFAULTS = {"enabled": False, "preview_only": False, "mode": "all", "matching": 
             "backend": "sam_b", "concepts": ["face", "eyes"], "threshold": .5, "mask_threshold": .3,
             "crop_factor": 2.0, "padding": 32, "dilation": 0, "strength": .55, "steps": 28,
             "max_regions": 16, "match_min_score": .25, "match_min_margin": .08, "match_crop_factor": 2.0,
-            "wd_device": "auto", "wd_batch_size": 4, "wd_model": DEFAULT_MODEL}
+            "wd_device": "auto", "wd_batch_size": 4, "wd_model": DEFAULT_MODEL,
+            "face_detector": "auto", "eyes_detector": "auto", "hands_detector": "auto"}
+DETECTORS = {"face": ("face_yolov8n.pt", "face_yolov8m.pt"), "eyes": ("full_eyes_detect_v1.pt",),
+             "hands": ("hand_yolov8n.pt", "hand_yolov8s.pt")}
 
 
 def validate_settings(value):
     if not isinstance(value, dict) or value.keys() - DEFAULTS.keys():
         raise invalid("DETAIL_MODE", "Unknown NAI detailer setting")
     result = {**DEFAULTS, **value}
+    for concept, names in DETECTORS.items():
+        if result[concept + "_detector"] not in ("auto", *names):
+            raise invalid("DETAIL_MODE", "Unsupported detector model")
     if not isinstance(result["wd_model"], str) or result["wd_model"] not in MODELS:
         raise invalid("DETAIL_MODE", "Unknown NAI detailer tagger model")
     for key in ("enabled", "preview_only"):
@@ -126,10 +132,9 @@ class Detector:
             ) from None
         return SAM3SemanticPredictor
 
-    @staticmethod
-    def _names(concept):
-        return {"face": ("face_yolov8n.pt", "face_yolov8m.pt"), "eyes": ("full_eyes_detect_v1.pt",),
-                "hands": ("hand_yolov8n.pt", "hand_yolov8s.pt")}[concept]
+    def _names(self, concept):
+        choice = self.settings.get(concept + "_detector", "auto")
+        return DETECTORS[concept] if choice == "auto" else (choice,)
 
     def detect(self, source, cancelled):
         _check_cancelled(cancelled)
@@ -391,7 +396,8 @@ def repaint(source, request, paths, *, token, reference_params=None, transport=N
             mark_stage("detailer", unknown=True)
             raw = post_json(GENERATE_IMAGE_URL, token=token, payload=payload, transport=transport,
                             subscription_transport=subscription_transport, sleep=sleep, cancelled=cancelled,
-                            limit_opus_free=request.limit_opus_free, focused_context=context, audit=entry_audit, stage="detailer")
+                            limit_opus_free=request.limit_opus_free, focused_context=context, audit=entry_audit, stage="detailer",
+                            timeout=request.request_timeout)
             png = first_png_from_zip(raw)
             verify_png_bytes(png, expected_size=(params["width"], params["height"]))
         except Exception as exc:

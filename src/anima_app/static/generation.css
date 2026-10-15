@@ -148,6 +148,8 @@ body.generation-body {font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
 .generation-app .workflow-fields input,.generation-app .workflow-fields select,.generation-app .workflow-prompts textarea {box-sizing:border-box;max-width:100%;min-width:0;width:100%}
 .generation-app .workflow-check {display:flex;gap:8px;align-items:center;font-size:12px;padding:5px 0}
 .generation-app .workflow-check input {width:auto;order:-1}
+.generation-app #nai-metadata-fields label,.generation-app .workflow-step fieldset label {display:flex;gap:8px;align-items:center;margin:8px 0}
+.generation-app #nai-metadata-fields input,.generation-app .workflow-step fieldset input[type=checkbox] {width:auto;flex:none;margin:0;order:-1}
 .generation-app .workflow-prompts {display:grid;gap:8px;margin:8px 0}
 .generation-app .workflow-prompts[hidden] {display:none}
 .generation-app .workflow-add select {flex:1;min-width:100px;width:0}

@@ -78,7 +78,10 @@ def post_json(
     subscription_transport: SubscriptionTransport | None = None,
     focused_context: FocusedContext | None = None,
     stage: str | None = None,
+    timeout: int = READ_TIMEOUT_SECONDS,
 ) -> bytes:
+    if type(timeout) is not int or not 30 <= timeout <= 1800:
+        raise ValueError("NovelAI timeout must be between 30 and 1800 seconds")
     stage = stage or ("generation" if url == GENERATE_IMAGE_URL else "vibe_encoding")
     if limit_opus_free:
         if url != GENERATE_IMAGE_URL:
@@ -95,13 +98,13 @@ def post_json(
         _check_cancelled(cancelled)
     try:
         return _post_locked(url, headers, body, payload, active_transport, subscription_transport,
-                            sleep, cancelled, audit, limit_opus_free, coordinator, stage)
+                            sleep, cancelled, audit, limit_opus_free, coordinator, stage, timeout)
     finally:
         coordinator.lock.release()
 
 
 def _post_locked(url, headers, body, payload, transport, subscription_transport,
-                 sleep, cancelled, audit, limit_opus_free, coordinator, stage) -> bytes:
+                 sleep, cancelled, audit, limit_opus_free, coordinator, stage, timeout) -> bytes:
     for attempt in range(MAX_429_RETRIES + 1):
         coordinator.wait(sleep, cancelled)
         if limit_opus_free:
@@ -113,7 +116,7 @@ def _post_locked(url, headers, body, payload, transport, subscription_transport,
             audit["retry_count"] = attempt
         try:
             try:
-                response = transport(url, headers, body, READ_TIMEOUT_SECONDS)
+                response = transport(url, headers, body, timeout)
             finally:
                 # Measure from completion, including failures; retries share this gate.
                 coordinator.next_request_at = coordinator.clock() + REQUEST_INTERVAL_SECONDS
