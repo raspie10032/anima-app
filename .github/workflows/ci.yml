@@ -31,6 +31,8 @@ jobs:
       - name: Check browser JavaScript
         run: |
           node --check src/anima_app/static/app.js
+          node --check src/anima_app/static/setup.js
+          node --check src/anima_app/static/barracks.js
           node --check src/anima_app/static/library.js
           node --check src/anima_app/static/i18n.js
           node --check src/anima_app/static/authoring.js

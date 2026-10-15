@@ -1,0 +1,35 @@
+{
+  "repository": "https://github.com/raspie10032/RS-Seasonal-Prompt-Generator",
+  "commit": "cf03659178f6a1abb7d1335f805a7f951511765d",
+  "license": "Apache-2.0",
+  "files": [
+    {
+      "file": "__init__.py",
+      "sha256": "adb94abdbfda8ea716da151438a2794c63dcd89f77c6dcc854a1bbe283e1eccd"
+    },
+    {
+      "file": "encoder.py",
+      "sha256": "b9810568d7681ed05cf0c9a180138631e39690810965aa45310d2a9893b2c1ba",
+      "upstream_sha256": "b9810568d7681ed05cf0c9a180138631e39690810965aa45310d2a9893b2c1ba"
+    },
+    {
+      "file": "import_snapshot.py",
+      "sha256": "0d24cea3b42fd7444593e905e973f54e06ee64e269b2dd627a05fb3f0742f839"
+    },
+    {
+      "file": "model.json",
+      "sha256": "d91896b6275e1a3da3942f6cbcd1e75909340c52140fd6f049b3f2eaa30d0cdc"
+    },
+    {
+      "file": "prepare_encoder.py",
+      "sha256": "7ada0500c2e165f19f7b5b6ff3316952d552474182d183e1d2801df1afa14ae0",
+      "upstream_sha256": "40135ec68a98d22bf30479005b26e538db246674950fd4742157ef1f29a55a4f"
+    }
+  ],
+  "notes": "Adapted from the pinned VRS-INT implementation; the mixed-aspect pooling correction changes the encoder contract.",
+  "changes": [
+    "Isolated app-owned vision loader and offline pinned model preparation",
+    "Pool individual image token ranges correctly for mixed aspect ratios",
+    "Preserve original PIL / NF4 / bf16 / SDPA / mean-pool recipe"
+  ]
+}

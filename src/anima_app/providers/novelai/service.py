@@ -13,7 +13,7 @@ from PIL.PngImagePlugin import PngInfo
 from anima_app.config import AppPaths
 from anima_app.manifests import _write_json_atomically
 from anima_app.output_names import _with_collision_suffix, allocate_manifest_path, allocate_output_path
-from anima_app.providers.novelai.auth import get_token
+from anima_app.providers.novelai.auth import get_token, current_account
 from anima_app.providers.novelai.client import SubscriptionTransport, Transport, post_json
 from anima_app.providers.novelai.eligibility import validate_opus_free_payload
 from anima_app.providers.novelai.images import first_png_from_zip, verify_png_bytes, with_character_slots, write_verified_png
@@ -111,7 +111,8 @@ def generate(
         audit["png_sha256"] = hashlib.sha256(png_bytes).hexdigest()
         mark_stage("output_save")
         paths.image_root.mkdir(parents=True, exist_ok=True)
-        output_path = allocate_output_path(_naming_request(effective), paths=paths, status="generated")
+        output_path = allocate_output_path(_naming_request(effective), paths=paths, status="generated",
+                                          unique_suffix=(current_account() or {}).get("job_id", ""))
         if mask is not None and request.operation == "infill":
             raw_path = _with_collision_suffix(output_path.with_name(output_path.stem + "-remote-inpaint.png"))
             write_verified_png(raw_path, png_bytes)
@@ -202,6 +203,7 @@ def _write_manifest(
         paths=paths,
         status=status,
         output_path=output_path,
+        unique_suffix=(current_account() or {}).get("job_id", ""),
     )
     warnings = []
     limits_applied = (
@@ -276,6 +278,8 @@ def _write_manifest(
             "opus_limits_applied": limits_applied,
         },
     }
+    if current_account():
+        manifest['barracks'] = current_account()
     _write_json_atomically(manifest_path, manifest)
     return manifest_path
 

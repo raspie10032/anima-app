@@ -5,13 +5,12 @@ identify an artist. Originals are referenced, not changed or copied.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import io
 import json
 import os
 from pathlib import Path
-import random
 import re
 import sqlite3
 import threading
@@ -23,9 +22,11 @@ import numpy as np
 
 from anima_app.library_metadata import PARSER_VERSION, artist_combo, metadata
 from anima_app.library_visual import VISUAL_VERSION, observe, read_pixels, unit
-from anima_app.library_vrs import VRSAdapter
+from anima_app.library_vrs import VRSIndexCancelled
+from anima_app.library_vrs_cached import CachedVRSAdapter
+from anima_app.gpu_work_lock import GPUWorkLock
+from anima_app import library_core
 
-MAX_ITEMS = 2000
 EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp'}
 
 
@@ -47,12 +48,18 @@ class Library:
         self.db = self.root / 'library.sqlite3'
         self.thumbs = self.root / 'thumbnails'
         self.thumbs.mkdir(exist_ok=True)
-        self.generation_lock = generation_lock or threading.Lock()
+        self.generation_lock = generation_lock or GPUWorkLock()
         self.import_lock = threading.Lock()
         self.state_lock = threading.Lock()
+        self._vrs_settings_lock = threading.RLock()
         self.cancelled = threading.Event()
         self.job = {'status': 'idle'}
-        self.vrs = VRSAdapter()
+        self.vrs = CachedVRSAdapter(paths.model_root)
+        self.vrs.runtime.generation_lock = self.generation_lock
+        if isinstance(self.generation_lock, GPUWorkLock):
+            self.generation_lock.register_idle(self.vrs, self.vrs.close)
+        self._cache_lock = threading.Lock()
+        self._vector_cache = {}
         with self.connect() as conn:
             conn.executescript('''
             PRAGMA journal_mode=WAL;
@@ -72,11 +79,25 @@ class Library:
             CREATE TABLE IF NOT EXISTS vectors (
               asset_id TEXT NOT NULL REFERENCES assets(id), contract TEXT NOT NULL, vector TEXT NOT NULL,
               PRIMARY KEY(asset_id,contract));
+            CREATE TABLE IF NOT EXISTS index_issues (
+              asset_id TEXT NOT NULL REFERENCES assets(id), contract TEXT NOT NULL,
+              state TEXT NOT NULL, message TEXT NOT NULL, updated REAL NOT NULL,
+              PRIMARY KEY(asset_id,contract));
+            CREATE TABLE IF NOT EXISTS core_receipts (
+              query_id TEXT NOT NULL REFERENCES queries(id), asset_id TEXT NOT NULL REFERENCES assets(id),
+              contract TEXT NOT NULL, receipt TEXT NOT NULL, created REAL NOT NULL,
+              PRIMARY KEY(query_id,asset_id));
+            CREATE TABLE IF NOT EXISTS import_issues (
+              path TEXT PRIMARY KEY, code TEXT NOT NULL, message TEXT NOT NULL, updated REAL NOT NULL);
             CREATE TABLE IF NOT EXISTS queries (
               id TEXT PRIMARY KEY, pixel_hash TEXT, contract TEXT, results TEXT, created REAL);
             CREATE TABLE IF NOT EXISTS feedback (
               query_id TEXT NOT NULL REFERENCES queries(id), asset_id TEXT NOT NULL REFERENCES assets(id),
               visual INTEGER, reuse INTEGER, created REAL, PRIMARY KEY(query_id,asset_id));
+            CREATE TABLE IF NOT EXISTS feedback_times (
+              query_id TEXT NOT NULL, asset_id TEXT NOT NULL,
+              visual_updated REAL, reuse_updated REAL, PRIMARY KEY(query_id,asset_id),
+              FOREIGN KEY(query_id,asset_id) REFERENCES feedback(query_id,asset_id));
             CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
             CREATE TABLE IF NOT EXISTS comparisons (
               id TEXT PRIMARY KEY, query_id TEXT NOT NULL REFERENCES queries(id),
@@ -85,6 +106,21 @@ class Library:
             CREATE TABLE IF NOT EXISTS synced_manifests (
               path TEXT PRIMARY KEY, size INTEGER, mtime INTEGER, image_size INTEGER, image_mtime INTEGER);
             ''')
+            conn.execute("INSERT OR IGNORE INTO settings VALUES('retrieval_revision','0')")
+            conn.execute("INSERT OR IGNORE INTO settings VALUES('vrs_enabled','1')")
+            self.vrs_enabled = conn.execute("SELECT value FROM settings WHERE key='vrs_enabled'").fetchone()[0] == '1'
+            # Only corpus changes invalidate matrices. Search receipts and user
+            # evaluations must not cause 2,000 JSON vectors to be parsed again.
+            for table in ('assets', 'vectors'):
+                for event in ('INSERT', 'UPDATE', 'DELETE'):
+                    conn.execute(f'''CREATE TRIGGER IF NOT EXISTS retrieval_{table}_{event}
+                        AFTER {event} ON {table} BEGIN
+                        UPDATE settings SET value=CAST(value AS INTEGER)+1
+                        WHERE key='retrieval_revision'; END''')
+            conn.execute('CREATE INDEX IF NOT EXISTS query_pixels_contract ON queries(pixel_hash,contract)')
+            conn.execute('''INSERT OR IGNORE INTO feedback_times
+                SELECT query_id,asset_id,CASE WHEN visual IS NOT NULL THEN created END,
+                CASE WHEN reuse IS NOT NULL THEN created END FROM feedback''')
             if 'source_url' not in {row[1] for row in conn.execute('PRAGMA table_info(sources)')}:
                 conn.execute("ALTER TABLE sources ADD COLUMN source_url TEXT NOT NULL DEFAULT ''")
             version = conn.execute("SELECT value FROM settings WHERE key='parser_version'").fetchone()
@@ -112,14 +148,17 @@ class Library:
             records = c.execute('SELECT count(*) FROM records').fetchone()[0]
             combos = c.execute("SELECT count(DISTINCT combo_key) FROM records WHERE combo_key != ''").fetchone()[0]
             vectors = c.execute('SELECT count(*) FROM vectors WHERE contract=?', (contract,)).fetchone()[0]
+            issues = {r[0]: r[1] for r in c.execute('SELECT state,count(*) FROM index_issues WHERE contract=? GROUP BY state', (contract,))}
             feedback = c.execute('SELECT count(*) FROM feedback').fetchone()[0]
             distinct_pixels = c.execute('SELECT count(DISTINCT pixel_hash) FROM assets').fetchone()[0]
             artist_sequences = len({dump(json.loads(row[0])['artists'])
                                     for row in c.execute("SELECT DISTINCT combo FROM records WHERE combo_key != ''")})
         with self.state_lock:
             job = dict(self.job)
-        return dict(items=n, records=records, combinations=combos, capacity=MAX_ITEMS,
-                    visual_contract=VISUAL_VERSION, vrs_contract=contract, vrs_indexed=vectors,
+        return dict(items=n, records=records, combinations=combos, capacity=None,
+                    visual_contract=VISUAL_VERSION, vrs_enabled=self.vrs_enabled,
+                    vrs_contract=contract, vrs_indexed=vectors,
+                    vrs_pending=max(0, n-vectors-sum(issues.values())), vrs_issues=issues,
                     feedback=feedback, distinct_pixels=distinct_pixels, artist_sequences=artist_sequences, job=job)
 
     def ingest(self, path, manifest=None):
@@ -135,7 +174,10 @@ class Library:
         pixels = read_pixels(path)
         obs = observe(pixels)
         file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
-        request, source, warnings = metadata(path, manifest)
+        try:
+            request, source, warnings = metadata(path, manifest)
+        except (ValueError, TypeError, AttributeError, KeyError, OverflowError, RecursionError, OSError, UnicodeError):
+            request, source, warnings = {}, 'unreadable', ['메타데이터를 읽지 못했습니다. 이미지 검색은 사용할 수 있습니다.']
         source_url = ''
         sidecar = path.parent / 'source.json'
         try:
@@ -157,8 +199,6 @@ class Library:
         with self.connect() as c:
             c.execute('BEGIN IMMEDIATE')
             exists = c.execute('SELECT 1 FROM assets WHERE id=?', (file_hash,)).fetchone()
-            if not exists and c.execute('SELECT count(*) FROM assets').fetchone()[0] >= MAX_ITEMS:
-                raise ValueError('첫 라이브러리는 2,000장까지 등록합니다.')
             if not thumbnail.exists():
                 temporary = thumbnail.with_suffix('.' + uuid.uuid4().hex + '.tmp')
                 temporary.write_bytes(obs['thumbnail'])
@@ -167,32 +207,38 @@ class Library:
                       (file_hash, obs['pixel_hash'], obs['width'], obs['height'], dump(obs['vector']), time.time()))
             c.execute('INSERT OR REPLACE INTO sources(path,asset_id,size,mtime,source_url) VALUES(?,?,?,?,?)',
                       (str(path), file_hash, stat.st_size, stat.st_mtime_ns, source_url))
+            c.execute('DELETE FROM import_issues WHERE path=?', (str(path),))
             c.execute('INSERT OR IGNORE INTO records VALUES(?,?,?,?,?,?,?,?)',
                       (record_id, file_hash, source, dump(request), dump(combo), combo['key'], dump(warnings), time.time()))
         return file_hash, 'existing' if exists else 'added'
 
-    def _item(self, c, row, detail=False):
+    def _item(self, c, row, detail=False, group=False):
         result = {k: row[k] for k in ('id', 'width', 'height', 'favorite', 'tags', 'collection', 'note')}
         result['thumbnail'] = '/api/library/thumbnail/' + row['id']
-        records = c.execute('SELECT * FROM records WHERE asset_id=? ORDER BY created DESC,id', (row['id'],)).fetchall()
-        result['records'] = [dict(id=r['id'], source=r['source'], combo=json.loads(r['combo']),
+        ids = [r[0] for r in c.execute('SELECT id FROM assets WHERE pixel_hash=? ORDER BY id', (row['pixel_hash'],))] if group else [row['id']]
+        result['asset_ids'] = ids
+        placeholders = ','.join('?' for _ in ids)
+        records = c.execute(f'SELECT * FROM records WHERE asset_id IN ({placeholders}) ORDER BY created DESC,id', ids).fetchall()
+        result['records'] = [dict(id=r['id'], asset_id=r['asset_id'], source=r['source'], combo=json.loads(r['combo']),
+                                  metadata_status='unreadable' if r['source'] == 'unreadable' else 'image_only' if not json.loads(r['request']) else 'available',
                                   warnings=json.loads(r['warnings']), **({'request': json.loads(r['request'])} if detail else {})) for r in records]
         if detail:
-            result['sources'] = [dict(path=r['path'], source_url=r['source_url'], available=Path(r['path']).is_file())
-                                 for r in c.execute('SELECT path,source_url FROM sources WHERE asset_id=?', (row['id'],))]
+            result['sources'] = [dict(asset_id=r['asset_id'], path=r['path'], source_url=r['source_url'], available=Path(r['path']).is_file())
+                                 for r in c.execute(f'SELECT asset_id,path,source_url FROM sources WHERE asset_id IN ({placeholders})', ids)]
         return result
 
-    def detail(self, identity):
+    def detail(self, identity, *, group=False):
         if not isinstance(identity, str) or not re.fullmatch('[0-9a-f]{64}', identity):
             raise ValueError('이미지 ID가 잘못되었습니다.')
         with self.connect() as c:
             row = c.execute('SELECT * FROM assets WHERE id=?', (identity,)).fetchone()
             if row is None:
                 raise ValueError('등록된 이미지를 찾을 수 없습니다.')
-            return self._item(c, row, True)
+            return self._item(c, row, True, group=group)
 
     def browse(self, query='', offset=0, limit=48, combo='', favorite=False):
-        bounded(offset, 0, MAX_ITEMS)
+        if type(offset) is not int or offset < 0:
+            raise ValueError('목록 위치는 0 이상의 정수여야 합니다.')
         bounded(limit, 1, 100)
         if not isinstance(query, str) or len(query) > 256:
             raise ValueError('검색어는 256자 이하여야 합니다.')
@@ -209,8 +255,10 @@ class Library:
                        OR EXISTS(SELECT 1 FROM records r WHERE r.asset_id=a.id AND instr(lower(r.request),?)>0))'''
             params.extend([term, term])
         with self.connect() as c:
-            rows = c.execute(sql + ' ORDER BY a.created DESC,a.id', params).fetchall()
-            return {'items': [self._item(c, row) for row in rows[offset:offset + limit]], 'total': len(rows)}
+            total = c.execute('SELECT count(*) FROM (' + sql + ')', params).fetchone()[0]
+            rows = c.execute(sql + ' ORDER BY a.created DESC,a.id LIMIT ? OFFSET ?',
+                             [*params, limit, min(offset, 2**63 - 1)]).fetchall()
+            return {'items': [self._item(c, row) for row in rows], 'total': total}
 
     def annotate(self, data):
         identity = data.get('id')
@@ -235,17 +283,101 @@ class Library:
             paths = c.execute('SELECT path FROM sources WHERE asset_id=?', (identity,)).fetchall()
         for row in paths:
             path = Path(row['path'])
-            if path.is_file() and path.stat().st_size <= 32 * 1024 * 1024 and hashlib.sha256(path.read_bytes()).hexdigest() == identity:
-                return path
+            try:
+                if path.is_file() and path.stat().st_size <= 32 * 1024 * 1024 and hashlib.sha256(path.read_bytes()).hexdigest() == identity:
+                    return path
+            except OSError:
+                continue
         raise ValueError('원본 파일이 없거나 변경되었습니다. 폴더를 다시 가져와 주세요.')
 
-    def search(self, *, identity=None, image=None, mode='visual', limit=24):
+    def _matrix(self, c, contract, rows, mode):
+        revision = c.execute("SELECT value FROM settings WHERE key='retrieval_revision'").fetchone()[0]
+        key = (contract, revision)
+        with self._cache_lock:
+            cached = self._vector_cache.get(key)
+            if cached is not None:
+                return cached
+            if mode == 'vrs':
+                indexed = {r['asset_id']: json.loads(r['vector']) for r in c.execute(
+                    'SELECT asset_id,vector FROM vectors WHERE contract=?', (contract,))}
+                if not indexed:
+                    raise ValueError('VRS 색인을 먼저 준비해 주세요.')
+                rows = [r for r in rows if r['id'] in indexed]
+                candidates = [indexed[r['id']] for r in rows]
+            else:
+                candidates = [json.loads(r['vector']) for r in rows]
+            if candidates and len({len(v) for v in candidates}) != 1:
+                raise ValueError('VRS_VECTOR_DIMENSION: 벡터 차원이 다릅니다. 색인을 확인해 주세요.')
+            matrix = np.asarray([unit(v) for v in candidates], dtype=np.float32)
+            matrix.setflags(write=False)
+            ids = {r['id']: i for i, r in enumerate(rows)}
+            # Two modes; never accumulate old corpus or encoder versions.
+            self._vector_cache = {k: v for k, v in self._vector_cache.items()
+                                  if k[1] == revision and k[0] != contract}
+            if len(self._vector_cache) >= 2:
+                self._vector_cache.clear()
+            self._vector_cache[key] = (ids, matrix)
+            return ids, matrix
+
+    def close(self):
+        self.vrs.close()
+
+    @contextmanager
+    def vrs_operation(self):
+        with self._vrs_settings_lock:
+            if not self.vrs_enabled:
+                raise ValueError('VRS가 꺼져 있습니다. 연결 · 준비에서 켜 주세요.')
+            yield
+
+    def set_vrs_enabled(self, enabled):
+        if type(enabled) is not bool:
+            raise ValueError('VRS 사용 여부는 켜기 또는 끄기로 지정해 주세요.')
+        busy = '작업이 끝난 후 VRS 설정을 변경해 주세요. 색인은 먼저 취소할 수 있습니다.'
+        if not self._vrs_settings_lock.acquire(blocking=False):
+            raise ValueError(busy)
+        try:
+            if enabled == self.vrs_enabled:
+                return {'enabled': enabled}
+            with self.state_lock:
+                if self.job.get('status') == 'running' and self.job.get('kind') == 'vrs':
+                    raise ValueError(busy)
+            options = {'owner': self.vrs} if isinstance(self.generation_lock, GPUWorkLock) else {}
+            if not self.generation_lock.acquire(blocking=False, **options):
+                raise ValueError(busy)
+            try:
+                if not enabled:
+                    self.vrs.close()
+                with self.connect() as c:
+                    c.execute("INSERT OR REPLACE INTO settings VALUES('vrs_enabled',?)", ('1' if enabled else '0',))
+                self.vrs_enabled = enabled
+                if not enabled:
+                    with self._cache_lock:
+                        self._vector_cache.clear()
+            finally:
+                self.generation_lock.release()
+            return {'enabled': enabled}
+        finally:
+            self._vrs_settings_lock.release()
+
+    def prepare_vrs(self):
+        with self.vrs_operation():
+            return self.vrs.runtime.start()
+
+    def search(self, *, identity=None, image=None, mode='visual', limit=24, ranking='similar'):
+        with self.vrs_operation() if mode == 'vrs' else nullcontext():
+            return self._search(identity=identity, image=image, mode=mode, limit=limit, ranking=ranking)
+
+    def _search(self, *, identity=None, image=None, mode='visual', limit=24, ranking='similar'):
         bounded(limit, 1, 100)
         if mode not in ('visual', 'vrs'):
             raise ValueError('검색 모드를 확인해 주세요.')
+        if ranking not in ('similar', 'diverse'):
+            raise ValueError('검색 정렬을 확인해 주세요.')
         if identity is not None:
             self.detail(identity)
         with self.connect() as c:
+            # Matrix revision and rows must describe the same SQLite snapshot.
+            c.execute('BEGIN')
             if identity:
                 row = c.execute('SELECT * FROM assets WHERE id=?', (identity,)).fetchone()
                 if row is None:
@@ -258,36 +390,41 @@ class Library:
                 raise ValueError('검색할 이미지를 선택해 주세요.')
             contract = VISUAL_VERSION
             rows = c.execute('SELECT * FROM assets ORDER BY id').fetchall()
+            total_assets = len(rows)
             if mode == 'vrs':
                 contract = self.vrs.contract
                 if not contract:
                     raise ValueError('VRS 인코더 설정이 필요합니다.')
-                indexed = {r['asset_id']: json.loads(r['vector']) for r in c.execute('SELECT * FROM vectors WHERE contract=?', (contract,))}
-                if len(indexed) != len(rows):
-                    raise ValueError('모든 이미지의 VRS 색인을 먼저 완료해 주세요.')
+                indexed, matrix = self._matrix(c, contract, rows, mode)
                 if identity in indexed:
-                    vector = indexed[identity]
+                    vector = matrix[indexed[identity]]
                 else:
-                    if not self.generation_lock.acquire(blocking=False):
+                    lock_options = {'owner': self.vrs} if isinstance(self.generation_lock, GPUWorkLock) else {}
+                    if not self.generation_lock.acquire(blocking=False, **lock_options):
                         raise ValueError('생성 또는 모델 처리가 진행 중입니다.')
                     try:
-                        vector = self.vrs.encode([Path(image)], self.root / 'scratch')[0]
+                        vector = self.vrs.encode([self._original(identity) if identity else Path(image)], self.root / 'scratch')[0]
                     finally:
                         self.generation_lock.release()
-                candidates = [indexed[r['id']] for r in rows]
+                rows = [r for r in rows if r['id'] in indexed]
             else:
-                candidates = [json.loads(r['vector']) for r in rows]
+                _, matrix = self._matrix(c, contract, rows, mode)
             ranked = []
-            if candidates:
-                matrix = np.asarray(candidates, dtype=np.float32)
+            adjustments = library_core.ranking_adjustments(c, pixel_hash, contract)
+            if len(matrix):
+                if matrix.shape[1] != len(vector):
+                    raise ValueError('VRS_VECTOR_DIMENSION: 벡터 차원이 다릅니다. 색인을 확인해 주세요.')
                 scores = matrix @ unit(vector)
-                ranked = sorted(zip(rows, scores), key=lambda pair: (-float(pair[1]), pair[0]['id']))
+                order = library_core.rank_cases(rows, scores, matrix, pixel_hash, adjustments, limit, ranking)
+                ranked = [(rows[i], scores[i]) for i in order]
             selected, seen = [], {pixel_hash}
             for row, score in ranked:
                 if row['pixel_hash'] in seen:
                     continue
                 seen.add(row['pixel_hash'])
-                selected.append({**self._item(c, row), 'score': round(float(score), 6)})
+                selected.append({**self._item(c, row, group=True), 'score': round(float(score), 6),
+                    'ranking_adjustment': adjustments.get(row['pixel_hash'], 0.0),
+                    'evidence': library_core.assess(c, pixel_hash, row['pixel_hash'], contract)})
                 if len(selected) == limit:
                     break
             groups = {}
@@ -300,10 +437,14 @@ class Library:
                     if item['id'] not in group['cases']:
                         group['cases'].append(item['id'])
             query_id = uuid.uuid4().hex
+            # End the read snapshot before writing: a concurrent import or
+            # evaluation must not cause SQLITE_BUSY_SNAPSHOT on upgrade.
+            c.commit()
             c.execute('INSERT INTO queries VALUES(?,?,?,?,?)', (query_id, pixel_hash, contract,
                       dump([i['id'] for i in selected]), time.time()))
-            return dict(query_id=query_id, contract=contract, mode=mode, items=selected, combinations=list(groups.values()),
-                        excluded_identical_pixels=True, total_indexed=len(rows))
+            return dict(query_id=query_id, contract=contract, mode=mode, ranking=ranking, items=selected, combinations=list(groups.values()),
+                        excluded_identical_pixels=True, total_indexed=len(rows), total_assets=total_assets,
+                        partial_index=len(rows) < total_assets)
 
     def feedback(self, data):
         query_id, identity = data.get('query_id'), data.get('id')
@@ -317,13 +458,23 @@ class Library:
         if visual is None and reuse is None:
             raise ValueError('닮음 또는 재사용 평가를 선택해 주세요.')
         with self.connect() as c:
-            query = c.execute('SELECT results FROM queries WHERE id=?', (query_id,)).fetchone()
+            query = c.execute('SELECT * FROM queries WHERE id=?', (query_id,)).fetchone()
             if not query or identity not in json.loads(query['results']):
                 raise ValueError('이 검색에서 나온 사례만 평가할 수 있습니다.')
+            now = time.time()
             c.execute('''INSERT INTO feedback VALUES(?,?,?,?,?) ON CONFLICT(query_id,asset_id) DO UPDATE SET
                          visual=coalesce(excluded.visual,feedback.visual),reuse=coalesce(excluded.reuse,feedback.reuse),created=excluded.created''',
-                      (query_id, identity, visual, reuse, time.time()))
-        return {'status': 'saved', 'training': False}
+                      (query_id, identity, visual, reuse, now))
+            c.execute('''INSERT INTO feedback_times VALUES(?,?,?,?)
+                ON CONFLICT(query_id,asset_id) DO UPDATE SET
+                visual_updated=coalesce(excluded.visual_updated,feedback_times.visual_updated),
+                reuse_updated=coalesce(excluded.reuse_updated,feedback_times.reuse_updated)''',
+                (query_id, identity, now if visual is not None else None, now if reuse is not None else None))
+            pixel = c.execute('SELECT pixel_hash FROM assets WHERE id=?', (identity,)).fetchone()[0]
+            receipt = library_core.assess(c, query['pixel_hash'], pixel, query['contract'])
+            c.execute('INSERT OR REPLACE INTO core_receipts VALUES(?,?,?,?,?)',
+                      (query_id, identity, library_core.CONTRACT, dump(receipt), time.time()))
+        return {'status': 'saved', 'training': False, 'evidence': receipt}
 
     def preview(self, identity):
         """Bounded, metadata-free large preview; never expose arbitrary source paths."""
@@ -367,10 +518,17 @@ class Library:
             self.job.update(fields)
 
     def start(self, data):
+        with self.vrs_operation() if data.get('kind') == 'vrs' else nullcontext():
+            return self._start(data)
+
+    def _start(self, data):
         kind = data.get('kind', 'import')
         if kind not in ('import', 'sync', 'vrs'):
             raise ValueError('지원하지 않는 작업입니다.')
-        limit = bounded(data.get('limit', MAX_ITEMS), 1, MAX_ITEMS)
+        # Optional per-job budget; the library itself has no item-count ceiling.
+        limit = data.get('limit')
+        if limit is not None and (type(limit) is not int or limit < 1):
+            raise ValueError('가져오기 개수는 1 이상의 정수여야 합니다.')
         folders = data.get('folders', [])
         if not isinstance(folders, list) or len(folders) > 20 or any(not isinstance(p, str) for p in folders):
             raise ValueError('폴더는 최대 20개입니다.')
@@ -389,10 +547,10 @@ class Library:
         self.cancelled.set()
         return self.status()
 
-    def sync(self, limit=MAX_ITEMS):
+    def sync(self, limit=None):
         count = 0
         for path in sorted(self.paths.manifest_root.glob('*.json')):
-            if self.cancelled.is_set() or count >= limit:
+            if self.cancelled.is_set() or (limit is not None and count >= limit):
                 break
             try:
                 if path.stat().st_size > 4 * 1024 * 1024:
@@ -412,13 +570,29 @@ class Library:
                     prior = c.execute('SELECT size,mtime,image_size,image_mtime FROM synced_manifests WHERE path=?', (str(path),)).fetchone()
                 if prior and tuple(prior) == signature:
                     continue
-                identity, state = self.ingest(image, manifest)
-                with self.connect() as c:
-                    c.execute('INSERT OR REPLACE INTO synced_manifests VALUES(?,?,?,?,?)', (str(path), *signature))
+                if not self.generation_lock.acquire(blocking=False):
+                    break
+                try:
+                    identity, state = self.ingest(image, manifest)
+                    with self.connect() as c:
+                        c.execute('INSERT OR REPLACE INTO synced_manifests VALUES(?,?,?,?,?)', (str(path), *signature))
+                finally:
+                    self.generation_lock.release()
                 count += 1
             except (ValueError, OSError, TypeError, AttributeError):
                 continue
         return count
+
+    def _image_paths(self, root):
+        # Walk lazily so a large folder does not require a full path list first.
+        for folder, dirs, names in os.walk(root, followlinks=False):
+            dirs[:] = sorted(d for d in dirs if not d.startswith('.') and d not in {'thumbnails', 'models', 'node_modules'})
+            for name in sorted(names):
+                if self.cancelled.is_set():
+                    return
+                path = Path(folder) / name
+                if path.suffix.lower() in EXTENSIONS and not path.is_symlink():
+                    yield path
 
     def _run(self, kind, roots, limit):
         try:
@@ -427,24 +601,11 @@ class Library:
             elif kind == 'sync':
                 self._progress(processed=self.sync(limit))
             else:
-                # Stable seeded sample across folders; only decode the 2,000-item pilot.
-                groups = []
-                for root in roots:
-                    files = []
-                    for folder, dirs, names in os.walk(root, followlinks=False):
-                        dirs[:] = sorted(d for d in dirs if not d.startswith('.') and d not in {'thumbnails','models','node_modules'})
-                        for name in sorted(names):
-                            p = Path(folder) / name
-                            if p.suffix.lower() in EXTENSIONS and not p.is_symlink():
-                                files.append(p)
-                        if self.cancelled.is_set() or len(files) >= 100000:
-                            break
-                    random.Random(20261014).shuffle(files)
-                    groups.append(iter(files))
+                groups = [self._image_paths(root) for root in roots]
                 processed = added = errors = 0
-                while groups and processed < limit and not self.cancelled.is_set():
+                while groups and (limit is None or processed < limit) and not self.cancelled.is_set():
                     for group in groups[:]:
-                        if processed >= limit or self.cancelled.is_set():
+                        if (limit is not None and processed >= limit) or self.cancelled.is_set():
                             break
                         path = next(group, None)
                         if path is None:
@@ -453,17 +614,27 @@ class Library:
                         try:
                             _, state = self.ingest(path)
                             added += state == 'added'
-                        except (ValueError, OSError, TypeError, OverflowError, SyntaxError):
+                        except (ValueError, OSError, TypeError, OverflowError, SyntaxError) as exc:
                             errors += 1
+                            with self.connect() as c:
+                                c.execute('INSERT OR REPLACE INTO import_issues VALUES(?,?,?,?)',
+                                          (str(path), 'IMAGE_IMPORT', str(exc)[:300], time.time()))
+                            self._progress(message=f'{path.name}: {str(exc)[:150]}')
                         processed += 1
                         self._progress(processed=processed, added=added, errors=errors)
             self._progress(status='cancelled' if self.cancelled.is_set() else 'complete')
+        except VRSIndexCancelled:
+            self._progress(status='cancelled')
         except Exception as exc:
             self._progress(status='failed', message=str(exc)[:300])
         finally:
             self.import_lock.release()
 
     def build_vrs(self):
+        with self.vrs_operation():
+            self._build_vrs()
+
+    def _build_vrs(self):
         contract = self.vrs.contract
         if not contract:
             raise ValueError('VRS 인코더를 먼저 설정해 주세요.')
@@ -472,19 +643,46 @@ class Library:
         try:
             with self.connect() as c:
                 ids = [r[0] for r in c.execute('SELECT id FROM assets WHERE id NOT IN (SELECT asset_id FROM vectors WHERE contract=?) ORDER BY id', (contract,))]
-            for offset in range(0, len(ids), 256):
-                if self.cancelled.is_set():
-                    return
-                batch = ids[offset:offset + 256]
-                paths = [self._original(i) for i in batch]
-                vectors = self.vrs.encode(paths, self.root / 'scratch', self.cancelled.is_set)
-                if len(vectors) != len(batch):
-                    raise ValueError('VRS 벡터 개수가 올바르지 않습니다.')
-                if self.vrs.contract != contract:
-                    raise ValueError('인코더 설정이 변경되었습니다. 색인을 다시 시작해 주세요.')
-                with self.connect() as c:
-                    c.executemany('INSERT OR REPLACE INTO vectors VALUES(?,?,?)',
-                                  [(i, contract, dump(v)) for i, v in zip(batch, vectors)])
-                self._progress(processed=min(offset + 256, len(ids)))
+                prior = c.execute('SELECT vector FROM vectors WHERE contract=? LIMIT 1', (contract,)).fetchone()
+                dimension = len(json.loads(prior[0])) if prior else None
+            with self.vrs.session() if hasattr(self.vrs, 'session') else nullcontext():
+                for offset in range(0, len(ids), 8):
+                    if self.cancelled.is_set():
+                        raise VRSIndexCancelled()
+                    batch, paths = [], []
+                    for identity in ids[offset:offset + 8]:
+                        try:
+                            path = self._original(identity)
+                        except (ValueError, OSError) as exc:
+                            with self.connect() as c:
+                                c.execute('INSERT OR REPLACE INTO index_issues VALUES(?,?,?,?,?)',
+                                          (identity, contract, 'missing_source', str(exc)[:300], time.time()))
+                            continue
+                        try:
+                            read_pixels(path)
+                        except (ValueError, OSError) as exc:
+                            with self.connect() as c:
+                                c.execute('INSERT OR REPLACE INTO index_issues VALUES(?,?,?,?,?)',
+                                          (identity, contract, 'index_error', str(exc)[:300], time.time()))
+                            continue
+                        batch.append(identity)
+                        paths.append(path)
+                    if not batch:
+                        self._progress(processed=min(offset + 8, len(ids)))
+                        continue
+                    vectors = self.vrs.encode(paths, self.root / 'scratch', self.cancelled.is_set)
+                    if len(vectors) != len(batch):
+                        raise ValueError('VRS 벡터 개수가 올바르지 않습니다.')
+                    dimension = dimension or len(vectors[0])
+                    if any(len(v) != dimension for v in vectors):
+                        raise ValueError('VRS_VECTOR_DIMENSION: 벡터 차원이 다릅니다.')
+                    vectors = [unit(v).tolist() for v in vectors]
+                    if self.vrs.contract != contract:
+                        raise ValueError('인코더 설정이 변경되었습니다. 색인을 다시 시작해 주세요.')
+                    with self.connect() as c:
+                        c.executemany('INSERT OR REPLACE INTO vectors VALUES(?,?,?)',
+                                      [(i, contract, dump(v)) for i, v in zip(batch, vectors)])
+                        c.executemany('DELETE FROM index_issues WHERE asset_id=? AND contract=?', [(i, contract) for i in batch])
+                    self._progress(processed=min(offset + 8, len(ids)))
         finally:
             self.generation_lock.release()

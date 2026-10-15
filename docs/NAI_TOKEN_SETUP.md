@@ -2,13 +2,25 @@
 
 [README](../README.md) · [한국어 생성 가이드](IMAGE_GENERATION_KO.md) · [English](IMAGE_GENERATION_EN.md) · [日本語](IMAGE_GENERATION_JA.md)
 
-**한국어:** 앱 웹 화면에는 토큰 입력칸이 없습니다. 아래 명령을 **앱 서버를 시작할 터미널**에서 실행하고, 숨김 입력 안내가 나오면 토큰만 붙여 넣으세요. `Bearer `는 붙이지 않습니다. 앱 실행 후 **생성 엔진 → NovelAI**에서 설정 상태를 확인합니다.
+**한국어:** v0.6.1은 **연결 · 준비 → NAI로 생성 → NAI 액세스 토큰 → 토큰 적용**에서 입력합니다. 입력 후 내용은 지워지고 기본은 실행 PC의 휘발성 메모리에만 보관하며 앱 종료 시 사라집니다. **이 PC에 저장 (다음 실행에도 사용)**을 선택하면 운영체제 자격증명 저장소에 보관하고 다음 실행에 복원합니다. **토큰 지우기**로 해제합니다. 저장하지 않은 토큰은 앱을 재시작하면 다시 입력합니다. 아래 터미널 방식도 사용할 수 있습니다.
 
-**English:** There is no browser token field. Enter the token at the hidden terminal prompt below and start the server from that same terminal. Paste the token without a `Bearer ` prefix. In the app choose **Generation engine → NovelAI**.
+**English:** In v0.6.1 use **Connect & prepare → Generate with NAI → NAI access token → Apply token**. The field is cleared after submission; by default the token stays only in volatile memory on the PC running the app until exit. Select **Save on this PC (use after restart)** to restore it at the next launch from the operating system credential store. Use **Clear token** to disconnect, and enter unsaved tokens again after restarting the app. The terminal method below is also available.
 
-**日本語:** ブラウザーにトークン入力欄はありません。以下の非表示入力でトークンだけを貼り付け、同じターミナルからサーバーを起動します。`Bearer `は付けません。アプリの生成エンジンで **NovelAI** を選びます。
+**日本語:** v0.6.1では **接続・準備 → NAIで生成 → NAIアクセストークン → トークンを適用** から入力します。送信後は入力欄を消去し、通常は実行PCの揮発性メモリだけに保持し、終了時に消えます。**このPCに保存（次回起動時も使用）**を選ぶとOSの資格情報ストアに保存し、次回起動時に復元します。以下のターミナル手順も使用できます。
+
+## 다음 실행에도 유지 / Keep across launches / 次回起動時も使用
+
+- **한국어:** 토큰 입력 후 **이 PC에 저장 (다음 실행에도 사용) → 토큰 적용**. 이미 연결되어 있으면 입력칸을 비워 둔 채 같은 선택을 하면 현재 토큰을 저장합니다. 체크를 해제하고 **토큰 적용**을 누르면 현재 연결은 유지하면서 저장본만 지웁니다. **토큰 지우기**는 연결과 저장본을 함께 지웁니다. 배럭 계정의 저장·삭제는 배럭에서 별도로 관리합니다.
+- **English:** Check **Save on this PC (use after restart)** before **Apply token**. Leave the token field empty to save the currently connected token. Uncheck and apply to delete the saved copy while keeping the current connection. **Clear token** removes both. Manage saved Barracks accounts separately in Barracks.
+- **日本語:** **このPCに保存（次回起動時も使用）→ トークンを適用**を選びます。接続済みなら入力欄を空にして現在のトークンを保存できます。チェックを外して適用すると現在の接続を保ったまま保存を解除します。**トークンを消去**は接続と保存済みトークンを両方削除します。バラックの保存は別に管理します。
+
+Storage uses the current OS user's credential store: Windows Credential Manager, macOS Keychain, or Linux Secret Service (including KDE's compatible service). The OS may ask to unlock it. If unavailable, saving reports an error; no plaintext fallback is used. Install/update app dependencies with `python -m pip install -e .` when upgrading an existing checkout. See [keyring's supported OS backends](https://keyring.readthedocs.io/en/latest/).
+
+The metadata-only index is `outputs/credentials/index.json`; token values are in the OS credential store, scoped to this installation path. Moving the app to a different folder or OS account requires registering tokens again. To remove saved credentials, use the app controls before deleting or moving the app folder. Tokens configured in the launch environment take precedence over the saved default token; neither source is automatically saved without choosing the option.
 
 ## Get a token / 토큰 발급 / トークンの取得
+
+여러 계정은 상단 **배럭 → 계정 이름·NAI 액세스 토큰 → 계정 추가**에 등록합니다. 배럭은 NAI t2i 단독 생성 전용이며, **현재 NAI 토큰 추가**로 위에서 설정한 계정을 가져올 수 있습니다. See [배럭 / Barracks / バラック](BARRACKS.md) for multi-account setup and generation.
 
 On the NovelAI website, open **Settings → Account → Get Persistent API Token** and copy the token. Generating a replacement invalidates the previous token, including its use in other apps. See the [official instructions](https://docs.novelai.net/en/text/usersettings/account/).
 
@@ -71,14 +83,14 @@ Remove-Item Env:NAI_ACCESS_TOKEN
 
 This checks the presence of a nonempty environment value, **not authentication or billing**. A 401/403 during actual generation needs a valid token/account. A protection error is a separate account/operation constraint; see [NovelAI provider behavior](NOVELAI_PROVIDER.md).
 
-토큰을 바꿨는데 적용되지 않으면 실행 중인 앱의 작업이 끝난 뒤 서버를 종료하고, 새 토큰을 설정한 터미널에서 다시 실행하세요. 브라우저 새로고침만으로 서버 환경변수는 바뀌지 않습니다.
+토큰을 바꾸려면 실행 중인 작업이 끝난 뒤 **연결 · 준비**에서 새 값을 적용하세요. 터미널 환경변수로 바꾸는 경우에는 앱을 종료하고 새 값을 설정한 터미널에서 다시 실행합니다. 브라우저 새로고침만으로 실행 PC의 프로세스 환경변수는 바뀌지 않습니다.
 
-トークン変更後は実行中の処理が完了してからサーバーを停止し、新しい値を設定したターミナルで起動し直します。ページの再読み込みだけでは環境変数は更新されません。
+トークンを変更するには、実行中の処理が完了してから**接続・準備**で新しい値を適用します。ターミナルの環境変数を変更する場合はアプリを終了し、新しい値を設定したターミナルで起動し直します。ページの再読み込みだけでは実行PCのプロセス環境変数は更新されません。
 
 ## Storage contract
 
 - `NAI_ACCESS_TOKEN` takes precedence over compatibility variable `NAI_API_TOKEN`.
-- The app reads the server environment. It does **not** automatically load `.env`, save a token in browser storage, or provide email/password login.
-- The commands above are session-scoped; a new terminal/reboot needs configuration again. A service must receive the variable through its own launch configuration.
+- The app reads the launch environment or explicitly saved local credentials. It does **not** automatically load `.env`, save a token in browser storage, or provide email/password login.
+- The commands above are session-scoped; a new terminal/reboot needs configuration again. An app started with saved credentials restores them automatically in the same OS account and installation folder.
 - Tokens do not belong in prompts, generation JSON, presets, PNG metadata, screenshots or Git. The API rejects credential fields in generation requests.
 - For an offline UI trial, use `serve --dry-run-default`; this does not test credentials or generate images.

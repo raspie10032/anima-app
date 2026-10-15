@@ -162,19 +162,24 @@ def test_manifest_sync_is_incremental_preserves_history_and_rejects_escape(libra
     assert library.status()['items'] == 1
 
 
-def test_capacity_invalid_images_and_unchanged_sources(library, tmp_path, monkeypatch):
-    monkeypatch.setattr('anima_app.library.MAX_ITEMS',2)
+def test_unlimited_library_invalid_images_and_unchanged_sources(library, tmp_path):
+    with library.connect() as c:
+        c.executemany('INSERT INTO assets(id,pixel_hash,width,height,vector,created) VALUES(?,?,?,?,?,?)',
+                      [(f'{i:064x}', f'pixel-{i}', 96, 80, '[]', 0) for i in range(2000)])
     p = picture(tmp_path / 'a.png')
     library.ingest(p)
     library.ingest(picture(tmp_path / 'b.png','blue'))
-    with pytest.raises(ValueError):
-        library.ingest(picture(tmp_path / 'c.png','green'))
+    library.ingest(picture(tmp_path / 'c.png','green'))
     assert library.ingest(p)[1] == 'unchanged'
     broken = tmp_path / 'bad.png'
     broken.write_text('not an image')
     with pytest.raises(ValueError):
         library.ingest(broken)
-    assert library.status()['items'] == 2
+    assert library.status()['items'] == 2003
+    assert library.status()['capacity'] is None
+    page = library.browse(offset=2001)
+    assert page['total'] == 2003 and len(page['items']) == 2
+    assert library.browse(offset=10**30)['items'] == []
 
 
 def test_import_round_robin_and_cancellation(library, tmp_path):
@@ -187,6 +192,10 @@ def test_import_round_robin_and_cancellation(library, tmp_path):
     with library.connect() as c:
         parents = [Path(r[0]).parent for r in c.execute('select path from sources')]
     assert parents.count(roots[0]) == parents.count(roots[1]) == 2
+    library.start({'folders':list(map(str,roots))})
+    result = wait(library)
+    assert result['status'] == 'complete' and result['processed'] == 6
+    assert result['limit'] is None and library.status()['items'] == 6
     library.cancel()
     assert library.cancelled.is_set()
 

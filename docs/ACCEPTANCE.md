@@ -1,6 +1,17 @@
 # Anima APP Acceptance
 
-This checklist records the implemented `0.6.0` source-checkout beta scope. The [release notes](RELEASE_0.6.0.md) describe the current distribution and the [main integration record](MAIN_UPDATE_2026-10-14.md) records workspace, locale and workflow verification. Earlier feature-specific acceptance entries below retain their original test boundaries.
+This checklist records the implemented `0.6.1` source-checkout beta scope. The [release notes](RELEASE_0.6.1.md) describe the current distribution and the [main integration record](MAIN_UPDATE_2026-10-14.md) records earlier workspace, locale and workflow verification. Earlier feature-specific acceptance entries below retain their original test boundaries.
+
+## v0.6.1 additions
+
+- [x] Connect & prepare exposes NAI credentials, model preparation, feature-specific required models and references in Korean, English and Japanese.
+- [x] NAI tokens default to volatile memory on the execution PC; explicit persistence uses the OS credential store. Browser storage, manifests and app configuration never contain token values.
+- [x] Barracks distributes standalone NAI T2I across up to eight accounts, with per-token serialization, seed modes, unique output names and cancellation of future submissions. References, Img2Img and post-processing are rejected. Automated transport checks are mocked.
+- [x] The VRS encoder and SWEGCA evidence accumulator ship in the package with source provenance, license texts and integrity checks. Vision weights are prepared separately; current VRS encoding requires CUDA.
+- [x] Caption-free and malformed-metadata images can be registered and encoded from decoded pixels. Duplicate pixel identities preserve linked source records.
+- [x] Cached encoder/matrix reuse, progressive indexing, cancellation and explicit evaluation replay preserve the encoder contract. Personal ordering and diverse results retain the raw score and core decision.
+- [x] A persistent VRS switch preserves existing records while disabling VRS work. Image storage and basic search remain available. The library has no fixed image-count cap.
+- [x] Focused tests and browser checks cover setup, saved credentials, Barracks, library, generation, authoring and locale changes. The release receipt records final local and remote CI results.
 
 ## Implemented
 
@@ -9,11 +20,11 @@ This checklist records the implemented `0.6.0` source-checkout beta scope. The [
 - [ ] Live remote multi-character acceptance and composition quality have not been checked for this implementation.
 
 - [x] Local Anima and optional NovelAI T2I share the browser server queue, presets, history, thumbnails and manifests.
-- [x] NovelAI token discovery is environment-only; status and capability endpoints expose only token presence, with credential keys rejected before queue/preset storage.
+- [x] NovelAI credentials can be applied through setup, restored from the optional OS credential store, or supplied through the process environment. Status endpoints expose presence and storage state without token values; credential keys are rejected before queue/preset storage.
 - [x] NovelAI requests validate bounded text, dimensions, sampling values, booleans and 32-bit seeds before transport. Local LoRAs and local-only enhancements are rejected; NAI-specific references and detailing use separate validated contracts.
 - [x] The browser shows provider controls, effective Opus-capped dimensions/steps, and remote cancellation/cost boundaries.
 - [x] Protected T2I checks active Opus tier 3 and V5 integer remaining allowance >=2 percent immediately before every attempt, including the bounded 429 retry; malformed/failed account checks stop before generation. Dry-run performs no account lookup.
-- [x] One process-wide lock serializes account checks, generation and retries across provider instances; successful and failed transmissions enforce at least two seconds from completion before the next attempt. Pending lock/cooldown waits are cancellable.
+- [x] A process-wide gate per token serializes account checks, generation and retries across ordinary generation and Barracks; successful and failed transmissions enforce at least two seconds from completion before the next attempt on that token. Pending lock/cooldown waits are cancellable.
 - [ ] These new account guards are validated with synthetic account/transport and clock/concurrency tests; current live account acceptance and billing are unverified.
 - [x] NovelAI timeout/network failures are secret-free, expose an unknown remote outcome and stop Infinity scheduling without automatic resubmission. Only HTTP 429 gets one bounded retry.
 - [x] Remote cancellation leaves local GPU interrupts untouched, stops future jobs, and preserves an already submitted result when it arrives.

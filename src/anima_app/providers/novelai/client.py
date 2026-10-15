@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import threading
 import time
@@ -32,12 +33,25 @@ def _check_cancelled(cancelled: Callable[[], bool]) -> None:
 
 
 class RequestCoordinator:
-    """One process-wide gate for all accounts, queues and provider instances."""
+    """Per-credential gates shared by ordinary generation and Barracks workers.
+
+    The first credential uses this gate; other credentials get independent gates.
+    Registry keys are digests, never the credentials themselves.
+    """
 
     def __init__(self, clock: Callable[[], float] = time.monotonic):
         self.lock = threading.Lock()
         self.clock = clock
         self.next_request_at = 0.0
+        self._accounts_lock = threading.Lock()
+        self._accounts = {}
+
+    def for_token(self, token):
+        key = hashlib.sha256(token.encode()).digest()
+        with self._accounts_lock:
+            if key not in self._accounts:
+                self._accounts[key] = self if not self._accounts else RequestCoordinator(self.clock)
+            return self._accounts[key]
 
     def wait(self, sleep: Callable[[float], None], cancelled: Callable[[], bool]) -> None:
         while True:
@@ -76,7 +90,7 @@ def post_json(
     }
     body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
     active_transport = transport or _requests_transport
-    coordinator = _request_coordinator
+    coordinator = _request_coordinator.for_token(token)
     while not coordinator.lock.acquire(timeout=.1):
         _check_cancelled(cancelled)
     try:

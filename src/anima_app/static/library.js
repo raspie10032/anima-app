@@ -97,6 +97,10 @@
   const mode = el("select", "", {ariaLabel: tr("이미지 검색 방식")});
   mode.append(el("option", tr("색감·배치·윤곽 (CPU)"), {value: "visual"}), el("option", tr("VRS 이미지 검색"), {value: "vrs"}));
   mode.addEventListener("change", () => {modeChosen = true;});
+  const ranking = el("select", "", {ariaLabel: tr("사례 정렬")});
+  ranking.append(el("option", tr("닮은 순서"), {value: "similar"}), el("option", tr("다양한 사례 섞기"), {value: "diverse"}));
+  let lastQuery = null;
+  const repeatSearch = button(tr("기준 그림 다시 검색"), () => lastQuery && searchImage(lastQuery.id, lastQuery.imageFile), {disabled: true});
   const size = el("select", "", {ariaLabel: tr("카드 크기")});
   for (const [value, label] of [["160", tr("작게")], ["210", tr("보통")], ["300", tr("크게")]]) size.append(el("option", label, {value}));
   size.value = "210";
@@ -208,10 +212,11 @@
     window.AppI18n.setText(message, () => tr("이미지에서 비슷한 사례를 찾는 중…")); pendingSearches++; renderCompare();
     try {
       const source = id ? await api(`item/${id}`) : null;
-      const result = imageFile ? await api(`query-image?mode=${mode.value}`, undefined,
+      const result = imageFile ? await api(`query-image?mode=${mode.value}&ranking=${ranking.value}`, undefined,
         {method: "POST", headers: {"Content-Type": imageFile.type || (/\.webp$/i.test(imageFile.name) ? "image/webp" : /\.jpe?g$/i.test(imageFile.name) ? "image/jpeg" : "image/png")}, body: imageFile})
-        : await api("search", {id, mode: mode.value});
+        : await api("search", {id, mode: mode.value, ranking: ranking.value});
       if (ticket !== revision) return;
+      lastQuery = {id, imageFile}; repeatSearch.disabled = false;
       if (objectURL) URL.revokeObjectURL(objectURL);
       objectURL = imageFile ? URL.createObjectURL(imageFile) : null;
       reference = imageFile ? {src: objectURL, name: imageFile.name}
@@ -261,7 +266,7 @@
     for (const [choice, title] of [["a", tr("A가 더 닮음")], ["b", tr("B가 더 닮음")], ["both", tr("둘 다 비슷함")], ["neither", tr("둘 다 다름")], ["skip", tr("판단 보류")]]) {
       votes.append(button(title, () => vote(choice), {disabled: comparisonBusy}));
     }
-    compare.append(votes, el("p", tr("판단은 로컬에 저장됩니다. 아직 검색 순위에 자동 반영되지는 않습니다."), {className: "lib-muted"}));
+    compare.append(votes, el("p", tr("닮음 판단은 같은 기준 그림을 다시 검색할 때 순서에 반영됩니다. 반복 평가는 중복 누적하지 않습니다."), {className: "lib-muted"}));
   }
   async function vote(choice) {
     if (comparisonBusy || pendingSearches) return;
@@ -341,7 +346,7 @@
         if (scope === "all") next.request = clone(request);
       }
       if (JSON.stringify(draft) !== JSON.stringify(before)) throw new Error(tr("변환 중 초안이 바뀌었습니다. 다시 가져와 주세요."));
-      const origin = {asset_id: assetId, record_id: record.id, scope};
+      const origin = {asset_id: record.asset_id || assetId, record_id: record.id, scope};
       const origins = scope === "artists" ? [...(draft.generation_sources || [])] : [];
       if (!origins.some(item => JSON.stringify(item) === JSON.stringify(origin))) origins.push(origin);
       if (origins.length > 16) throw new Error(tr("참고 사례는 16개까지 연결할 수 있습니다. 생성 화면에서 연결을 정리해 주세요."));
@@ -368,7 +373,7 @@
     const ticket = ++detailRevision;
     detailLoading = true;
     let item;
-    try {item = await api(`item/${id}`);} finally {detailLoading = false;}
+    try {item = await api(`item/${id}?group=1`);} finally {detailLoading = false;}
     if (ticket !== detailRevision) return;
     selectedId = id;
     for (const card of grid.querySelectorAll(".lib-card")) card.classList.toggle("is-selected", card.dataset.id === id);
@@ -382,9 +387,10 @@
       const savedQuery = search.query_id;
       const rate = (field, value) => async () => {
         await api("feedback", {query_id: savedQuery, id, [field]: value});
-        window.AppI18n.setText(message, () => tr("평가를 저장했습니다. 닮음과 재사용 가능성을 따로 기록합니다."));
+        window.AppI18n.setText(message, () => field === "visual" ? tr("닮음 평가를 저장했습니다. 기준 그림 다시 검색으로 반영할 수 있습니다.") : tr("재사용 평가를 저장했습니다. 닮은 순서는 바뀌지 않습니다."));
       };
-      detail.append(row(button(tr("닮았음"), rate("visual", 1)), button(tr("안 닮았음"), rate("visual", -1)), button(tr("조건을 다시 쓰고 싶음"), rate("reuse", 1))));
+      detail.append(row(button(tr("닮았음"), rate("visual", 1)), button(tr("안 닮았음"), rate("visual", -1)), button(tr("닮음 평가 초기화"), rate("visual", 0)), button(tr("조건을 다시 쓰고 싶음"), rate("reuse", 1))));
+      if (search.items.find(i => i.id === id)?.ranking_adjustment) detail.append(el("p", tr("내 닮음 판단이 검색 순서에 반영된 사례입니다."), {className: "lib-muted"}));
     }
     const selector = el("select", "", {ariaLabel: tr("생성 기록 선택")});
     item.records.forEach((record, i) => selector.append(el("option", () => `${i + 1}. ${record.source}`, {value: String(i)})));
@@ -402,9 +408,9 @@
         el("p", () => `${request.nai_model || request.model || request.provider || tr("모델 미상")} · ${request.width || item.width} × ${request.height || item.height} · seed ${request.seed ?? tr("미상")}`, {className: "lib-muted"}),
         el("textarea", "", {value: request.prompt || "", readOnly: true, ariaLabel: tr("기록된 프롬프트")}));
       recordPanel.append(row(
-        button(tr("작가 태그만 덧붙이기"), () => stageRecord(record, "artists", id), {disabled: !record.combo.key}),
-        button(tr("프롬프트 가져오기"), () => stageRecord(record, "prompt", id), {disabled: !request.prompt}),
-        button(tr("조건까지 가져오기"), () => stageRecord(record, "all", id), {disabled: !request.prompt || !["local", "novelai"].includes(request.provider || (record.source === "anima_manifest" ? "local" : ""))})));
+        button(tr("작가 태그만 덧붙이기"), () => stageRecord(record, "artists", record.asset_id || id), {disabled: !record.combo.key}),
+        button(tr("프롬프트 가져오기"), () => stageRecord(record, "prompt", record.asset_id || id), {disabled: !request.prompt}),
+        button(tr("조건까지 가져오기"), () => stageRecord(record, "all", record.asset_id || id), {disabled: !request.prompt || !["local", "novelai"].includes(request.provider || (record.source === "anima_manifest" ? "local" : ""))})));
       for (const warning of record.warnings) recordPanel.append(el("p", warning, {className: "lib-muted"}));
       const raw = el("details", ""); raw.append(el("summary", tr("저장된 생성 조건 보기")), el("pre", JSON.stringify(request, null, 2))); recordPanel.append(raw);
     };
@@ -433,11 +439,12 @@
   const progress = el("p", "", {className: "lib-muted"}), stats = el("p", "", {className: "lib-muted"});
   const build = button(tr("VRS 색인 준비"), async () => {await api("import", {kind: "vrs"}); await status();});
   const cancel = button(tr("작업 취소"), async () => {await api("cancel", {}); await status();});
-  const settings = el("details", ""); settings.append(el("summary", tr("검색 방식 · 라이브러리 관리")), stats, mode, folders,
+  const settings = el("details", ""); settings.append(el("summary", tr("검색 방식 · 라이브러리 관리")), stats,
+    button(tr("VRS 켜기·끄기 / 필요 모델"), () => window.dispatchEvent(new Event("anima-setup-open"))), mode, folders,
     row(button(tr("폴더 가져오기"), async () => {
       const roots = folders.value.split("\n").map(s => s.trim()).filter(Boolean);
       if (!roots.length) throw new Error(tr("가져올 폴더를 입력해 주세요."));
-      await api("import", {folders: roots, limit: 2000}); await status();
+      await api("import", {folders: roots}); await status();
     }), button(tr("앱 생성 이력 연결"), async () => {await api("import", {kind: "sync"}); await status();}), build, cancel), progress);
   referencePanel.append(settings);
   let lastJob = "";
@@ -445,11 +452,13 @@
     if (pollBusy) return; pollBusy = true;
     try {
       const data = await api("status");
-      window.AppI18n.setText(stats, () => tr`${data.items} / ${data.capacity}장 · 작가 조합 ${data.artist_sequences}종 · VRS 색인 ${data.vrs_indexed}장 · 평가 ${data.feedback}건`);
-      const ready = Boolean(data.vrs_contract && data.vrs_indexed === data.items && data.items);
-      mode.options[1].disabled = !ready; window.AppI18n.setText(mode.options[1], () => ready ? tr("VRS 이미지 검색 · 준비됨") : tr("VRS 이미지 검색 · 색인 준비 필요"));
+      window.AppI18n.setText(stats, () => tr`${data.items}장 · 작가 조합 ${data.artist_sequences}종 · VRS 색인 ${data.vrs_indexed}장 · 평가 ${data.feedback}건`);
+      const enabled = data.vrs_enabled !== false;
+      const ready = Boolean(enabled && data.vrs_contract && data.vrs_indexed > 0);
+      mode.options[1].disabled = !ready; window.AppI18n.setText(mode.options[1], () => !enabled ? tr("VRS 꺼짐 · 기본 이미지 검색 사용 가능") : ready ? tr("VRS 이미지 검색 · 준비됨") : tr("VRS 이미지 검색 · 색인 준비 필요"));
       if (!modeChosen) mode.value = ready ? "vrs" : "visual";
-      build.disabled = !data.vrs_contract || data.job.status === "running"; cancel.disabled = data.job.status !== "running";
+      if (!ready && mode.value === "vrs") mode.value = "visual";
+      build.disabled = !enabled || !data.vrs_contract || data.job.status === "running"; cancel.disabled = data.job.status !== "running";
       window.AppI18n.setText(progress, () => data.job.status === "idle" ? "" : tr`${data.job.status} · 처리 ${data.job.processed || 0} · 추가 ${data.job.added || 0} · 오류 ${data.job.errors || 0} ${data.job.message || ""}`);
       if (refresh && lastJob === "running" && data.job.status !== "running" && !search && !pendingSearches && !selectedId && tab === "discover") await browse();
       lastJob = data.job.status;
@@ -465,7 +474,7 @@
     window.AppI18n.setText(message, () => tr("기준 그림의 검색 결과로 돌아왔습니다."));
   }, {hidden: true});
   const searchForm = el("form", "", {className: "lib-toolbar"});
-  searchForm.append(query, button(tr("검색"), textSearch), button(tr("전체 보기"), all), backToSearch, favoriteLabel, size);
+  searchForm.append(query, button(tr("검색"), textSearch), button(tr("전체 보기"), all), backToSearch, favoriteLabel, size, ranking, repeatSearch);
   searchForm.addEventListener("submit", e => {e.preventDefault(); textSearch().catch(report);});
   favorites.addEventListener("change", () => textSearch().catch(report));
   discover.append(searchForm, count, groups, grid, more);
@@ -507,4 +516,5 @@
     showDetail(items[next].id).then(() => grid.querySelector(`[data-id="${selectedId}"] button`)?.focus()).catch(report);
   });
   window.setInterval(() => {if (dialog.open && !document.hidden) status().catch(report);}, 4000);
+  window.addEventListener('anima-setup-changed', () => {if (dialog.open) status(false).catch(report);});
 })();

@@ -1537,6 +1537,9 @@ const tr = window.AppI18n.msg;
       syncProviderControls();
       window.dispatchEvent(new Event("generation-ready"));
     }
+    window.addEventListener('anima-setup-changed', () => {
+      loadStatus().catch(error => setResultPayload({error: String(error)}));
+    });
     function historyType(item) {
       return item.output_url ? "images" : "dry-run";
     }
@@ -2367,6 +2370,7 @@ const tr = window.AppI18n.msg;
       return true;
     }
     window.animaGenerationRequest = () => buildRequestData(false);
+    window.addEventListener('anima-barracks-finished', () => loadHistory().catch(() => {}));
     window.animaGenerationDraft = () => {
       const request = buildRequestData(false, false);
       const steps = window.animaWorkflow?.snapshot() || [];

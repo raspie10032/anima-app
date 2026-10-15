@@ -16,8 +16,9 @@ dependencies = [
   "numpy>=1.25.0",
   "Pillow",
   "requests>=2.31.0",
+  "keyring>=25.6,<26",
   "einops",
-  "transformers>=4.50.3",
+  "transformers>=5.16.1,<6",
   "tokenizers>=0.13.3",
   "sentencepiece",
   "safetensors>=0.4.2",
@@ -57,9 +58,12 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 anima_app = ["static/*.js", "static/*.json", "static/*.css"]
+"anima_app._vendor.vrs_int" = ["*.json", "LICENSE*"]
+"anima_app._vendor.swegca" = ["*.json", "LICENSE*"]
 
 [tool.setuptools.dynamic]
 version = {attr = "anima_app.__version__"}
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
+testpaths = ["tests"]

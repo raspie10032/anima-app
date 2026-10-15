@@ -2,28 +2,36 @@
 
 Generate with local **Anima** or **NovelAI**, arrange detailing/upscaling stages, and find reusable prompts from similar images in a local browser workspace. The interface supports **English / 한국어 / 日本語**.
 
-## Download v0.6.0
+## Download v0.6.1
 
-**[Download the verified source ZIP](https://github.com/raspie10032/anima-app/releases/download/v0.6.0/anima-app-0.6.0-source.zip)** · [Release and SHA-256 checksum](https://github.com/raspie10032/anima-app/releases/tag/v0.6.0) · [Changes and upgrade instructions](docs/RELEASE_0.6.0.md)
+**[Download the verified source ZIP](https://github.com/raspie10032/anima-app/releases/download/v0.6.1/anima-app-0.6.1-source.zip)** · [Release and SHA-256 checksum](https://github.com/raspie10032/anima-app/releases/tag/v0.6.1) · [Changes and upgrade instructions](docs/RELEASE_0.6.1.md)
 
 Extract the ZIP, then follow the first-image guide below. This source-checkout beta includes the Windows launcher and local generation runtime source; install Python 3.10+ and dependencies before starting it. Model weights are prepared separately. Image management and CPU similarity search work without a VRS model; enhanced VRS search uses an optional [local encoder setup](docs/IMAGE_LIBRARY_EN.md#optional-vrs-int-encoder).
+
+## New in v0.6.1: easier setup, embedded VRS and Barracks
+
+Open **Connect & prepare** to enter an NAI token, prepare Anima models, or download the image-search encoder. Basic mode keeps advanced controls folded without changing their values. VRS encoder code and the SWEGCA evidence accumulator ship inside the app; there is no separate repository or Python path to configure. Caption-free images work directly, and the library has no fixed image-count cap. The same dialog includes a persistent VRS on/off switch, required-model information and references. See [setup instructions (KO / EN / JA)](SETUP.md).
 
 ## Start here
 
 | Task | Documentation |
 |---|---|
 | Install, connect NAI, and generate a first image | **[한국어](docs/IMAGE_GENERATION_KO.md) · [English](docs/IMAGE_GENERATION_EN.md) · [日本語](docs/IMAGE_GENERATION_JA.md)** |
-| Find the NAI token setting | **[NAI token setup](docs/NAI_TOKEN_SETUP.md)** — entered in the server's terminal environment, not a web form |
+| Find the NAI token setting | **[NAI token setup](docs/NAI_TOKEN_SETUP.md)** — **Connect & prepare → Generate with NAI → Apply token** |
 | Connect NAI → Anima or Anima → NAI | [한국어](docs/GENERATION_WORKSPACE_KO.md) · [English](docs/GENERATION_WORKSPACE_EN.md) |
 | Search images, compare cases, reuse artist combinations | [한국어](docs/IMAGE_LIBRARY_KO.md) · [English](docs/IMAGE_LIBRARY_EN.md) |
 | CLI, API, troubleshooting | [Full Korean manual](docs/USER_GUIDE_KO.md) · [Technical reference](docs/APP_REFERENCE.md) |
 | Sources, attribution, models | [References](docs/REFERENCES.md) · [Third-party notices](NOTICE.md) |
 
-The first-image guides explain each screen, settings to check before generation, ordered post-processing, intermediate outputs, selective prompt reuse, and recovery after an error. [The main update notes](docs/MAIN_UPDATE_2026-10-14.md) distinguish implemented features from remaining work.
+The first-image guides explain each screen, settings to check before generation, ordered post-processing, intermediate outputs, selective prompt reuse, and recovery after an error. [The release notes](docs/RELEASE_0.6.1.md) describe the current features and verification scope.
 
 ## NAI token: where to enter it
 
-There is **no token input box in the browser**. Obtain your Persistent API Token from NovelAI **Settings → Account → Get Persistent API Token**, then set `NAI_ACCESS_TOKEN` in the terminal that starts Anima APP. See [NovelAI's official account documentation](https://docs.novelai.net/en/text/usersettings/account/).
+**배럭 / Barracks / バラック:** distribute standalone NAI text-to-image jobs across selected accounts from the **Barracks** toolbar button. Uses the main prompt and settings, with per-account progress and seed modes. [한·영·일 사용법 / Guide](docs/BARRACKS.md).
+
+**Connect & prepare → Generate with NAI → NAI access token → Apply token**. The field is masked and the token remains in volatile memory on the PC running the app until exit; select **Save on this PC** to store it in the operating system credential store and restore it at the next launch.
+
+Obtain your Persistent API Token from NovelAI **Settings → Account → Get Persistent API Token**. The terminal method below also remains available: set `NAI_ACCESS_TOKEN` in the terminal that starts Anima APP. See [NovelAI's official account documentation](https://docs.novelai.net/en/text/usersettings/account/).
 
 Linux / Bash, from an installed checkout with its environment activated:
 
@@ -33,17 +41,17 @@ export NAI_ACCESS_TOKEN
 python -m anima_app.cli serve --host 127.0.0.1 --port 8768 --open
 ```
 
-Windows PowerShell: follow the [hidden-input token command](docs/NAI_TOKEN_SETUP.md#windows-powershell). After launch, select **NovelAI** under **Generation engine**; `/api/nai/status` reports whether a token was configured without exposing it. A configured token is not proof that it is valid. Changing the token requires restarting the server from the environment containing the new value. Use a stable port to retain browser drafts and language preferences at the same origin.
+Windows PowerShell: follow the [hidden-input token command](docs/NAI_TOKEN_SETUP.md#windows-powershell). After launch, select **NovelAI** under **Generation engine**; `/api/nai/status` reports whether a token was configured without exposing it. A configured token is not proof that it is valid. Use **Connect & prepare** to change it without restarting the app after active jobs finish. Use a stable port to retain browser drafts and language preferences at the same origin.
 
 ## Capabilities
 
-The optional NovelAI provider supports T2I, Img2Img, masked and focused inpainting, Vibe Transfer, Precise Reference and sequential automatic detailing through the browser queue, presets, history and manifests. It includes up to 22 saved character slots (V5: 22 active; V4/V4.5: 6), six weight-syntax conversions and optional native WD matching of original character prompts. Hide or disable slots without losing text and positions; presets, history and app PNGs restore the full slot bank. Configure `NAI_ACCESS_TOKEN` in the server environment; local Anima remains the default. References and Img2Img require explicit removal of Opus protection. Focused crops have their own strict preflight. See [docs/NOVELAI_PROVIDER.md](docs/NOVELAI_PROVIDER.md) for setup, model dependencies, costs and the local/mock versus live validation boundary.
+The optional NovelAI provider supports T2I, Img2Img, masked and focused inpainting, Vibe Transfer, Precise Reference and sequential automatic detailing through the browser queue, presets, history and manifests. It includes up to 22 saved character slots (V5: 22 active; V4/V4.5: 6), six weight-syntax conversions and optional native WD matching of original character prompts. Hide or disable slots without losing text and positions; presets, history and app PNGs restore the full slot bank. Enter a token in **Connect & prepare** or set `NAI_ACCESS_TOKEN` in the environment of the PC running the app; local Anima remains the default. References and Img2Img require explicit removal of Opus protection. Focused crops have their own strict preflight. See [docs/NOVELAI_PROVIDER.md](docs/NOVELAI_PROVIDER.md) for setup, model dependencies, costs and the local/mock versus live validation boundary.
 
 This source update adds V5 Full **Medium Effort** to generation, Img2Img, inpainting and detailing: 14 steps, Euler Ancestral, zero CFG rescale and fixed negative conditioning. English/Korean/Japanese interface text, NAI guidance and cause-specific error explanations follow the saved browser language without changing generation settings. Errors retain their code, execution stage, upstream HTTP status and sanitized details across queue results and partial-result history; prompts, records and raw technical details retain their original text. See the [2.4.6 node update checklist](docs/NAI_NODE_UPDATE_2.4.6.md) for source commits, per-requirement verification, reproduction commands and package boundaries.
 
 The update also adds WD ViT v3 / WD EVA02 Large v3 / PixAI Tagger v1.0 selection for original-character matching. Prepare the selected model in the detailer panel to see per-file download progress and cancellation; generation uses the prepared cache. Install `.[wd-matching]` or `.[pixai-matching]` in the app environment first. Model choice is preserved in presets, history and PNG metadata; [setup and validation limits](docs/NOVELAI_PROVIDER.md#wd-vit--eva02--pixai-선택과-준비) describe the optional dependencies and local CPU evidence.
 
-This release targets RS NAI **2.4.6, commit `4de9146`**. Upstream 2.5.0 (`ed96a4c`) adds reference inset generation and portable character assets after that pin; those additions are not included here. **Anima APP v0.6.0** packages that integration together with the image workspace, ordered workflows and three-language UI. Use the source-checkout ZIP for the bundled local runtime; the wheel alone omits that runtime. See [release verification](docs/RELEASE_0.6.0.md#verification) for the scope of automated checks and earlier live examples.
+This release targets RS NAI **2.4.6, commit `4de9146`**. Upstream 2.5.0 (`ed96a4c`) adds reference inset generation and portable character assets after that pin; those additions are not included here. **Anima APP v0.6.1** extends that integration with easier setup, embedded image retrieval and standalone multi-account NAI T2I. Use the source-checkout ZIP for the bundled local runtime; the wheel alone omits that runtime. See [release verification](docs/RELEASE_0.6.1.md#verification) for the scope of automated checks and earlier live examples.
 
 Anima APP packages a focused Anima text-to-image workflow around a local, project-owned `models` folder. It does not require launching a ComfyUI server for normal generation.
 
@@ -314,7 +322,7 @@ python scripts\source_archive.py
 
 The vendor check verifies the disclosed patched package hashes and product boundary. The wheel check copies package source into a temporary build root, installs the resulting wheel into a temporary target, verifies package/application version agreement and the packaged GUI JavaScript, proves that the root vendored runtime is absent, and runs a CLI dry-run. It does not turn the wheel into a standalone generation build.
 
-The source-archive command writes `outputs\release\anima-app-0.6.0-source.zip` and its `.sha256` file, verifies required runtime, launcher, UI, notice, license, and wildcard-disclosure files, then extracts it and runs vendor plus CLI dry-run checks. A local dirty checkout can produce a review candidate. The official release command is stricter:
+The source-archive command writes `outputs\release\anima-app-0.6.1-source.zip` and its `.sha256` file, verifies required runtime, launcher, UI, notice, license, and wildcard-disclosure files, then extracts it and runs vendor plus CLI dry-run checks. A local dirty checkout can produce a review candidate. The official release command is stricter:
 
 ```powershell
 python scripts\source_archive.py --require-clean

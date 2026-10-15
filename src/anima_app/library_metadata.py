@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from pathlib import Path
 
 from PIL import Image
@@ -12,7 +13,7 @@ from PIL import Image
 from anima_app.providers.novelai.metadata import read_image_metadata
 from anima_app.providers.novelai.converters import parse_comfyui, parse_naiv4, parse_oldnai, to_comfyui, to_naiv4
 
-PARSER_VERSION = 'artist-explicit-context-v3'
+PARSER_VERSION = 'artist-explicit-context-v4'
 REQUEST_KEYS = frozenset("provider prompt negative_prompt seed width height steps cfg sampler scheduler checkpoint model memory_profile loras i2i upscale vae_decode face_detailer wildcards wildcard_mode novelai operation characters character_slots character_count use_coords use_order cfg_rescale prefer_brownian variety_boost limit_opus_free input_image mask_image img2img_strength img2img_noise inpaint_strength".split())
 
 
@@ -20,11 +21,13 @@ def clean(value, depth=0):
     if depth > 16:
         return None
     if isinstance(value, dict):
-        return {k: clean(v, depth + 1) for k, v in value.items() if not any(
+        return {k: clean(v, depth + 1) for k, v in list(value.items())[:1024] if isinstance(k, str) and not any(
             word in k.lower() for word in ("token", "secret", "password", "authorization", "api_key", "base64"))}
     if isinstance(value, list):
         return [clean(v, depth + 1) for v in value[:1024]]
-    if value is None or type(value) in (str, bool, int):
+    if isinstance(value, str):
+        return unicodedata.normalize('NFC', value.replace('\x00', ''))[:100000]
+    if value is None or type(value) in (bool, int):
         return value
     if isinstance(value, float) and math.isfinite(value):
         return value
@@ -32,8 +35,10 @@ def clean(value, depth=0):
 
 
 def request_snapshot(manifest):
-    return clean({k: v for k, v in manifest.items() if k in REQUEST_KEYS or k.startswith("nai_") or k in {
-        "workflow", "workflow_base_request", "authoring_request", "prompt_routing", "generation_sources"}})
+    if not isinstance(manifest, dict):
+        return {}
+    return clean({k: v for k, v in manifest.items() if isinstance(k, str) and (k in REQUEST_KEYS or k.startswith("nai_") or k in {
+        "workflow", "workflow_base_request", "authoring_request", "prompt_routing", "generation_sources"})})
 
 
 def metadata(path: Path, manifest=None):
@@ -42,21 +47,39 @@ def metadata(path: Path, manifest=None):
     try:
         result = read_image_metadata(path)
         return request_snapshot(result["request"]), "novelai_" + result["metadata_source"], result["warnings"]
-    except ValueError:
+    except (ValueError, TypeError, AttributeError, KeyError, OverflowError, RecursionError, OSError, UnicodeError):
         pass
     with Image.open(path) as image:
         parameters = image.info.get("parameters", "")
         has_comfy = "prompt" in image.info or "workflow" in image.info
+        comment = image.info.get('Comment')
+        description = image.info.get('Description')
     if isinstance(parameters, str) and 0 < len(parameters) < 1024 * 1024:
         body, sep, settings = parameters.rpartition("\nSteps:")
         if not sep:
             body, settings = parameters, ""
         positive, _, negative = body.partition("\nNegative prompt:")
         # Preserve unknown settings as evidence, not executable form defaults.
-        return {"prompt": positive.strip(), "negative_prompt": negative.strip(),
-                "settings_text": "Steps:" + settings if settings else ""}, "a1111", [
+        return clean({"prompt": positive.strip(), "negative_prompt": negative.strip(),
+                "settings_text": "Steps:" + settings if settings else ""}), "a1111", [
                     "외부 A1111 설정은 원문으로 보존됩니다. 프롬프트만 적용할 수 있습니다."]
-    return {}, "none", ["ComfyUI 그래프는 아직 해석하지 않습니다."] if has_comfy else []
+    # Preserve a recoverable prompt even when optional generation fields are
+    # malformed. It must not become executable model defaults or block pixels.
+    if isinstance(comment, str) and len(comment) < 1024 * 1024:
+        try:
+            raw = json.loads(comment)
+            if isinstance(raw, dict) and isinstance(raw.get('prompt'), str):
+                partial = {'prompt': raw['prompt']}
+                if isinstance(raw.get('uc'), str):
+                    partial['negative_prompt'] = raw['uc']
+                return clean(partial), 'embedded_partial', ['일부 생성 정보를 읽지 못해 프롬프트만 보존했습니다.']
+        except (ValueError, RecursionError):
+            pass
+    if isinstance(description, str) and description.strip():
+        return clean({'prompt': description}), 'embedded_description', ['이미지 설명을 보존했습니다. 생성 조건은 확인되지 않았습니다.']
+    if comment is not None or has_comfy or parameters:
+        return {}, 'unreadable', ['생성 정보 형식을 읽지 못했습니다. 이미지 검색은 사용할 수 있습니다.']
+    return {}, 'none', []
 
 
 def artist_combo(request):

@@ -92,6 +92,7 @@ def main():
 
                     page.route("**/*", route)
                     page.goto(address, wait_until="networkidle")
+                    page.locator('#setup-view-toggle').click()
                     original = "(artist:demo_a:1.2), (tianliang duohe fangdongye:0.85), portrait"
                     request = {
                         "provider": "novelai",

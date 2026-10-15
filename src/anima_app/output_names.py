@@ -38,8 +38,11 @@ def allocate_output_path(
     paths: AppPaths,
     status: str,
     created_at: float | None = None,
+    unique_suffix: str = "",
 ) -> Path:
     stem = build_output_stem(request, status=status, created_at=created_at)
+    if unique_suffix:
+        stem += "_" + unique_suffix
     return _with_collision_suffix(paths.image_root / f"{stem}.png")
 
 
@@ -50,8 +53,11 @@ def allocate_manifest_path(
     status: str,
     output_path: Path | None = None,
     created_at: float | None = None,
+    unique_suffix: str = "",
 ) -> Path:
     stem = output_path.stem if output_path is not None else build_output_stem(request, status=status, created_at=created_at)
+    if output_path is None and unique_suffix:
+        stem += "_" + unique_suffix
     return _with_collision_suffix(paths.manifest_root / f"{stem}.json")
 
 

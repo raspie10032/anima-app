@@ -7,7 +7,7 @@ This document keeps public source references, model layout, and release boundari
 - [한국어 generation tutorial](IMAGE_GENERATION_KO.md), [English](IMAGE_GENERATION_EN.md), [日本語](IMAGE_GENERATION_JA.md): install, first image, both detailer directions, stage comparison and reuse.
 - [NAI token setup](NAI_TOKEN_SETUP.md): terminal input, source precedence, restart and status checks. There is no browser token field.
 - [Application reference](APP_REFERENCE.md): workflow/prompt contracts, library routes, storage, environment and reproducible checks.
-- [Current release](RELEASE_0.6.0.md): v0.6.0 download, setup, upgrade and verification.
+- [Current release](RELEASE_0.6.1.md): v0.6.1 download, setup, upgrade and verification.
 - [Main update](MAIN_UPDATE_2026-10-14.md): historical integration record before the v0.6.0 release.
 - [Locale settings](LOCALES.md): English/Korean/Japanese UI with original prompt preservation.
 
@@ -111,6 +111,34 @@ These preprocessing rules are not interchangeable. See
 - ComfyUI NAI character payload and six prompt-conversion source: https://github.com/raspie10032/ComfyUI_RS_NAI_API_Request (`nai_api.py`, `generators.py`, `converters.py`; converter helpers retain their GPL-3.0-only header).
 - Comfy Kitchen metadata: https://github.com/Comfy-Org/comfy-kitchen
 - Comfy AIMDO metadata: https://github.com/Comfy-Org/comfy-aimdo
+
+## Anima ControlNet research references (2026-10-15)
+
+The user supplied [this Anima ControlNet overview](https://arca.live/b/aiart/185966176).
+The following upstream sources were checked for future Anima editing work. They
+are research references, not installed features. Barracks remains standalone NAI
+text-to-image generation.
+
+| Source | Input contract | Candidate Anima APP use |
+| --- | --- | --- |
+| [Kawai Inpaint ControlNet-LLLite](https://huggingface.co/kawaimasa/Anima_Kawai_Inpaint_ControlNet-LLLite) | Anima Base v1.0 family; four channels: RGB with the masked area blacked out plus a binary mask | User-painted repairs and an optional masked detailer path |
+| [toyxyz Anima ControlNet-LLLite](https://huggingface.co/toyxyz/Anima_ControlNet-LLLite) — `anima_3dpose_6200` | Anima Base 1.0; shaded, colored 3D body meshes against black | Pose-image guidance; an editor could follow after image-input support |
+| Same model repository — `anima_regional_4335` | Anima Base 1.0; RGB instance-color map, distinct colors per region and black for unassigned pixels | Subject placement and region-specific prompts |
+| [ComfyUI_toyxyz_test_nodes](https://github.com/toyxyz/ComfyUI_toyxyz_test_nodes#3d-pose-editor) | 3D Pose Editor and ComfyCouple Region painter, with per-layer prompts and masks | Reference UI for posing and region painting |
+| [ComfyUI-Anima-LLLite](https://github.com/kohya-ss/ComfyUI-Anima-LLLite) | Anima LLLite model loading and application | Reference inference adapter |
+
+The regional adapter is not a binary-mask inpainting model. A conventional
+OpenPose skeleton is not the documented input for the 3D-mesh adapter. Keep these
+input types distinct in any future API and preparation UI. The upstream toyxyz
+example combines pose and regional adapters, but describes its parameters as
+examples and does not claim a quantitative combined evaluation.
+
+Proposed order: masked repair, imported pose images, then region painting and
+per-region prompts. This is an integration proposal; local quality, MyMy/other
+LoRA combinations and Aesthetic checkpoint compatibility still require actual
+tests. Any implementation should preserve the source image, masks, control
+images, adapter version and strength in the generation record so the library can
+trace and reuse them.
 
 ## Model Asset Layout
 
@@ -229,7 +257,7 @@ The included wildcard files were copied or derived from a local ComfyUI Impact P
 
 ## Release Boundary
 
-Current release target: `0.6.0` source-checkout beta.
+Current release target: `0.6.1` source-checkout beta.
 
 Included:
 
@@ -270,4 +298,4 @@ The following are feature/design comparisons, not incorporated code or bundled m
 | [Danbooru tag API](https://danbooru.donmai.us/wiki_pages/api%3Atags) | Category-1 public artist tags for optional exact offline lookup; downloaded data is not bundled |
 | [NovelAI account settings](https://docs.novelai.net/en/text/usersettings/account/) | Persistent API token issuance and replacement behavior |
 
-VRS-INT is an optional external encoder integration; the adapter does not bundle model weights or claim native VRS decision-core behavior. [Library setup](IMAGE_LIBRARY_EN.md) describes configuration, ranking inputs and limits. Public guides use generic examples; private images, metadata, vectors and evaluation outputs stay outside the distribution.
+The app includes VRS-INT image-encoder code and the SWEGCA Architecture Python evidence/decision core. Encoder weights and runtime dependencies are prepared separately through the setup screen. This does not include the SWEGCA-bit C++ graph engine. [Embedded VRS contract](EMBEDDED_VRS_CONTRACT.md) records the exact integration boundary; [library setup](IMAGE_LIBRARY_EN.md) describes configuration and ranking inputs. Public guides use generic examples; private images, metadata, vectors and evaluation outputs stay outside the distribution.

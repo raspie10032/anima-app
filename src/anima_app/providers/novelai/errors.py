@@ -31,8 +31,9 @@ CAUSES = {
 
 
 def redact(value: object, secrets=()) -> str:
+    from anima_app.providers.novelai.auth import current_secret
     text = str(value)
-    for secret in (*secrets, *(os.getenv(key) for key in ("NAI_ACCESS_TOKEN", "NAI_API_TOKEN", "HF_TOKEN"))):
+    for secret in (*secrets, current_secret(), *(os.getenv(key) for key in ("NAI_ACCESS_TOKEN", "NAI_API_TOKEN", "HF_TOKEN"))):
         if secret:
             text = text.replace(secret, "[redacted]")
     text = re.sub(r"(?i)(Bearer\s+)[^\s\"',;<>]+", r"\1[redacted]", text)

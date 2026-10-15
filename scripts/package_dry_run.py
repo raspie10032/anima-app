@@ -79,6 +79,10 @@ def main() -> int:
                 members = [member for member in wheel.namelist() if member.endswith("/" + name)]
                 if len(members) != 1 or wheel.read(members[0]) != (source_root / name).read_bytes():
                     raise RuntimeError(f"wheel must preserve {name}")
+            for package in ("swegca", "vrs_int"):
+                name = f"anima_app/_vendor/{package}/LICENSE.txt"
+                if wheel.read(name) != (source_root / "src" / name).read_bytes():
+                    raise RuntimeError(f"wheel must preserve embedded license: {name}")
         _run(
             [sys.executable, "-m", "pip", "install", "--no-deps", "--target", str(site_root), str(wheels[0])],
             cwd=temporary_root,
@@ -103,6 +107,16 @@ from anima_app.providers.novelai import (
     tagger_progress, tagger_setup, errors,
 )
 import json
+from anima_app import library_core
+from anima_app.library_vrs import VRSAdapter
+assert library_core.status()['ready']
+adapter = VRSAdapter(Path(os.environ['ANIMA_PACKAGE_SMOKE_ROOT']) / 'models')
+assert not adapter.runtime.status()['weights_ready']
+assert adapter.contract is None
+assert library_core.__file__.startswith(os.environ['PYTHONPATH'])
+assert (Path(anima_app.__file__).parent / 'static/setup.js').is_file()
+assert (Path(anima_app.__file__).parent / 'barracks.py').is_file()
+assert (Path(anima_app.__file__).parent / 'static/barracks.js').is_file()
 
 assert 'const animaDefaults' in APP_JS
 assert '<script src="/app.js"></script>' in INDEX_HTML

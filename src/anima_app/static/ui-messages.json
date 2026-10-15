@@ -248,8 +248,8 @@
     "ja": "リクエスト失敗"
   },
   "준비 필요": {
-    "en": "Preparation needed",
-    "ja": "準備が必要です"
+    "en": "Setup needed",
+    "ja": "準備が必要"
   },
   "오류": {
     "en": "Error",
@@ -1967,9 +1967,9 @@
     "en": "Link app generation history",
     "ja": "アプリの生成履歴を連携"
   },
-  "{0} / {1}장 · 작가 조합 {2}종 · VRS 색인 {3}장 · 평가 {4}건": {
-    "en": "{0} / {1} images · {2} artist combinations · {3} VRS indexed · {4} ratings",
-    "ja": "{0} / {1}枚 · 作家の組み合わせ{2}種類 · VRS索引{3}枚 · 評価{4}件"
+  "{0}장 · 작가 조합 {1}종 · VRS 색인 {2}장 · 평가 {3}건": {
+    "en": "{0} images · {1} artist combinations · {2} VRS indexed · {3} ratings",
+    "ja": "{0}枚 · 作家の組み合わせ{1}種類 · VRS索引{2}枚 · 評価{3}件"
   },
   "VRS 이미지 검색 · 준비됨": {
     "en": "VRS image search · Ready",
@@ -2801,11 +2801,11 @@
   },
   "세로": {
     "en": "Portrait",
-    "ja": "縦"
+    "ja": "縦長"
   },
   "가로": {
     "en": "Landscape",
-    "ja": "横"
+    "ja": "横長"
   },
   "생성하기": {
     "en": "Generate",
@@ -3226,5 +3226,601 @@
   "미리보기는 생성하지 않습니다. 와일드카드는 실행 시 펼친 뒤 변환합니다.": {
     "en": "Preview does not generate images. Wildcards are expanded before conversion when you run the job.",
     "ja": "プレビューでは生成しません。実行時にワイルドカードを展開してから変換します。"
+  },
+  "연결 · 준비": {
+    "en": "Connect & prepare",
+    "ja": "接続・準備"
+  },
+  "고급 설정 보기": {
+    "en": "Show advanced settings",
+    "ja": "詳細設定を表示"
+  },
+  "간단히 보기": {
+    "en": "Simple view",
+    "ja": "シンプル表示"
+  },
+  "정사각": {
+    "en": "Square",
+    "ja": "正方形"
+  },
+  "NAI로 생성": {
+    "en": "Generate with NAI",
+    "ja": "NAIで生成"
+  },
+  "NovelAI 토큰을 연결하면 바로 생성할 수 있습니다.": {
+    "en": "Connect your NovelAI token to start generating.",
+    "ja": "NovelAIトークンを接続すると生成できます。"
+  },
+  "토큰 입력됨": {
+    "en": "Token entered",
+    "ja": "トークン入力済み"
+  },
+  "토큰을 입력해 주세요.": {
+    "en": "Enter a token.",
+    "ja": "トークンを入力してください。"
+  },
+  "토큰 형식을 확인해 주세요.": {
+    "en": "Check the token format.",
+    "ja": "トークンの形式を確認してください。"
+  },
+  "토큰 연결": {
+    "en": "Connect token",
+    "ja": "トークンを接続"
+  },
+  "토큰 지우기": {
+    "en": "Clear token",
+    "ja": "トークンを消去"
+  },
+  "Anima로 생성 · 보정": {
+    "en": "Generate & refine with Anima",
+    "ja": "Animaで生成・補正"
+  },
+  "로컬 모델을 준비하면 생성과 디테일러를 사용할 수 있습니다.": {
+    "en": "Prepare local models to generate and run the detailer.",
+    "ja": "ローカルモデルを準備すると生成とディテーラーが使えます。"
+  },
+  "기본 모델 준비": {
+    "en": "Prepare base model",
+    "ja": "基本モデルを準備"
+  },
+  "Aesthetic 모델 준비": {
+    "en": "Prepare Aesthetic model",
+    "ja": "Aestheticモデルを準備"
+  },
+  "얼굴 검출 모델 준비": {
+    "en": "Prepare face detector",
+    "ja": "顔検出モデルを準備"
+  },
+  "기존 모델을 먼저 확인하고, 없으면 다운로드합니다. 기본 모델은 수 GB가 필요합니다.": {
+    "en": "Checks existing models first and downloads missing files. Base models require several GB.",
+    "ja": "既存モデルを確認し、不足分をダウンロードします。基本モデルには数GBが必要です。"
+  },
+  "이미지로 유사사례 찾기": {
+    "en": "Find similar images",
+    "ja": "画像から類似例を探す"
+  },
+  "캡션 없이 그림만 넣어도 검색할 수 있습니다.": {
+    "en": "Search using an image without captions.",
+    "ja": "キャプションがなくても画像だけで検索できます。"
+  },
+  "이미지 인코더 준비": {
+    "en": "Prepare image encoder",
+    "ja": "画像エンコーダーを準備"
+  },
+  "인코더 준비 취소": {
+    "en": "Cancel encoder preparation",
+    "ja": "エンコーダー準備を中止"
+  },
+  "등록한 이미지 색인": {
+    "en": "Index imported images",
+    "ja": "登録画像を索引化"
+  },
+  "색인 취소": {
+    "en": "Cancel indexing",
+    "ja": "索引化を中止"
+  },
+  "인코더 코드와 SWEGCA 코어가 포함되어 있습니다. 비전 가중치 약 320 MiB와 실행 패키지만 내려받습니다. VRS 인코딩에는 CUDA가 필요합니다.": {
+    "en": "Encoder code and the SWEGCA core are bundled. Download about 320 MiB of vision weights plus runtime packages. VRS encoding requires CUDA.",
+    "ja": "エンコーダーとSWEGCAコアは内蔵です。約320 MiBの視覚モデルと実行パッケージを取得します。VRSエンコードにはCUDAが必要です。"
+  },
+  "준비 상태 · 오류 진단": {
+    "en": "Readiness & diagnostics",
+    "ja": "準備状態・エラー診断"
+  },
+  "파일별 문제 확인": {
+    "en": "Check file issues",
+    "ja": "ファイルごとの問題を確認"
+  },
+  "사용할 기능만 준비하세요. 프롬프트와 생성 설정은 그대로 유지됩니다.": {
+    "en": "Prepare the features you want to use. Your prompt and generation settings are preserved.",
+    "ja": "使いたい機能を準備してください。プロンプトと生成設定は保持されます。"
+  },
+  "모델 준비 중": {
+    "en": "Preparing models",
+    "ja": "モデル準備中"
+  },
+  "생성 준비 완료": {
+    "en": "Ready to generate",
+    "ja": "生成準備完了"
+  },
+  "SWEGCA 코어 · 내장 / 실행 확인": {
+    "en": "SWEGCA core · bundled / verified",
+    "ja": "SWEGCAコア・内蔵 / 実行確認済み"
+  },
+  "SWEGCA 코어 확인 필요": {
+    "en": "Check SWEGCA core",
+    "ja": "SWEGCAコアを確認"
+  },
+  "인코더 준비 중 · {0}%": {
+    "en": "Preparing encoder · {0}%",
+    "ja": "エンコーダー準備中・{0}%"
+  },
+  "CUDA 없음 · 기본 이미지 검색을 사용할 수 있습니다.": {
+    "en": "No CUDA · Basic image search is available.",
+    "ja": "CUDAなし・基本画像検索を利用できます。"
+  },
+  "인코더 준비 필요": {
+    "en": "Encoder needs preparation",
+    "ja": "エンコーダーの準備が必要です"
+  },
+  "검색 가능 {0}장 · 대기 {1}장": {
+    "en": "{0} searchable · {1} pending",
+    "ja": "検索可能{0}枚・待機{1}枚"
+  },
+  "이 이미지에 생성 정보가 없습니다. 캡션 없이도 이미지 검색이 가능합니다.": {
+    "en": "This image has no generation metadata. Image search works without captions.",
+    "ja": "生成情報がありません。キャプションなしで画像検索できます。"
+  },
+  "생성 정보 형식을 읽지 못했습니다. 이미지 검색은 사용할 수 있습니다.": {
+    "en": "Generation metadata could not be read. Image search is available.",
+    "ja": "生成情報を読み取れませんでした。画像検索は利用できます。"
+  },
+  "일부 생성 정보를 읽지 못해 프롬프트만 보존했습니다.": {
+    "en": "Only the prompt was preserved because some generation fields could not be read.",
+    "ja": "一部の生成情報を読み取れないため、プロンプトのみ保存しました。"
+  },
+  "이미지 설명을 보존했습니다. 생성 조건은 확인되지 않았습니다.": {
+    "en": "Image description preserved. Generation settings are unknown.",
+    "ja": "画像の説明を保存しました。生成条件は不明です。"
+  },
+  "SWEGCA · 사용자 관찰 기록됨": {
+    "en": "SWEGCA · User observation recorded",
+    "ja": "SWEGCA・ユーザー観察を記録済み"
+  },
+  "SWEGCA · 근거 보류": {
+    "en": "SWEGCA · Evidence pending",
+    "ja": "SWEGCA・根拠を保留"
+  },
+  "확인 중": {
+    "en": "Checking",
+    "ja": "確認中"
+  },
+  "토큰을 넣으면 NovelAI로 생성할 수 있습니다.": {
+    "en": "Enter your token to generate with NovelAI.",
+    "ja": "トークンを入力するとNovelAIで生成できます。"
+  },
+  "NAI 액세스 토큰": {
+    "en": "NAI access token",
+    "ja": "NAIアクセストークン"
+  },
+  "토큰 발급 위치 열기": {
+    "en": "Open token settings",
+    "ja": "トークン発行画面を開く"
+  },
+  "토큰 적용": {
+    "en": "Apply token",
+    "ja": "トークンを適用"
+  },
+  "토큰을 현재 앱에 적용했습니다.": {
+    "en": "Token applied to this app.",
+    "ja": "このアプリにトークンを適用しました。"
+  },
+  "토큰을 지웠습니다.": {
+    "en": "Token cleared.",
+    "ja": "トークンを削除しました。"
+  },
+  "가중치 · 작가 표기 · 초안": {
+    "en": "Weights · artist syntax · drafts",
+    "ja": "重み・作家表記・下書き"
+  },
+  "배럭": {
+    "en": "Barracks",
+    "ja": "バラック"
+  },
+  "배럭은 NAI 텍스트→이미지 단독 생성만 지원합니다.": {
+    "en": "Barracks supports standalone NAI text-to-image only.",
+    "ja": "バラックはNAIのテキストから画像を生成する単独処理に対応します。"
+  },
+  "메인 화면의 NAI 프롬프트와 생성 조건을 사용합니다. 계정마다 한 장씩 나누어 생성합니다.": {
+    "en": "Uses the NAI prompt and settings from the main screen. Each account generates one image at a time.",
+    "ja": "メイン画面のNAIプロンプトと設定を使用し、各アカウントで1枚ずつ生成します。"
+  },
+  "배럭 계정": {
+    "en": "Barracks accounts",
+    "ja": "バラックのアカウント"
+  },
+  "계정 이름": {
+    "en": "Account name",
+    "ja": "アカウント名"
+  },
+  "계정 추가": {
+    "en": "Add account",
+    "ja": "アカウントを追加"
+  },
+  "현재 NAI 토큰 추가": {
+    "en": "Add current NAI token",
+    "ja": "現在のNAIトークンを追加"
+  },
+  "주계정": {
+    "en": "Primary account",
+    "ja": "メインアカウント"
+  },
+  "현재 생성 조건": {
+    "en": "Current generation settings",
+    "ja": "現在の生成設定"
+  },
+  "생성 장수": {
+    "en": "Image count",
+    "ja": "生成枚数"
+  },
+  "시드 증가": {
+    "en": "Increment seed",
+    "ja": "シードを増加"
+  },
+  "매번 무작위": {
+    "en": "Random each time",
+    "ja": "毎回ランダム"
+  },
+  "같은 시드": {
+    "en": "Same seed",
+    "ja": "同じシード"
+  },
+  "배럭 시작": {
+    "en": "Start Barracks",
+    "ja": "バラックを開始"
+  },
+  "배럭 중지": {
+    "en": "Stop Barracks",
+    "ja": "バラックを停止"
+  },
+  "중지하면 다음 전송을 멈추고, 이미 요청한 결과는 도착하는 대로 저장합니다. 결과는 생성 이력에서도 볼 수 있습니다.": {
+    "en": "Stopping prevents new submissions and saves results from requests already sent. Results also appear in generation history.",
+    "ja": "停止すると新しい送信を止め、送信済みの結果は届き次第保存します。結果は生成履歴でも確認できます。"
+  },
+  "사용할 NAI 계정을 추가해 주세요.": {
+    "en": "Add the NAI accounts you want to use.",
+    "ja": "使用するNAIアカウントを追加してください。"
+  },
+  "계정 확인 필요": {
+    "en": "Check account",
+    "ja": "アカウントの確認が必要"
+  },
+  "실행할 계정 없음": {
+    "en": "No available accounts",
+    "ja": "利用できるアカウントがありません"
+  },
+  "결과 확인이 필요합니다. 자동으로 다시 생성하지 않습니다.": {
+    "en": "Check the remote outcome. This image will not be regenerated automatically.",
+    "ja": "結果の確認が必要です。この画像は自動で再生成されません。"
+  },
+  "배럭 설정을 확인해 주세요.": {
+    "en": "Check the Barracks settings.",
+    "ja": "バラックの設定を確認してください。"
+  },
+  "계정 이름은 1~48자로 입력해 주세요.": {
+    "en": "Enter an account name of 1–48 characters.",
+    "ja": "アカウント名は1～48文字で入力してください。"
+  },
+  "배럭이 끝난 후 계정을 변경해 주세요.": {
+    "en": "Change accounts after Barracks finishes.",
+    "ja": "バラックの終了後にアカウントを変更してください。"
+  },
+  "배럭 계정은 최대 8개입니다.": {
+    "en": "Barracks supports up to 8 accounts.",
+    "ja": "バラックは最大8アカウントに対応しています。"
+  },
+  "이미 등록된 토큰입니다.": {
+    "en": "This token is already registered.",
+    "ja": "このトークンは登録済みです。"
+  },
+  "다른 계정 이름을 입력해 주세요.": {
+    "en": "Enter a different account name.",
+    "ja": "別のアカウント名を入力してください。"
+  },
+  "계정을 선택해 주세요.": {
+    "en": "Select an account.",
+    "ja": "アカウントを選択してください。"
+  },
+  "생성 장수는 1~100장으로 입력해 주세요.": {
+    "en": "Enter an image count from 1 to 100.",
+    "ja": "生成枚数は1～100枚で入力してください。"
+  },
+  "시드 방식을 선택해 주세요.": {
+    "en": "Select a seed mode.",
+    "ja": "シード方式を選択してください。"
+  },
+  "사용할 계정을 선택해 주세요.": {
+    "en": "Select the accounts to use.",
+    "ja": "使用するアカウントを選択してください。"
+  },
+  "배럭이 이미 실행 중입니다.": {
+    "en": "Barracks is already running.",
+    "ja": "バラックはすでに実行中です。"
+  },
+  "배럭 생성에 실패했습니다.": {
+    "en": "Barracks generation failed.",
+    "ja": "バラックの生成に失敗しました。"
+  },
+  "이 PC에 저장 (다음 실행에도 사용)": {
+    "en": "Save on this PC (use after restart)",
+    "ja": "このPCに保存（次回起動時も使用）"
+  },
+  "이 PC에 저장": {
+    "en": "Save on this PC",
+    "ja": "このPCに保存"
+  },
+  "이 PC에 저장됨": {
+    "en": "Saved on this PC",
+    "ja": "このPCに保存済み"
+  },
+  "실행 중에만 보관": {
+    "en": "Kept only while the app is running",
+    "ja": "アプリ実行中のみ保持"
+  },
+  "저장 해제": {
+    "en": "Forget saved token",
+    "ja": "保存を解除"
+  },
+  "토큰을 이 PC에 저장하고 적용했습니다.": {
+    "en": "Token saved on this PC and applied.",
+    "ja": "トークンをこのPCに保存し、適用しました。"
+  },
+  "기본은 실행 PC의 휘발성 메모리에만 보관하며, 앱을 종료하면 사라집니다. 이 PC에 저장을 선택하면 운영체제 자격증명 저장소에 보관하고 다음 실행에 복원합니다.": {
+    "en": "By default, tokens stay only in volatile memory on the PC running the app and are lost when the app exits. Choose Save on this PC to keep them in the operating system credential store and restore them at the next launch.",
+    "ja": "通常はアプリを実行するPCの揮発性メモリだけに保持し、アプリ終了時に消えます。「このPCに保存」を選ぶとOSの資格情報ストアに保存し、次回起動時に復元します。"
+  },
+  "토큰 지우기는 현재 연결과 이 화면에서 저장한 토큰을 함께 지웁니다. 배럭 계정은 배럭에서 별도로 관리합니다.": {
+    "en": "Clear token removes the current connection and the token saved here. Manage Barracks accounts separately in Barracks.",
+    "ja": "「トークンを消去」は現在の接続とこの画面で保存したトークンを削除します。バラックのアカウントはバラックで個別に管理します。"
+  },
+  "저장 해제는 다음 실행부터 복원하지 않습니다. 삭제는 현재 계정과 저장된 토큰을 함께 지웁니다.": {
+    "en": "Forget saved token keeps this session connected but stops restoring it at future launches. Delete removes both the current account and its saved token.",
+    "ja": "保存を解除すると現在の接続は維持し、次回以降は復元しません。削除すると現在のアカウントと保存済みトークンを両方削除します。"
+  },
+  "이 PC의 자격증명 저장소를 사용할 수 없습니다. 잠금 해제 후 다시 시도해 주세요.": {
+    "en": "The credential store on this PC is unavailable. Unlock it and try again.",
+    "ja": "このPCの資格情報ストアを利用できません。ロックを解除して再度お試しください。"
+  },
+  "저장된 토큰을 복원하지 못했습니다. 자격증명 저장소를 확인하고 앱을 다시 실행해 주세요.": {
+    "en": "Saved tokens could not be restored. Check the credential store and restart the app.",
+    "ja": "保存済みトークンを復元できませんでした。資格情報ストアを確認してアプリを再起動してください。"
+  },
+  "사례 정렬": {
+    "en": "Case order",
+    "ja": "事例の並び順"
+  },
+  "닮은 순서": {
+    "en": "Most similar",
+    "ja": "類似順"
+  },
+  "다양한 사례 섞기": {
+    "en": "Mix diverse cases",
+    "ja": "多様な事例を混ぜる"
+  },
+  "기준 그림 다시 검색": {
+    "en": "Search reference again",
+    "ja": "基準画像で再検索"
+  },
+  "닮음 판단은 같은 기준 그림을 다시 검색할 때 순서에 반영됩니다. 반복 평가는 중복 누적하지 않습니다.": {
+    "en": "Similarity judgments affect the next search for the same reference image. Repeated votes do not accumulate.",
+    "ja": "類似評価は同じ基準画像で再検索した際の順序に反映されます。繰り返しの評価は重複加算されません。"
+  },
+  "닮음 평가를 저장했습니다. 기준 그림 다시 검색으로 반영할 수 있습니다.": {
+    "en": "Similarity rating saved. Search the reference again to apply it.",
+    "ja": "類似評価を保存しました。基準画像で再検索すると反映されます。"
+  },
+  "재사용 평가를 저장했습니다. 닮은 순서는 바뀌지 않습니다.": {
+    "en": "Reuse rating saved. Similarity order is unchanged.",
+    "ja": "再利用評価を保存しました。類似順は変わりません。"
+  },
+  "닮음 평가 초기화": {
+    "en": "Reset similarity rating",
+    "ja": "類似評価をリセット"
+  },
+  "내 닮음 판단이 검색 순서에 반영된 사례입니다.": {
+    "en": "Your similarity judgments affected this case’s position.",
+    "ja": "自分の類似評価がこの事例の順位に反映されています。"
+  },
+  "VRS 이미지 검색 사용": {
+    "en": "Enable VRS image search",
+    "ja": "VRS画像検索を使う"
+  },
+  "끄면 VRS 검색·색인·인코더 준비를 멈추고 대기 중인 인코더 메모리를 비웁니다. 기본 이미지 검색과 보관은 계속 사용할 수 있습니다. 선택은 다음 실행에도 유지됩니다.": {
+    "en": "When off, VRS search, indexing and encoder preparation are disabled, and idle encoder memory is released. Basic image search and storage remain available. This choice survives restart.",
+    "ja": "オフにするとVRS検索・インデックス作成・エンコーダー準備を無効にし、待機中のエンコーダーのメモリを解放します。基本画像検索と保管は引き続き使えます。設定は次回起動時も保持されます。"
+  },
+  "VRS를 켰습니다. 준비된 색인을 그대로 사용합니다.": {
+    "en": "VRS enabled. Existing indexes are ready to reuse.",
+    "ja": "VRSを有効にしました。既存のインデックスを再利用します。"
+  },
+  "VRS를 껐습니다. 이미지·색인·평가는 보존됩니다.": {
+    "en": "VRS disabled. Images, indexes and ratings are preserved.",
+    "ja": "VRSを無効にしました。画像・インデックス・評価は保持されます。"
+  },
+  "VRS 꺼짐 · 기본 이미지 검색 사용 가능": {
+    "en": "VRS off · Basic image search available",
+    "ja": "VRSオフ · 基本画像検索は利用可能"
+  },
+  "VRS 켜기·끄기 / 필요 모델": {
+    "en": "VRS on/off / Required models",
+    "ja": "VRSオン・オフ / 必要なモデル"
+  },
+  "VRS가 꺼져 있습니다. 연결 · 준비에서 켜 주세요.": {
+    "en": "VRS is off. Enable it in Connect & prepare.",
+    "ja": "VRSはオフです。接続・準備で有効にしてください。"
+  },
+  "작업이 끝난 후 VRS 설정을 변경해 주세요. 색인은 먼저 취소할 수 있습니다.": {
+    "en": "Wait for the current task before changing VRS settings. You can cancel indexing first.",
+    "ja": "実行中の処理が終わってからVRS設定を変更してください。インデックス作成は先に中止できます。"
+  },
+  "설정 항목": {
+    "en": "Setup sections",
+    "ja": "設定項目"
+  },
+  "연결 · 기능": {
+    "en": "Connections & features",
+    "ja": "接続・機能"
+  },
+  "필요 모델": {
+    "en": "Required models",
+    "ja": "必要なモデル"
+  },
+  "레퍼런스": {
+    "en": "References",
+    "ja": "参考資料"
+  },
+  "파일 확인 완료": {
+    "en": "File verified",
+    "ja": "ファイル確認済み"
+  },
+  "파일 없음": {
+    "en": "File missing",
+    "ja": "ファイルなし"
+  },
+  "파일 확인 필요": {
+    "en": "File needs checking",
+    "ja": "ファイル要確認"
+  },
+  "모델 원본 보기": {
+    "en": "View original model",
+    "ja": "モデルの配布元を見る"
+  },
+  "준비 화면으로": {
+    "en": "Go to preparation",
+    "ja": "準備画面へ"
+  },
+  "모델 저장 위치: {0}": {
+    "en": "Model storage: {0}",
+    "ja": "モデル保存先: {0}"
+  },
+  "LoRA는 화풍을 추가할 때만 필요합니다. WD/PixAI 태거는 태그 분석용이며 VRS 검색에 필요하지 않습니다.": {
+    "en": "LoRAs are optional style additions. WD/PixAI taggers analyze tags and are not required for VRS search.",
+    "ja": "LoRAは画風を追加する場合のみ必要です。WD/PixAIタガーはタグ解析用で、VRS検索には不要です。"
+  },
+  "NovelAI · 로컬 모델 불필요": {
+    "en": "NovelAI · No local model needed",
+    "ja": "NovelAI · ローカルモデル不要"
+  },
+  "NAI 토큰만 연결하면 됩니다. Anima 디테일러를 붙일 때는 로컬 모델도 준비하세요.": {
+    "en": "Connect an NAI token to start. Prepare local models if you add an Anima detailer.",
+    "ja": "NAIトークンを接続すれば開始できます。Animaディテーラーを使う場合はローカルモデルも準備してください。"
+  },
+  "Anima Base · 기본 생성": {
+    "en": "Anima Base · Base generation",
+    "ja": "Anima Base · 基本生成"
+  },
+  "기본 생성 모델과 공용 텍스트 인코더·VAE입니다. NAI만 사용하면 필요 없습니다.": {
+    "en": "Base generation model with shared text encoder and VAE. Not required when using NAI alone.",
+    "ja": "基本生成モデルと共通のテキストエンコーダー・VAEです。NAIのみの場合は不要です。"
+  },
+  "Anima Aesthetic · 선택": {
+    "en": "Anima Aesthetic · Optional",
+    "ja": "Anima Aesthetic · 任意"
+  },
+  "다른 화풍의 생성 모델입니다. 기본 모델의 텍스트 인코더·VAE를 함께 사용합니다.": {
+    "en": "An alternative generation model. Uses the same text encoder and VAE as the base model.",
+    "ja": "別の画風の生成モデルです。基本モデルと共通のテキストエンコーダー・VAEを使います。"
+  },
+  "얼굴·눈 디테일러 · 선택": {
+    "en": "Face & eye detailer · Optional",
+    "ja": "顔・目ディテーラー · 任意"
+  },
+  "얼굴·눈 위치와 마스크를 찾습니다. 디테일러를 사용할 때 준비하세요.": {
+    "en": "Finds faces, eyes and masks. Prepare these when using a detailer.",
+    "ja": "顔・目の位置とマスクを検出します。ディテーラーを使う場合に準備してください。"
+  },
+  "SAM3 · 선택": {
+    "en": "SAM3 · Optional",
+    "ja": "SAM3 · 任意"
+  },
+  "텍스트로 지정한 대상을 분할할 때만 필요합니다. 고급 설정의 SAM3 준비에서 접근 권한과 실행 패키지를 확인하세요.": {
+    "en": "Needed only for text-guided segmentation. Check access and runtime packages in advanced SAM3 preparation.",
+    "ja": "テキストで指定した対象を分割する場合のみ必要です。詳細設定のSAM3準備でアクセス権と実行パッケージを確認してください。"
+  },
+  "VRS · 이미지 인코더": {
+    "en": "VRS · Image encoder",
+    "ja": "VRS · 画像エンコーダー"
+  },
+  "이미지로 유사사례를 찾을 때 필요합니다. 비전 가중치 약 320 MiB, CUDA 필요. 캡션 모델은 필요 없습니다.": {
+    "en": "Required for image-based VRS retrieval. Vision weights are about 320 MiB and require CUDA. No caption model is needed.",
+    "ja": "画像から類似事例を探す場合に必要です。ビジョン重みは約320 MiBでCUDAが必要です。キャプションモデルは不要です。"
+  },
+  "SWEGCA · 내장 코어": {
+    "en": "SWEGCA · Bundled core",
+    "ja": "SWEGCA · 内蔵コア"
+  },
+  "검색 사례와 명시적 사용자 평가의 근거를 처리합니다. 추가 모델 다운로드는 없습니다.": {
+    "en": "Processes evidence from retrieval and explicit user ratings. No additional model download.",
+    "ja": "検索事例と明示的なユーザー評価の根拠を処理します。追加モデルのダウンロードは不要です。"
+  },
+  "Anima APP · 사용 가이드": {
+    "en": "Anima APP · User guide",
+    "ja": "Anima APP · 使用ガイド"
+  },
+  "생성부터 디테일러 연결까지 따라하기": {
+    "en": "Follow generation through detailer workflows",
+    "ja": "生成からディテーラー連携まで"
+  },
+  "Anima · 모델 원본": {
+    "en": "Anima · Original models",
+    "ja": "Anima · モデル配布元"
+  },
+  "모델 파일·권장 설정·작가 표기": {
+    "en": "Model files, recommended settings and artist syntax",
+    "ja": "モデル・推奨設定・作家表記"
+  },
+  "NovelAI · 공식 설명서": {
+    "en": "NovelAI · Official documentation",
+    "ja": "NovelAI · 公式ドキュメント"
+  },
+  "이미지 생성·참조 이미지·프롬프트 가중치": {
+    "en": "Image generation, reference images and prompt weights",
+    "ja": "画像生成・参照画像・プロンプトの重み"
+  },
+  "NAI 연동 · 원본 프로젝트": {
+    "en": "NAI integration · Original project",
+    "ja": "NAI連携 · 元プロジェクト"
+  },
+  "NAI 요청·변환·디테일러 구현 참고": {
+    "en": "Source for NAI requests, conversion and detailing",
+    "ja": "NAIリクエスト・変換・ディテーラー実装の参考"
+  },
+  "VRS · 비전 가중치 원본": {
+    "en": "VRS · Original vision weights",
+    "ja": "VRS · ビジョン重みの配布元"
+  },
+  "이미지 검색에 사용하는 비전 인코더 출처": {
+    "en": "Source of the vision encoder used for image retrieval",
+    "ja": "画像検索に使用するビジョンエンコーダーの出典"
+  },
+  "VRS · 이미지 전처리 원본": {
+    "en": "VRS · Original image preprocessing",
+    "ja": "VRS · 画像前処理の出典"
+  },
+  "이미지를 인코더 입력으로 바꾸는 설정": {
+    "en": "Settings that transform images into encoder input",
+    "ja": "画像をエンコーダー入力に変換する設定"
+  },
+  "WD Tagger · 선택 기능": {
+    "en": "WD Tagger · Optional",
+    "ja": "WD Tagger · 任意機能"
+  },
+  "PixAI Tagger · 선택 기능": {
+    "en": "PixAI Tagger · Optional",
+    "ja": "PixAI Tagger · 任意機能"
+  },
+  "이미지 태그 분석 모델 원본": {
+    "en": "Original image tagging model",
+    "ja": "画像タグ解析モデルの配布元"
   }
 }

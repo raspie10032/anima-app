@@ -867,12 +867,76 @@ def build_openapi_document(
                 content = {media: {'schema': {'type': 'string', 'format': 'binary'}}
                            for media in ('image/png', 'image/jpeg', 'image/webp')}
                 operation['parameters'] = [{'name': 'mode', 'in': 'query',
-                    'schema': {'type': 'string', 'enum': ['visual', 'vrs'], 'default': 'visual'}}]
+                    'schema': {'type': 'string', 'enum': ['visual', 'vrs'], 'default': 'visual'}},
+                    {'name': 'ranking', 'in': 'query',
+                     'schema': {'type': 'string', 'enum': ['similar', 'diverse'], 'default': 'similar'}}]
+            elif suffix == 'search':
+                content['application/json']['schema'] = {'type': 'object', 'required': ['id'],
+                    'properties': {'id': {'type': 'string'},
+                        'mode': {'type': 'string', 'enum': ['visual', 'vrs'], 'default': 'visual'},
+                        'ranking': {'type': 'string', 'enum': ['similar', 'diverse'], 'default': 'similar'},
+                        'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100, 'default': 24}}}
             operation['requestBody'] = {'required': True, 'content': content}
         if suffix.startswith(('thumbnail/', 'preview/')):
             operation['responses']['200'] = {'description': 'Local JPEG preview',
                 'content': {'image/jpeg': {'schema': {'type': 'string', 'format': 'binary'}}}}
         paths['/api/library/' + suffix] = {method: operation}
+
+    paths['/api/setup/catalog'] = {'get': {
+        'operationId': 'setupCatalog', 'tags': ['Setup'],
+        'summary': 'Feature requirements, local model-file readiness and original reference links',
+        'responses': {'200': generic_response, '403': error_response},
+    }}
+    paths['/api/setup/vrs/settings'] = {'post': {
+        'operationId': 'setupVrsEnabled', 'tags': ['Setup'],
+        'summary': 'Persist VRS enable state; disabling releases the idle encoder and retains all library records',
+        'requestBody': {'required': True, 'content': {'application/json': {'schema': {
+            'type': 'object', 'additionalProperties': False, 'required': ['enabled'],
+            'properties': {'enabled': {'type': 'boolean'}},
+        }}}},
+        'responses': {'200': generic_response, '400': error_response, '403': error_response},
+    }}
+    paths['/api/setup/nai'] = {'post': {
+        'operationId': 'setupNaiToken', 'tags': ['Setup'],
+        'summary': 'Apply or clear an NAI token; optionally persist in this PC OS credential store',
+        'requestBody': {'required': True, 'content': {'application/json': {'schema': {
+            'type': 'object', 'additionalProperties': False,
+            'properties': {'token': {'type': 'string', 'writeOnly': True, 'maxLength': 4096},
+                           'use_current': {'type': 'boolean', 'default': False},
+                           'persist': {'type': 'boolean', 'default': False}},
+            'oneOf': [{'required': ['token'], 'properties': {'use_current': {'const': False}}},
+                      {'required': ['use_current'], 'properties': {'use_current': {'const': True}},
+                       'not': {'required': ['token']}}],
+        }}}},
+        'responses': {'200': generic_response, '400': error_response, '403': error_response},
+    }}
+    for suffix, method in [('status', 'get'), ('accounts', 'post'), ('accounts/remove', 'post'),
+                           ('accounts/storage', 'post'),
+                           ('start', 'post'), ('cancel', 'post')]:
+        operation = {'operationId': 'barracks_' + suffix.replace('/', '_'), 'tags': ['Barracks'],
+                     'summary': 'NAI standalone T2I batch: ' + suffix,
+                     'responses': {'202' if suffix == 'start' else '200': generic_response,
+                                   '400': error_response, '403': error_response}}
+        if method == 'post':
+            fields = {
+                'accounts': {'name': {'type': 'string', 'minLength': 1, 'maxLength': 48},
+                             'token': {'type': 'string', 'writeOnly': True, 'maxLength': 4096},
+                             'use_current': {'type': 'boolean', 'default': False},
+                             'persist': {'type': 'boolean', 'default': False}},
+                'accounts/remove': {'id': {'type': 'string'}},
+                'accounts/storage': {'id': {'type': 'string'}, 'persist': {'type': 'boolean'}},
+                'start': {'request': {'type': 'object', 'description': 'NovelAI generate only. No workflow, detailer, input images or references.'},
+                          'account_ids': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 1, 'maxItems': 8, 'uniqueItems': True},
+                          'count': {'type': 'integer', 'minimum': 1, 'maximum': 100, 'default': 1},
+                          'seed_mode': {'type': 'string', 'enum': ['fixed', 'increment', 'random'], 'default': 'increment'}},
+                'cancel': {},
+            }[suffix]
+            operation['requestBody'] = {'required': True, 'content': {'application/json': {'schema': {
+                'type': 'object', 'additionalProperties': False, 'properties': fields,
+                'required': {'accounts': ['name'], 'accounts/remove': ['id'], 'accounts/storage': ['id', 'persist'],
+                             'start': ['request', 'account_ids'], 'cancel': []}[suffix],
+            }}}}
+        paths['/api/barracks/' + suffix] = {method: operation}
 
     return {
         "openapi": "3.1.0",

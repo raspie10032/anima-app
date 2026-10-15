@@ -4,6 +4,7 @@ import argparse
 import base64
 import csv
 import hashlib
+import json
 from io import StringIO
 from pathlib import Path
 
@@ -89,6 +90,13 @@ def main(argv: list[str] | None = None) -> int:
     if arguments.update:
         update_records()
     errors = [*verify_records(), *verify_product_boundary()]
+    for package in ('swegca', 'vrs_int'):
+        folder = PROJECT_ROOT / 'src/anima_app/_vendor' / package
+        manifest = json.loads((folder / 'UPSTREAM.json').read_text(encoding='utf-8'))
+        for row in manifest['files']:
+            file = folder / row['file']
+            if not file.is_file() or hashlib.sha256(file.read_bytes()).hexdigest() != row['sha256']:
+                errors.append(f'Embedded {package} source integrity mismatch: {row["file"]}')
     if errors:
         raise SystemExit("\n".join(errors))
     print("vendor verification passed: RECORD hashes and Anima APP product boundary")

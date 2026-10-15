@@ -22,6 +22,8 @@ Implementation: [`workflows.py`](../src/anima_app/workflows.py), [`workflow.js`]
 
 ## Prompt routing and provenance
 
+**Barracks:** the separate `/api/barracks/*` scheduler supports only standalone NAI `generate`. It rejects workflows, input/mask images, references and detailers, and shares a per-token request gate with ordinary generation. Credentials remain in worker context; result manifests record account names and batch/job IDs. See [Barracks API, limits and usage](BARRACKS.md).
+
 API callers opt in with `"prompt_routing":{"source":"auto"}`. The GUI enables routing. Other accepted sources are `comfyui`, `naiv4`, `oldnai` and `native` (no conversion). If omitted by an API client, prompts remain native to preserve compatibility.
 
 Anima targets Comfy-style weighting with `@artist`; NAI V4/V5 targets numeric `weight::...::` with `artist:`. V3 uses legacy weighting and can require approximation. Mixed weight syntaxes fail automatic detection; choose a consistent source syntax or explicitly disable conversion.
@@ -71,7 +73,14 @@ Implementation: [`prompt_routing.py`](../src/anima_app/prompt_routing.py), [`art
 | `POST /api/library/feedback` | Store separate similarity/reuse feedback |
 | `POST /api/library/compare`, `/api/library/compare/undo` | Store/retract a reference-based candidate judgment |
 
-Library routes: [`library_http.py`](../src/anima_app/library_http.py). Do not send token fields in any request body; credentials are read only from the server environment.
+Library routes: [`library_http.py`](../src/anima_app/library_http.py). Generation/library requests must not contain credentials. The guarded `/api/setup/nai` and `/api/barracks/accounts` endpoints accept tokens. By default tokens stay in volatile memory on the PC running the app; explicit `persist:true` stores them in the OS credential store. It is never written to presets, manifests, browser storage or logs.
+
+## Setup endpoints
+
+`GET /api/setup/status` returns token presence, model readiness, encoder preparation, index progress and core status. `POST /api/setup/nai` accepts `{token,persist:false}` or `{use_current:true,persist:true}`. Empty `token` clears the active default and its saved copy; `persist:false` removes its saved copy while keeping a nonempty token active. `POST /api/setup/anima/prepare` accepts an allowed model profile. `POST /api/setup/vrs/prepare` and `POST /api/setup/vrs/cancel` control encoder preparation. `GET /api/setup/diagnostics` returns bounded per-file issues and the last sanitized worker log. Existing request-origin checks apply.
+
+`GET /api/setup/catalog` returns feature requirements, local model file readiness and original source links used by **Required models / References**. It shares the preparation profiles; it does not download files.
+`POST /api/setup/vrs/settings` accepts only `{enabled: true|false}` and persists it in the library SQLite settings. Status exposes `vrs.enabled` and library status exposes `vrs_enabled`. The default is enabled for existing installs. Disabled VRS rejects vector search, indexing and encoder preparation; it closes the idle encoder and clears cached corpus matrices without deleting any data. Basic CPU image retrieval and metadata management remain available. Busy work rejects a change without interrupting it. Re-enable reuses vectors with the matching encoder contract.
 
 ## Storage and portability
 
@@ -88,17 +97,18 @@ Paths below are relative to the application root (working directory unless `ANIM
 | `outputs/library/library.sqlite3` | Assets, records, combinations, vectors, queries, feedback and comparisons |
 | `outputs/library/thumbnails/` | Derived thumbnails |
 | `outputs/artist-catalog/danbooru.json` | Optional local artist-tag snapshot |
+| OS credential store + `outputs/credentials/index.json` | Opt-in tokens in the OS vault; index contains only names and opaque lookup IDs |
 | Browser storage, current origin | Generation/library drafts, undo state, locale; no token |
 
 The library references original images rather than replacing them. Keep their paths accessible. Byte duplicates share an asset; different records can remain connected. Pixel-identical images are excluded against the query and within a result list. Named presets do not embed model or reference files. For backups, stop writes and use SQLite's backup facility or back up the database consistently with its journal files; copying only a live SQLite file can miss recent transactions.
 
-The current pilot limit is **2,000 assets**. Basic CPU similarity uses fixed color/layout/edge features. VRS uses a separately configured VRS-INT Gemma 4 encoder, comparing images before joining recorded metadata. Encoding shares the app generation lock. It does not stop other GPU applications. Feedback is stored, not used for automatic ranking updates. Native VRS decision-core integration remains future work.
+The library has **no total image-count limit**. Folder imports traverse files incrementally, omit a per-job limit by default, and preserve originals; browsing is paginated. `GET /api/library/status` returns `capacity: null`. API clients may supply a positive integer `limit` to bound a single import or history-sync job without limiting the library itself. Basic CPU similarity uses fixed color/layout/edge features. VRS uses the bundled Gemma 4 encoder with app-managed pinned weights, comparing images before joining recorded metadata. Encoding shares the app generation lock. It does not stop other GPU applications. Explicit visual feedback can reorder nearby candidates for the same query pixels and encoder; reuse feedback does not affect visual ranking. The bundled SWEGCA Architecture evidence accumulator assesses explicit local evaluations during search and feedback. Its unchanged decision rules and observation boundary are described in [the integration contract](EMBEDDED_VRS_CONTRACT.md).
 
 ## Environment and localization
 
 | Variable | Purpose |
 |---|---|
-| `NAI_ACCESS_TOKEN` | Primary NAI token, server environment only |
+| `NAI_ACCESS_TOKEN` | Primary NAI token in the execution PC process environment |
 | `NAI_API_TOKEN` | Compatibility fallback when primary is unset/blank |
 | `ANIMA_APP_ROOT` | Application root for models, inputs, outputs and other local resources |
 | `ANIMA_APP_MODEL_SOURCE` | Local model-copy source |

@@ -1,0 +1,15 @@
+{
+  "model": "p-e-w/gemma-4-E2B-it-heretic-ara",
+  "model_revision": "c9a1d4c031981f14d86eeb0c7d87de7fafd34513",
+  "processor": "unsloth/gemma-4-e2b-it",
+  "processor_revision": "d36bdd3855c82a6a1a23f7c459b749f5724ae75d",
+  "tensor_count": 658,
+  "tensor_bytes": 334730112,
+  "source_header_sha256": "74e51188bf4d249f9d8ae43909ee684701278e0f009398e08b19193db931ce75",
+  "files": {
+    "model.safetensors": "bf742350ecfc90b808be35e6f52aaafa7ff9f00a396d70a8c8710d79f8f0897f",
+    "config.json": "998894cd70ec73428bbb771edca0f7c562e02c5bc31b837d98bd4065088e91f9",
+    "preprocessor_config.json": "12476d626b89e273a9b2c6a493a6319ab02427ebfcd3635d92b29584b27c7249"
+  },
+  "note": "Unchanged vision tensors only. Legacy cache compatibility requires separate measurement."
+}

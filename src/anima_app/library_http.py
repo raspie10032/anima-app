@@ -31,16 +31,16 @@ class LibraryHTTP:
             lib = self.library
             query = parse_qs(parsed.query)
             if method == 'GET':
-                if route in ('status', 'items') and time.monotonic() - self.last_sync > 30 and not lib.import_lock.locked():
+                if route in ('status', 'items') and time.monotonic() - self.last_sync > 30 and not lib.import_lock.locked() and not self.generation_lock.locked():
                     self.last_sync = time.monotonic()
-                    lib.start({'kind': 'sync'})
+                    lib.start({'kind': 'sync', 'limit': 32})
                 if route == 'status':
                     result = lib.status()
                 elif route == 'items':
                     result = lib.browse(query.get('q', [''])[0], int(query.get('offset', ['0'])[0]),
                                         combo=query.get('combo', [''])[0], favorite=query.get('favorite', ['0'])[0] == '1')
                 elif route.startswith('item/'):
-                    result = lib.detail(route.removeprefix('item/'))
+                    result = lib.detail(route.removeprefix('item/'), group=query.get('group') == ['1'])
                 elif route.startswith('preview/'):
                     handler._send_bytes(200, lib.preview(route.removeprefix('preview/')), 'image/jpeg')
                     return
@@ -59,7 +59,8 @@ class LibraryHTTP:
                 if temporary is None:
                     return
                 try:
-                    result = lib.search(image=temporary, mode=query.get('mode', ['visual'])[0])
+                    result = lib.search(image=temporary, mode=query.get('mode', ['visual'])[0],
+                                        ranking=query.get('ranking', ['similar'])[0])
                 finally:
                     temporary.unlink(missing_ok=True)
             else:
@@ -71,7 +72,8 @@ class LibraryHTTP:
                 elif route == 'cancel':
                     result = lib.cancel()
                 elif route == 'search':
-                    result = lib.search(identity=data.get('id'), mode=data.get('mode', 'visual'), limit=data.get('limit', 24))
+                    result = lib.search(identity=data.get('id'), mode=data.get('mode', 'visual'), limit=data.get('limit', 24),
+                                        ranking=data.get('ranking', 'similar'))
                 elif route == 'annotate':
                     result = lib.annotate(data)
                 elif route == 'feedback':

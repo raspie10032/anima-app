@@ -4,29 +4,25 @@ The image workspace header includes **App language** for English, Korean and Jap
 
 Start with pixels, retrieve similar examples, inspect their **recorded** artist combinations, and reuse their prompts or generation settings. Query images need no embedded prompt. Single-artist prompts are valid combinations.
 
-Open **Image workspace** in the app. Expand **검색 방식 · 라이브러리 관리**, enter absolute folder paths (one per line), and import PNG/JPEG/WebP recursively. **앱 생성 이력 연결** joins existing app manifests. The total library capacity is 2,000 files. App history is also periodically synchronized while the library is being used.
+Open **Image workspace** in the app. Expand **검색 방식 · 라이브러리 관리**, enter absolute folder paths (one per line), and import PNG/JPEG/WebP recursively. **There is no library item-count limit.** Files are imported incrementally and listings are fetched by page. **앱 생성 이력 연결** joins existing app manifests. App history is also periodically synchronized while the library is being used.
 
 Drop a query image into the library, choose a result, and inspect its saved records. Artist buttons show examples with the same ordered, weighted artist tags and model context. The reuse actions stage artist tags, positive/negative prompts, or the saved request in the **03 프롬프트** draft. Edit the draft and use **생성 화면에 적용** to transfer it through the existing preset path. They do not start generation. Prompt-only reuse preserves the current provider/model; complete reuse preserves current Opus protection. Missing references, models, and settings still require review before generation.
 
-Favorites, tags, collection names, notes, and text search are supported. Visual similarity and willingness to reuse the conditions are separate feedback fields. Feedback is saved locally; it does not yet train a model or change rankings.
+Favorites, tags, collection names, notes, and text search are supported. Visual similarity and willingness to reuse the conditions are separate feedback fields. Choose **Search reference again** to apply similarity ratings and A/B preferences to the same pixel reference and encoder. **Reset similarity rating** clears that candidate's absolute rating. Repeated judgments do not accumulate; reuse ratings do not change visual ordering. The original cosine score and SWEGCA decision thresholds stay unchanged.
 
-## Optional VRS-INT encoder
+**Most similar** is the default order. **Mix diverse cases** spreads nearby candidates using their image vectors; select it and search the reference again. It never uses artist tags or prompts to rank images. Equal/skip comparisons express no relative preference. Undo removes the latest comparison's effect when searching again.
 
-The default CPU search compares fixed color, layout, and edge features. VRS search uses the existing VRS-INT Gemma 4 image encoder. Configure the app before launch:
+Consecutive external searches reuse the encoder for up to 60 idle seconds. Another app GPU task releases the idle encoder before starting. Corpus matrices are cached in the execution PC's memory and invalidated on corpus/vector changes. The first external search after startup or encoder release includes model startup time.
 
-```bash
-cd /path/to/anima-app
-export ANIMA_LIBRARY_VRS_ROOT='/path/to/RS-Seasonal-Prompt-Generator'
-export ANIMA_LIBRARY_VRS_ENCODER='/path/to/local-gemma4-encoder'
-export ANIMA_LIBRARY_VRS_PYTHON='/path/to/compatible-environment/bin/python'
-PYTHONPATH=src .venv/bin/python -m anima_app.cli serve --host 127.0.0.1 --port 8768
-```
+## Embedded VRS image search
 
-Use an environment capable of running `vrs_int.encoder`, with its dependencies and local model files already installed. No model download is attempted. Click **VRS 색인 준비** to build the index; completed vectors survive cancellation and can be reused. VRS becomes the default search mode when every asset is indexed, unless the user explicitly chooses another mode. Cached case queries reuse their vectors; uploaded images incur additional model-loading and encoding time. Encoding takes the app's generation lock; independent ComfyUI processes are not controlled.
+Open **Connect & prepare → Find similar images → Prepare image encoder**. The app bundles the encoder code and downloads about 320 MiB of pinned vision weights plus missing runtime dependencies to `models/vrs/gemma4-vision`. CUDA is required for this encoder; basic CPU similarity remains available without it. No sibling repository, external Python executable or `ANIMA_LIBRARY_VRS_*` variable is needed.
 
-The adapter passes freshly decoded RGB PNGs without original metadata to the encoder. Ranking never uses artist tags, prompt text, or filenames. Records are joined after image ranking. Native VRS decision-core integration and adaptive preference learning are future work.
+After importing a folder, choose **Index imported images**. Batches of eight are saved independently; cancel and resume without losing completed batches. Search works over the prepared subset while other images remain pending. **Check file issues** identifies missing originals, unreadable images and encoder failures. Restore missing originals and retry; one missing file does not stop other images.
 
-Index versioning includes encoder source, model provenance, preprocessing, and worker code hashes. It does not hash all weight files on each request: changing weights requires updating their provenance and preparing a new index.
+Captioning is not required. Pixel decoding and metadata cleanup are separate. Malformed generation fields and JSON retain recoverable prompts with warnings and never turn readable pixels into an import failure. Similarity features use only decoded RGB; they do not use artist tags, filenames or prompts. Explicit personal judgments provide bounded ordering adjustments for the same query. Pixel-identical candidates share one result card, with all associated records and source paths available in details.
+
+The bundled SWEGCA Architecture evidence accumulator is invoked during search and explicit feedback, preserving its original decision rules. Receipts distinguish similarity observations from explicit local ratings. Old vectors remain preserved under their original contract; changed weights, preprocessing, source or runtime versions require a separate index.
 
 ## Data and provenance
 
@@ -53,6 +49,6 @@ The prototype is now connected to the real library. The entry opens a full-scree
 - The inspector retains source records, artist order/weight, model/seed, original conditions, provenance, favorites, and annotations. Image enlargement uses a metadata-free JPEG up to 1,600px; missing or changed originals fall back to labeled stored thumbnails.
 - The footer shows status and generation progress. Narrow layouts keep the reference at the top and put details after the gallery. Desktop arrow keys navigate cases outside editing controls.
 
-Comparison rows persist in the new SQLite `comparisons` table (query, A/B assets, choice, timestamp, undone flag). Undo retains the original row. The browser's comparison cursor and undo stack last only for the current query session. Existing images, vectors, queries, and feedback remain intact. Generated results link the exact source case record and reuse scope. Adaptive VRS reranking, persistent project boards and a dedicated full-lineage browser are not included.
+Comparison rows persist in the SQLite `comparisons` table (query, A/B assets, choice, timestamp, undone flag). Undo retains the original row. The latest active judgment for a pair controls its bounded preference adjustment. Ratings and ordering persist across app restarts; the browser's comparison cursor and undo stack last only for the current query session. Existing images, vectors, queries, and feedback remain intact. Generated results link the exact source case record and reuse scope.
 
 Headless Chromium checks use temporary synthetic data and close their browsers after completion. They exercise UI and storage without live NAI generation. See [reproduction commands](APP_REFERENCE.md#verification-and-publication-boundary).

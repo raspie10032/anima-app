@@ -22,7 +22,7 @@ Intermediate images and manifests remain available for stage comparison. `output
 
 ## Walkthrough and validation
 
-The [detailed generation walkthrough](IMAGE_GENERATION_EN.md) covers installation, a first image, both detailer directions and output comparison. **NAI has no browser token field; [set the server terminal environment](NAI_TOKEN_SETUP.md).** See [main update notes](MAIN_UPDATE_2026-10-14.md) for current validation and limits.
+The [detailed generation walkthrough](IMAGE_GENERATION_EN.md) covers installation, a first image, both detailer directions and output comparison. **In v0.6.1 enter NAI credentials in Connect & prepare; [token setup](NAI_TOKEN_SETUP.md) also covers the optional terminal method.** See [release notes](RELEASE_0.6.1.md) for current validation and limits.
 
 ## Authoring, provider adaptation and case references
 

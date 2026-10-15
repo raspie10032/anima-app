@@ -2,6 +2,25 @@
 
 Anima APP is a lightweight local Anima image-generation app.
 
+## Embedded image encoder and SWEGCA evidence core
+
+`src/anima_app/_vendor/vrs_int` adapts the Apache-2.0 VRS-INT vision encoder
+from RS-Seasonal-Prompt-Generator, commit
+`cf03659178f6a1abb7d1335f805a7f951511765d`. The app isolates model preparation
+and fixes mean pooling across images with different token counts. Source hashes,
+modifications and model revisions are recorded in `UPSTREAM.json` and `model.json`.
+Gemma vision weights are downloaded separately and retain their upstream model
+terms; they are not part of the source or wheel archive.
+
+`src/anima_app/_vendor/swegca` includes the MPL-2.0 SWEGCA Architecture evidence
+accumulator and its required Python kernel/arbiter definitions at commit
+`5901a5aa2dcbd0ac7ad12ac6dd745699f72288a8`. Relative imports and a Python 3.10
+StrEnum compatibility shim are the only upstream code adaptations. Decision
+thresholds and algorithms are unchanged. Keep the included MPL license and
+per-file source/provenance notices with redistribution. The app adapter replays
+explicit image-case evaluations and stores receipts; it does not claim to be
+the C++ SWEGCA-bit native graph engine.
+
 ## Runtime Code
 
 The `vendor/anima_runtime` tree contains a ComfyUI 0.22.2-derived runtime snapshot. The reported version is preserved in `vendor/anima_runtime/comfyui_version.py`; the exact upstream commit was not preserved. Keep the upstream license and attribution notices with redistributed source or packaged builds, and do not claim commit-level reproducibility for this snapshot.

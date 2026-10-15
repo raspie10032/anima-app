@@ -34,7 +34,7 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 ```
 
-**There is no NAI token input box in the browser.** Before starting the server, follow [NAI token setup](NAI_TOKEN_SETUP.md) to set `NAI_ACCESS_TOKEN` at a hidden terminal prompt. The server must inherit that environment; a browser refresh does not update it.
+In v0.6.1 open **Connect & prepare → Generate with NAI → NAI access token → Apply token**. No restart is needed; the token stays only in volatile memory on the PC running the app until exit; select **Save on this PC** to restore it at the next launch. [Terminal token setup](NAI_TOKEN_SETUP.md) is also available. Prepare local models and the image encoder in the same dialog. [Setup walkthrough](../SETUP.md).
 
 Start the application:
 
@@ -134,7 +134,7 @@ Add Anima upscale/detail or NAI detail stages with the stage selector and move t
 - Images and intermediate outputs: `outputs/images`. Generation records: `outputs/manifests`. Ordered-workflow journals: `outputs/workflows`.
 - Save a named preset to retain settings and stage order. Restoring a history item prefers the saved authoring text and workflow.
 - Drafts restore in the same browser and origin. They do not start generation. Presets do not contain model weights or reference image files; keep the referenced files available.
-- Open **Image workspace**, import a local folder or sync app history, and drop a reference image. Current capacity is **2,000 images**.
+- Open **Image workspace**, import a local folder or sync app history, and drop a reference image. There is **no total image-count limit**; files are imported incrementally and the library is browsed in pages.
 - Choose a retrieved case, inspect its recorded artist combination and prompt, and compare candidates against the reference. The query does not need prompt metadata.
 - Reuse artist tags, prompts, or conditions into the editable draft. Apply it to the generation screen, review the engine/protection/stages, then generate explicitly.
 - The result retains the exact source-case record and reuse scope. A reference button returns to it. Similarity does not establish the image's actual artist.

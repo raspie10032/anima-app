@@ -1,0 +1,44 @@
+{
+  "repository": "https://github.com/raspie10032/SWEGCA-Architecture",
+  "commit": "5901a5aa2dcbd0ac7ad12ac6dd745699f72288a8",
+  "license": "MPL-2.0",
+  "changes": [
+    "Relative package imports",
+    "Python 3.10 StrEnum compatibility import"
+  ],
+  "algorithm_changes": false,
+  "files": [
+    {
+      "file": "mosaic_evidence_accumulator.py",
+      "upstream_sha256": "21ea34ed0cbff51f91f1463e5429419d4ac34b4afc664e52091cb4ca26a68ab6",
+      "sha256": "d81f7d0aea40da1237adcb4970d0fc4b96e403f3675bdaac67e24b071849eb5e"
+    },
+    {
+      "file": "mosaic_cognitive_kernel.py",
+      "upstream_sha256": "7f40002114efc8fbb71865628aaa6a0a66be176208c6410d42370a8f5a0c586e",
+      "sha256": "bf79a9c2320d57a272bddcb0fd20db32ce5c1eb6dba1a8bb3d0396f4b51a11c3"
+    },
+    {
+      "file": "mosaic_omni.py",
+      "upstream_sha256": "487533d86850389665d74589ede02f7e64e6e041e24002f25667a77834de192f",
+      "sha256": "487533d86850389665d74589ede02f7e64e6e041e24002f25667a77834de192f"
+    },
+    {
+      "file": "mosaic_synapse_arbiter.py",
+      "upstream_sha256": "61f66801a8357549ecff7e90c8afe0d91d4a6fef6799d7aca33b846806ee36a3",
+      "sha256": "ffe6bd0f27b33a5eb4d3cb39ae36e5fd94c639a29e6742bf3ec185c0262867be"
+    },
+    {
+      "file": "LICENSE.txt",
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "file": "__init__.py",
+      "sha256": "3ef40ae6f8eec3848fb79bfe67f83cdbfdeff98144719dce6d9ad95dbeb180cd"
+    },
+    {
+      "file": "compat.py",
+      "sha256": "2ef2b39a090954043ae35ad91600219b5a0afda9fcf9b620f4105a3399521cdd"
+    }
+  ]
+}

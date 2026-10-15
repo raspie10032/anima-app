@@ -1952,6 +1952,8 @@ APP_JS += "\n" + (Path(__file__).with_name("static") / "library.js").read_text(e
 APP_JS += "\n" + (Path(__file__).with_name("static") / "generation.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "workflow.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "authoring.js").read_text(encoding="utf-8")
+APP_JS += "\n" + (Path(__file__).with_name("static") / "setup.js").read_text(encoding="utf-8")
+APP_JS += "\n" + (Path(__file__).with_name("static") / "barracks.js").read_text(encoding="utf-8")
 UI_MESSAGES = json.loads((Path(__file__).with_name("static") / "ui-messages.json").read_text(encoding="utf-8"))
 NAI_I18N_JS = "window.AnimaMessages = " + json.dumps(UI_MESSAGES, ensure_ascii=False) + ";\n"
 NAI_I18N_JS += (Path(__file__).with_name("static") / "i18n.js").read_text(encoding="utf-8") + "\n"
@@ -3760,9 +3762,17 @@ def create_http_server(
         raise ValueError("Anima APP HTTP server must bind to localhost or an IPv4 loopback address")
     warm_autocomplete_index(paths)
     progress_store = ProgressStore()
-    generation_lock = threading.Lock()
+    from anima_app.gpu_work_lock import GPUWorkLock
+    generation_lock = GPUWorkLock()
     from anima_app.library_http import LibraryHTTP
     library_http = LibraryHTTP(paths, generation_lock)
+    from anima_app.credentials import CredentialStore
+    credentials = CredentialStore(paths)
+    credentials.restore_default()
+    from anima_app.setup_http import SetupHTTP
+    setup_http = SetupHTTP(paths, library_http, generation_lock, credentials)
+    from anima_app.barracks import Barracks
+    barracks = Barracks(paths, default_dry_run=default_dry_run, credentials=credentials)
     tagger_setup = TaggerSetup(paths.wd_tagger_root, generation_lock)
     thumbnail_semaphore = threading.BoundedSemaphore(MAX_CONCURRENT_HISTORY_THUMBNAILS)
     llm_client = default_llm_client() if llm_client is None else llm_client
@@ -3787,6 +3797,12 @@ def create_http_server(
             if not self._require_trusted_request():
                 return
             parsed = urlparse(self.path)
+            if parsed.path.startswith('/api/barracks/'):
+                barracks.handle(self, parsed, 'GET')
+                return
+            if parsed.path.startswith('/api/setup/'):
+                setup_http.handle(self, parsed, 'GET')
+                return
             if parsed.path.startswith("/api/library/"):
                 library_http.handle(self, parsed, "GET")
                 return
@@ -3922,6 +3938,12 @@ def create_http_server(
             if not self._require_trusted_request(mutation=True):
                 return
             parsed = urlparse(self.path)
+            if parsed.path.startswith('/api/barracks/'):
+                barracks.handle(self, parsed, 'POST')
+                return
+            if parsed.path.startswith('/api/setup/'):
+                setup_http.handle(self, parsed, 'POST')
+                return
             if parsed.path.startswith("/api/library/"):
                 library_http.handle(self, parsed, "POST")
                 return
@@ -4465,8 +4487,11 @@ def create_http_server(
 
     class AnimaThreadingHTTPServer(ThreadingHTTPServer):
         def server_close(self) -> None:
+            barracks.close()
             tagger_setup.close()
             job_queue.close()
+            if library_http._library is not None:
+                library_http._library.close()
             super().server_close()
 
     return AnimaThreadingHTTPServer((host, port), AnimaRequestHandler)

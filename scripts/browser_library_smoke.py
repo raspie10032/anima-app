@@ -117,6 +117,21 @@ def main():
                 expect(dialog.get_by_role('status')).to_contain_text('평가를 저장')
                 dialog.get_by_role('button', name='조건을 다시 쓰고 싶음', exact=True).click()
                 expect(dialog.get_by_role('status')).to_contain_text('평가를 저장')
+                dialog.get_by_role('button', name='기준 그림 다시 검색', exact=True).click()
+                expect(dialog.get_by_role('status')).to_contain_text('검색 완료')
+                dialog.locator('.lib-card .lib-select').first.click()
+                expect(dialog.get_by_text('내 닮음 판단이 검색 순서에 반영된 사례입니다.', exact=True)).to_be_visible()
+                dialog.get_by_role('button', name='닮음 평가 초기화', exact=True).click()
+                expect(dialog.get_by_role('status')).to_contain_text('닮음 평가를 저장')
+                dialog.get_by_role('button', name='닮았음', exact=True).click()
+                expect(dialog.get_by_role('status')).to_contain_text('닮음 평가를 저장')
+                dialog.get_by_label('사례 정렬', exact=True).select_option('diverse')
+                with page.expect_request(lambda r: '/api/library/query-image' in r.url) as request:
+                    dialog.get_by_role('button', name='기준 그림 다시 검색', exact=True).click()
+                assert 'ranking=diverse' in request.value.url
+                expect(dialog.get_by_role('status')).to_contain_text('검색 완료')
+                expect(dialog.locator('.lib-card')).to_have_count(2)
+                dialog.locator('.lib-card .lib-select').first.click()
                 dialog.locator('#library-detail summary').filter(has_text='태그 · 컬렉션 · 메모').click()
                 dialog.get_by_label('태그', exact=True).fill('fixture-test')
                 dialog.get_by_label('컬렉션', exact=True).fill('browser-fixture')
@@ -193,14 +208,15 @@ def main():
                     'metadata-free-image-query', 'exclude-identical-pixels', 'separate-feedback',
                     'annotations', 'favorites', 'text-search', 'draft-undo', 'draft-preserved-across-tabs-and-close',
                     'full-size-preview', 'pairwise-comparison-and-undo', 'responsive-1920-1280-900-390', 'failed-query-preserves-context',
-                    'combination-return-to-results', 'out-of-order-search', 'pagination'], 'page_errors': errors,
+                    'combination-return-to-results', 'out-of-order-search', 'pagination',
+                    'repeat-search-with-feedback', 'reset-rating', 'diverse-ranking'], 'page_errors': errors,
                     'generation_requests': generation, 'external_browser_requests': external}, indent=2))
                 browser.close()
         finally:
             server.shutdown()
             server.server_close()
             thread.join(timeout=5)
-    print('Library browser acceptance passed (20 cases).')
+    print('Library browser acceptance passed (23 cases).')
 
 
 if __name__ == '__main__':
