@@ -62,6 +62,7 @@
 프로젝트 Python 환경에서 실행한다.
 
 ```bash
+.venv/bin/python -m ruff check src tests scripts
 PYTHONPATH=src .venv/bin/python -m pytest -q
 PYTHONPATH=src .venv/bin/python scripts/browser_optimization_smoke.py
 PYTHONPATH=src .venv/bin/python scripts/browser_queue_seed_smoke.py

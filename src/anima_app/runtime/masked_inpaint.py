@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 from PIL import Image
@@ -33,6 +34,9 @@ from anima_app.runtime.comfy_t2i import (
     default_model_paths,
 )
 from anima_app.runtime.sam3_segment import resolve_mask_path, resolve_segment_source
+
+if TYPE_CHECKING:
+    import torch
 
 
 MASKED_INPAINT_METHODS = {"noise_mask", "vae_inpaint", "crop_i2i_composite"}
@@ -138,9 +142,6 @@ def _render_masked_crop(
     _require_model_files(model_paths)
 
     import comfy.sample
-    import comfy.sd
-    import comfy.utils
-    import folder_paths
 
     model, clip, _resolved_loras, vae = _load_models(model_paths, request.loras)
     positive = _encode_prompt(clip, request.prompt)

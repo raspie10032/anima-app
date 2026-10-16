@@ -48,8 +48,12 @@ def models(tmp_path, monkeypatch):
     lora.write_bytes(b'lora')
     cache.clear()
     def get(loras=()):
-        return cache.get_models(paths, loras, resolve_lora=lambda l, roots: tmp_path/l.path,
-                                apply_loras=lambda m, c, ls: (m, c, [l.path for l in ls]))
+        return cache.get_models(
+            paths,
+            loras,
+            resolve_lora=lambda lora, roots: tmp_path / lora.path,
+            apply_loras=lambda model, clip, configs: (model, clip, [lora.path for lora in configs]),
+        )
     try:
         yield get, counts, paths, lora
     finally:

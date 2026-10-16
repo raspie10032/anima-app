@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from pathlib import Path, PureWindowsPath
 import time
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 import warnings
 
 import numpy as np
@@ -25,6 +25,9 @@ from anima_app.gpu import configure_default_cuda_device
 from anima_app.output_names import allocate_output_path
 from anima_app.requests import FaceDetailerSettings, T2ILoraConfig, T2IRequest, VaeDecodeSettings
 from anima_app.runtime.pipeline import ModelsNotReadyError, T2IRenderOutput, latent_shape_for_request
+
+if TYPE_CHECKING:
+    import torch
 
 
 FACE_DETAILER_TARGET_LONG_EDGE = 1536
@@ -99,11 +102,6 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
     model_paths = model_paths_for_request(request, paths)
     _require_model_files(model_paths)
     bootstrap_comfy_runtime(paths)
-
-    import comfy.sample
-    import comfy.sd
-    import comfy.utils
-    import folder_paths
 
     stage_started = time.perf_counter()
     model, clip, resolved_loras, vae = _load_models(model_paths, request.loras)

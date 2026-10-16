@@ -7,7 +7,6 @@ import zlib
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 from anima_app.requests import T2IRequest
