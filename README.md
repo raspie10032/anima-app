@@ -22,6 +22,7 @@ Open **Connect & prepare** to enter an NAI token, prepare Anima models, or downl
 | Search images, compare cases, reuse artist combinations | [한국어](docs/IMAGE_LIBRARY_KO.md) · [English](docs/IMAGE_LIBRARY_EN.md) |
 | CLI, API, troubleshooting | [Full Korean manual](docs/USER_GUIDE_KO.md) · [Technical reference](docs/APP_REFERENCE.md) |
 | Sources, attribution, models | [References](docs/REFERENCES.md) · [Third-party notices](NOTICE.md) |
+| Retrieval, queue and runtime optimization measurements | [2026-10-16 changes and validation](docs/OPTIMIZATION_2026-10-16.md) |
 
 The first-image guides explain each screen, settings to check before generation, ordered post-processing, intermediate outputs, selective prompt reuse, and recovery after an error. [The release notes](docs/RELEASE_0.6.1.md) describe the current features and verification scope.
 
@@ -196,7 +197,7 @@ When `ANIMA_LLM_RUNTIME_URL` is not set, the image-generation app still runs nor
 
 Use the `low_vram_highres` memory profile when the target machine has limited VRAM but still needs a larger final image. The profile keeps the base latent workflow unchanged, automatically enables tiled latent upscale and tiled VAE decode, and fixes the high-resolution upscale pass at 10 steps so the high-resolution stages stay predictable on 8GB-class GPUs.
 
-The default `auto` profile probes the local runtime once, caches the decision in `outputs\runtime_profile_cache.json`, and reuses that decision on later launches. GPUs in the 8GB VRAM class select `low_vram_highres`; larger GPUs select `balanced` unless the request explicitly chooses another profile.
+The default `auto` profile probes the local runtime once, caches the decision in `outputs\runtime_profile_cache.json`, and reuses that decision on later launches. GPUs in the 8GB VRAM class, or unavailable VRAM information, select `low_vram`; larger GPUs select `balanced`. `low_vram` uses tiled upscale when upscaling is already enabled and tiled VAE decode when decode mode is automatic. It preserves the requested size, upscale enablement, scale, and steps. The explicit `low_vram_highres` preset above remains available for intentionally adding a high-resolution pass.
 
 CLI dry-run example:
 

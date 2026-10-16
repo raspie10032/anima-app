@@ -21,6 +21,20 @@ CONTEXT_SETTINGS = frozenset(("nai_model", "cfg", "steps", "nai_sampler", "nai_s
                               "nai_cfg_rescale", "nai_prefer_brownian", "nai_variety_boost"))
 
 
+def requires_gpu(payload):
+    """Only plain remote T2I can run alongside local image encoding.
+
+    Be conservative about detectors, taggers and mixed workflows. Queue order
+    and account throttling are independent of this GPU resource decision.
+    """
+    return not (
+        payload.get("provider") == "novelai"
+        and payload.get("operation", "generate") == "generate"
+        and not payload.get("workflow", {}).get("steps")
+        and not any(payload.get(key, {}).get("enabled") for key in ("face_detailer", "nai_detailer", "detailer"))
+    )
+
+
 def has_local_step(payload):
     return payload.get("provider", "local") == "local" or any(
         s.get("provider") == "local" for s in payload.get("workflow", {}).get("steps", []))

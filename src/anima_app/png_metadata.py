@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import struct
+import tempfile
+import zlib
 from pathlib import Path
 from typing import Any
 
@@ -68,17 +72,49 @@ def build_a1111_parameters(
 
 
 def embed_png_parameters(path: Path, parameters: str) -> None:
-    with Image.open(path) as image:
-        image.load()
-        copied = image.copy()
-        existing_text = dict(getattr(image, "text", {}))
-
+    """Replace only the PNG text chunk, preserving compressed pixels verbatim."""
     info = PngInfo()
-    for key, value in existing_text.items():
-        if key != "parameters" and isinstance(value, str):
-            info.add_text(key, value)
     info.add_text("parameters", parameters)
-    copied.save(path, pnginfo=info)
+    temporary = None
+    try:
+        with path.open("rb") as source, tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as target:
+            temporary = Path(target.name)
+            signature = source.read(8)
+            if signature != b"\x89PNG\r\n\x1a\n":
+                raise ValueError("invalid PNG signature")
+            target.write(signature)
+            while True:
+                header = source.read(8)
+                if len(header) != 8:
+                    raise ValueError("truncated PNG chunk")
+                length, kind = struct.unpack(">I4s", header)
+                prefix = source.read(min(length, 80))
+                if len(prefix) != min(length, 80):
+                    raise ValueError("truncated PNG data")
+                discard = kind in (b"tEXt", b"zTXt", b"iTXt") and prefix.split(b"\0", 1)[0] == b"parameters"
+                if kind == b"IEND":
+                    for chunk_type, data, *_ in info.chunks:
+                        target.write(struct.pack(">I", len(data)) + chunk_type + data)
+                        target.write(struct.pack(">I", zlib.crc32(chunk_type + data) & 0xffffffff))
+                if not discard:
+                    target.write(header + prefix)
+                remaining = length - len(prefix) + 4  # include original CRC
+                while remaining:
+                    block = source.read(min(remaining, 65536))
+                    if not block:
+                        raise ValueError("truncated PNG data")
+                    if not discard:
+                        target.write(block)
+                    remaining -= len(block)
+                if kind == b"IEND":
+                    break
+            target.flush()
+            os.fsync(target.fileno())
+        os.chmod(temporary, path.stat().st_mode)
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def _format_loras(request: T2IRequest) -> str:

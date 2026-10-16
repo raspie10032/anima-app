@@ -60,6 +60,7 @@ class Library:
             self.generation_lock.register_idle(self.vrs, self.vrs.close)
         self._cache_lock = threading.Lock()
         self._vector_cache = {}
+        self._status_cache = None
         with self.connect() as conn:
             conn.executescript('''
             PRAGMA journal_mode=WAL;
@@ -68,8 +69,10 @@ class Library:
               vector TEXT NOT NULL, created REAL, favorite INTEGER NOT NULL DEFAULT 0,
               tags TEXT NOT NULL DEFAULT '', collection TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '');
             CREATE INDEX IF NOT EXISTS pixels ON assets(pixel_hash);
+            CREATE INDEX IF NOT EXISTS assets_created_id ON assets(created DESC,id);
             CREATE TABLE IF NOT EXISTS sources (
               path TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id), size INTEGER, mtime INTEGER);
+            CREATE INDEX IF NOT EXISTS sources_asset ON sources(asset_id);
             CREATE TABLE IF NOT EXISTS records (
               id TEXT PRIMARY KEY, asset_id TEXT NOT NULL REFERENCES assets(id), source TEXT,
               request TEXT NOT NULL, combo TEXT NOT NULL, combo_key TEXT NOT NULL,
@@ -113,10 +116,20 @@ class Library:
             # evaluations must not cause 2,000 JSON vectors to be parsed again.
             for table in ('assets', 'vectors'):
                 for event in ('INSERT', 'UPDATE', 'DELETE'):
-                    conn.execute(f'''CREATE TRIGGER IF NOT EXISTS retrieval_{table}_{event}
-                        AFTER {event} ON {table} BEGIN
+                    # Replace old broad UPDATE triggers on existing databases.
+                    conn.execute(f'DROP TRIGGER IF EXISTS retrieval_{table}_{event}')
+                    columns = ('id', 'pixel_hash', 'vector') if table == 'assets' else ('asset_id', 'contract', 'vector')
+                    changed = (' WHEN ' + ' OR '.join(f'OLD.{col} IS NOT NEW.{col}' for col in columns)) if event == 'UPDATE' else ''
+                    conn.execute(f'''CREATE TRIGGER retrieval_{table}_{event}
+                        AFTER {event} ON {table}{changed} BEGIN
                         UPDATE settings SET value=CAST(value AS INTEGER)+1
                         WHERE key='retrieval_revision'; END''')
+            conn.execute("INSERT OR IGNORE INTO settings VALUES('status_revision','0')")
+            for table in ('assets', 'records', 'vectors', 'index_issues', 'feedback'):
+                for event in ('INSERT', 'UPDATE', 'DELETE'):
+                    conn.execute(f'''CREATE TRIGGER IF NOT EXISTS status_{table}_{event}
+                        AFTER {event} ON {table} BEGIN
+                        UPDATE settings SET value=CAST(value AS INTEGER)+1 WHERE key='status_revision'; END''')
             conn.execute('CREATE INDEX IF NOT EXISTS query_pixels_contract ON queries(pixel_hash,contract)')
             conn.execute('''INSERT OR IGNORE INTO feedback_times
                 SELECT query_id,asset_id,CASE WHEN visual IS NOT NULL THEN created END,
@@ -144,22 +157,33 @@ class Library:
     def status(self):
         contract = self.vrs.contract
         with self.connect() as c:
-            n = c.execute('SELECT count(*) FROM assets').fetchone()[0]
-            records = c.execute('SELECT count(*) FROM records').fetchone()[0]
-            combos = c.execute("SELECT count(DISTINCT combo_key) FROM records WHERE combo_key != ''").fetchone()[0]
-            vectors = c.execute('SELECT count(*) FROM vectors WHERE contract=?', (contract,)).fetchone()[0]
-            issues = {r[0]: r[1] for r in c.execute('SELECT state,count(*) FROM index_issues WHERE contract=? GROUP BY state', (contract,))}
-            feedback = c.execute('SELECT count(*) FROM feedback').fetchone()[0]
-            distinct_pixels = c.execute('SELECT count(DISTINCT pixel_hash) FROM assets').fetchone()[0]
-            artist_sequences = len({dump(json.loads(row[0])['artists'])
-                                    for row in c.execute("SELECT DISTINCT combo FROM records WHERE combo_key != ''")})
+            c.execute('BEGIN')
+            revision = c.execute("SELECT value FROM settings WHERE key='status_revision'").fetchone()[0]
+            key = (contract, revision)
+            with self._cache_lock:
+                cached = self._status_cache
+            if cached is not None and cached[0] == key:
+                counts = dict(cached[1])
+            else:
+                n = c.execute('SELECT count(*) FROM assets').fetchone()[0]
+                records = c.execute('SELECT count(*) FROM records').fetchone()[0]
+                combos = c.execute("SELECT count(DISTINCT combo_key) FROM records WHERE combo_key != ''").fetchone()[0]
+                vectors = c.execute('SELECT count(*) FROM vectors WHERE contract=?', (contract,)).fetchone()[0]
+                issues = {r[0]: r[1] for r in c.execute('SELECT state,count(*) FROM index_issues WHERE contract=? GROUP BY state', (contract,))}
+                feedback = c.execute('SELECT count(*) FROM feedback').fetchone()[0]
+                distinct_pixels = c.execute('SELECT count(DISTINCT pixel_hash) FROM assets').fetchone()[0]
+                artist_sequences = len({dump(json.loads(row[0])['artists'])
+                                        for row in c.execute("SELECT DISTINCT combo FROM records WHERE combo_key != ''")})
+                counts = dict(items=n, records=records, combinations=combos, vrs_indexed=vectors,
+                              vrs_pending=max(0, n-vectors-sum(issues.values())), vrs_issues=issues,
+                              feedback=feedback, distinct_pixels=distinct_pixels, artist_sequences=artist_sequences)
+                with self._cache_lock:
+                    self._status_cache = (key, counts)
         with self.state_lock:
             job = dict(self.job)
-        return dict(items=n, records=records, combinations=combos, capacity=None,
+        return dict(counts, vrs_issues=dict(counts['vrs_issues']), capacity=None,
                     visual_contract=VISUAL_VERSION, vrs_enabled=self.vrs_enabled,
-                    vrs_contract=contract, vrs_indexed=vectors,
-                    vrs_pending=max(0, n-vectors-sum(issues.values())), vrs_issues=issues,
-                    feedback=feedback, distinct_pixels=distinct_pixels, artist_sequences=artist_sequences, job=job)
+                    vrs_contract=contract, job=job)
 
     def ingest(self, path, manifest=None):
         path = Path(path).resolve(strict=True)
@@ -212,19 +236,44 @@ class Library:
                       (record_id, file_hash, source, dump(request), dump(combo), combo['key'], dump(warnings), time.time()))
         return file_hash, 'existing' if exists else 'added'
 
-    def _item(self, c, row, detail=False, group=False):
+    def _item(self, c, row, detail=False, group=False, *, group_ids=None, records=None):
         result = {k: row[k] for k in ('id', 'width', 'height', 'favorite', 'tags', 'collection', 'note')}
         result['thumbnail'] = '/api/library/thumbnail/' + row['id']
-        ids = [r[0] for r in c.execute('SELECT id FROM assets WHERE pixel_hash=? ORDER BY id', (row['pixel_hash'],))] if group else [row['id']]
+        ids = group_ids if group_ids is not None else ([r[0] for r in c.execute('SELECT id FROM assets WHERE pixel_hash=? ORDER BY id', (row['pixel_hash'],))] if group else [row['id']])
         result['asset_ids'] = ids
         placeholders = ','.join('?' for _ in ids)
-        records = c.execute(f'SELECT * FROM records WHERE asset_id IN ({placeholders}) ORDER BY created DESC,id', ids).fetchall()
+        if records is None:
+            records = c.execute(f'SELECT * FROM records WHERE asset_id IN ({placeholders}) ORDER BY created DESC,id', ids).fetchall()
         result['records'] = [dict(id=r['id'], asset_id=r['asset_id'], source=r['source'], combo=json.loads(r['combo']),
                                   metadata_status='unreadable' if r['source'] == 'unreadable' else 'image_only' if not json.loads(r['request']) else 'available',
                                   warnings=json.loads(r['warnings']), **({'request': json.loads(r['request'])} if detail else {})) for r in records]
         if detail:
             result['sources'] = [dict(asset_id=r['asset_id'], path=r['path'], source_url=r['source_url'], available=Path(r['path']).is_file())
                                  for r in c.execute(f'SELECT asset_id,path,source_url FROM sources WHERE asset_id IN ({placeholders})', ids)]
+        return result
+
+    def _items(self, c, rows, *, group=False):
+        """Hydrate a page in bounded batches, preserving record and pixel order."""
+        if not rows:
+            return []
+        groups = {r['pixel_hash']: [r['id']] for r in rows}
+        if group:
+            groups = {r['pixel_hash']: [] for r in rows}
+            marks = ','.join('?' for _ in groups)
+            for r in c.execute(f'SELECT id,pixel_hash FROM assets WHERE pixel_hash IN ({marks}) ORDER BY id', list(groups)):
+                groups[r['pixel_hash']].append(r['id'])
+        ids = list(dict.fromkeys(i for r in rows for i in (groups[r['pixel_hash']] if group else [r['id']])))
+        by_asset = {i: [] for i in ids}
+        for offset in range(0, len(ids), 500):
+            batch = ids[offset:offset+500]
+            marks = ','.join('?' for _ in batch)
+            for record in c.execute(f'SELECT * FROM records WHERE asset_id IN ({marks})', batch):
+                by_asset[record['asset_id']].append(record)
+        result = []
+        for row in rows:
+            members = groups[row['pixel_hash']] if group else [row['id']]
+            records = sorted((r for i in members for r in by_asset[i]), key=lambda r: (-r['created'], r['id']))
+            result.append(self._item(c, row, group_ids=members, records=records))
         return result
 
     def detail(self, identity, *, group=False):
@@ -255,10 +304,11 @@ class Library:
                        OR EXISTS(SELECT 1 FROM records r WHERE r.asset_id=a.id AND instr(lower(r.request),?)>0))'''
             params.extend([term, term])
         with self.connect() as c:
+            c.execute('BEGIN')
             total = c.execute('SELECT count(*) FROM (' + sql + ')', params).fetchone()[0]
             rows = c.execute(sql + ' ORDER BY a.created DESC,a.id LIMIT ? OFFSET ?',
                              [*params, limit, min(offset, 2**63 - 1)]).fetchall()
-            return {'items': [self._item(c, row) for row in rows], 'total': total}
+            return {'items': self._items(c, rows), 'total': total}
 
     def annotate(self, data):
         identity = data.get('id')
@@ -389,7 +439,8 @@ class Library:
             else:
                 raise ValueError('검색할 이미지를 선택해 주세요.')
             contract = VISUAL_VERSION
-            rows = c.execute('SELECT * FROM assets ORDER BY id').fetchall()
+            columns = 'id,pixel_hash' if mode == 'vrs' else 'id,pixel_hash,vector'
+            rows = c.execute(f'SELECT {columns} FROM assets ORDER BY id').fetchall()
             total_assets = len(rows)
             if mode == 'vrs':
                 contract = self.vrs.contract
@@ -417,16 +468,16 @@ class Library:
                 scores = matrix @ unit(vector)
                 order = library_core.rank_cases(rows, scores, matrix, pixel_hash, adjustments, limit, ranking)
                 ranked = [(rows[i], scores[i]) for i in order]
-            selected, seen = [], {pixel_hash}
-            for row, score in ranked:
-                if row['pixel_hash'] in seen:
-                    continue
-                seen.add(row['pixel_hash'])
-                selected.append({**self._item(c, row, group=True), 'score': round(float(score), 6),
-                    'ranking_adjustment': adjustments.get(row['pixel_hash'], 0.0),
-                    'evidence': library_core.assess(c, pixel_hash, row['pixel_hash'], contract)})
-                if len(selected) == limit:
-                    break
+            selected = []
+            if ranked:
+                marks = ','.join('?' for _ in ranked)
+                details = {r['id']: r for r in c.execute(f'SELECT * FROM assets WHERE id IN ({marks})', [r['id'] for r, _ in ranked])}
+                items = self._items(c, [details[r['id']] for r, _ in ranked], group=True)
+                evidence = library_core.assess_many(c, pixel_hash, [r['pixel_hash'] for r, _ in ranked], contract)
+                for item, (row, score) in zip(items, ranked):
+                    selected.append({**item, 'score': round(float(score), 6),
+                        'ranking_adjustment': adjustments.get(row['pixel_hash'], 0.0),
+                        'evidence': evidence[row['pixel_hash']]})
             groups = {}
             for item in selected:
                 for record in item['records']:

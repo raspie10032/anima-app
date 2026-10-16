@@ -145,7 +145,7 @@ def run_face_detailer(
 
     with Image.open(image_path) as opened:
         base = opened.convert("RGB")
-    active_detailer = detailer or AnimeFaceDetailer(paths)
+    active_detailer = detailer or cached_face_detailer(paths)
     try:
         if concepts is None:
             mask_result = active_detailer.build_mask(base, request.face_detailer)
@@ -227,6 +227,16 @@ def _skipped(image_path: Path, *, reason: str, warning: str) -> FaceDetailerStag
         metadata={"enabled": True, "status": "skipped", "reason": reason, "boxes": []},
         warnings=(warning,),
     )
+
+
+
+def cached_face_detailer(paths: AppPaths):
+    from anima_app.runtime.model_cache import file_signature, get_detector
+    expected = detector_paths(paths)
+    files = (expected.face, expected.eyes, expected.sam, expected.sam3)
+    key = (str(paths.model_root.resolve()), AnimeFaceDetailer._select_device(),
+           tuple(file_signature(path) if path.is_file() else str(path) for path in files))
+    return get_detector(key, lambda: AnimeFaceDetailer(paths))
 
 
 class AnimeFaceDetailer:

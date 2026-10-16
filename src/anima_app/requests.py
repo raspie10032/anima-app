@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import PurePosixPath, PureWindowsPath
 
 from anima_app.defaults import (
@@ -14,7 +14,7 @@ from anima_app.defaults import (
     DEFAULT_T2I_WIDTH,
 )
 
-MEMORY_PROFILES = {"auto", "balanced", "low_vram_highres"}
+MEMORY_PROFILES = {"auto", "balanced", "low_vram", "low_vram_highres"}
 LOW_VRAM_HIGHRES_PROFILE = "low_vram_highres"
 DEFAULT_UPSCALE_STEPS = 10
 DEFAULT_FACE_DETAILER_STEPS = 10
@@ -136,8 +136,12 @@ class T2IRequest:
         memory_profile = str(self.memory_profile or "auto").strip() or "auto"
         object.__setattr__(self, "memory_profile", memory_profile)
         if self.memory_profile not in MEMORY_PROFILES:
-            raise ValueError("memory profile must be one of: auto, balanced, low_vram_highres")
+            raise ValueError("memory profile must be one of: auto, balanced, low_vram, low_vram_highres")
         object.__setattr__(self, "checkpoint", normalize_checkpoint_path(self.checkpoint))
+        if self.memory_profile == "low_vram":
+            object.__setattr__(self, "upscale", replace(self.upscale, tiled=True))
+            if self.vae_decode.mode == "auto":
+                object.__setattr__(self, "vae_decode", replace(self.vae_decode, mode="tiled"))
         if self.memory_profile == LOW_VRAM_HIGHRES_PROFILE:
             # Memory tuning must not add an upscale pass to a detail-only stage.
             if self.operation != "detail":

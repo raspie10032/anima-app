@@ -8,10 +8,10 @@ from typing import Any, Callable
 
 from anima_app.config import AppPaths
 from anima_app.gpu import CUDA_VISIBLE_DEVICES_ENV
-from anima_app.requests import LOW_VRAM_HIGHRES_PROFILE, T2IRequest
+from anima_app.requests import T2IRequest
 
 
-RUNTIME_PROFILE_CACHE_VERSION = 1
+RUNTIME_PROFILE_CACHE_VERSION = 2
 BALANCED_PROFILE = "balanced"
 AUTO_PROFILE = "auto"
 LOW_VRAM_HIGHRES_MAX_VRAM_MB = 8704
@@ -82,9 +82,9 @@ def probe_runtime_environment() -> dict[str, object]:
 def recommend_memory_profile(environment: dict[str, object]) -> str:
     total_vram_mb = _optional_int(environment.get("total_vram_mb"))
     if total_vram_mb is None:
-        return LOW_VRAM_HIGHRES_PROFILE
+        return "low_vram"
     if total_vram_mb <= LOW_VRAM_HIGHRES_MAX_VRAM_MB:
-        return LOW_VRAM_HIGHRES_PROFILE
+        return "low_vram"
     return BALANCED_PROFILE
 
 
@@ -143,7 +143,7 @@ def _cache_is_usable(payload: dict[str, Any] | None, cache_key: dict[str, object
     if payload.get("cache_key") != cache_key:
         return False
     decision = payload.get("decision")
-    return isinstance(decision, dict) and decision.get("profile") in {BALANCED_PROFILE, LOW_VRAM_HIGHRES_PROFILE}
+    return isinstance(decision, dict) and decision.get("profile") in {BALANCED_PROFILE, "low_vram"}
 
 
 def _optional_int(value: object) -> int | None:

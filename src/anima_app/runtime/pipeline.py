@@ -66,7 +66,7 @@ def run_t2i(
             raise NotImplementedError("real rendering is not wired yet")
         rendered = renderer(request, paths)
         _validate_output_png(rendered.output_path, paths)
-        for variant_path in (rendered.variants or {}).values():
+        for variant_path in set((rendered.variants or {}).values()) - {rendered.output_path}:
             _validate_output_png(variant_path, paths)
         parameters = build_a1111_parameters(request, wildcards=wildcards)
         embed_png_parameters(rendered.output_path, parameters)

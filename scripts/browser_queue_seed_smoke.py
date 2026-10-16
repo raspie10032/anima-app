@@ -66,8 +66,9 @@ def main():
                 for provider, infinite, seed in scenarios:
                     expect(page.locator("#start-queue")).to_be_enabled()
                     page.locator("#provider-select").select_option(provider)
-                    if provider == "novelai":
-                        page.locator("#nai-operation").select_option("generate")
+                    if page.locator("body").evaluate("el => el.classList.contains('setup-simple')"):
+                        page.locator("#setup-view-toggle").click()
+                    page.locator("details").evaluate_all("nodes => nodes.forEach(node => node.open = true)")
                     page.locator("#width").fill("64")
                     page.locator("#height").fill("64")
                     page.locator("#steps").fill("1")

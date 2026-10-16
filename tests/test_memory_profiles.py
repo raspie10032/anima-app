@@ -8,7 +8,7 @@ from anima_app.memory_profiles import cached_runtime_profile_decision, resolve_a
 from anima_app.requests import FaceDetailerSettings, I2ISettings, T2IRequest
 
 
-def test_auto_memory_profile_uses_low_vram_highres_for_8gb_class_gpu(tmp_path):
+def test_auto_memory_profile_tunes_memory_without_enabling_upscale(tmp_path):
     paths = AppPaths(project_root=tmp_path)
     request = T2IRequest(prompt="portrait")
 
@@ -23,8 +23,8 @@ def test_auto_memory_profile_uses_low_vram_highres_for_8gb_class_gpu(tmp_path):
         },
     )
 
-    assert resolved.memory_profile == "low_vram_highres"
-    assert resolved.upscale.enabled is True
+    assert resolved.memory_profile == "low_vram"
+    assert resolved.upscale.enabled is False
     assert resolved.upscale.tiled is True
     assert resolved.upscale.steps == 10
     assert resolved.vae_decode.mode == "tiled"
@@ -65,7 +65,7 @@ def test_detail_only_keeps_its_operation_with_low_memory_profile(
         probe=lambda: {"cuda_available": total_vram_mb is not None, "total_vram_mb": total_vram_mb},
     )
 
-    assert resolved.memory_profile == "low_vram_highres"
+    assert resolved.memory_profile == ("low_vram" if memory_profile == "auto" else memory_profile)
     assert resolved.face_detailer.enabled is True
     assert resolved.upscale.enabled is False
     assert resolved.vae_decode.mode == "tiled"
@@ -87,6 +87,18 @@ def test_runtime_profile_decision_is_cached(tmp_path):
     cached_payload = json.loads(paths.runtime_profile_cache_path.read_text(encoding="utf-8"))
 
     assert calls["count"] == 1
-    assert first["profile"] == "low_vram_highres"
-    assert second["profile"] == "low_vram_highres"
-    assert cached_payload["decision"]["profile"] == "low_vram_highres"
+    assert first["profile"] == "low_vram"
+    assert second["profile"] == "low_vram"
+    assert cached_payload["decision"]["profile"] == "low_vram"
+
+
+@pytest.mark.parametrize("vram", [None, 8192, 16384])
+@pytest.mark.parametrize("enabled", [False, True])
+def test_auto_preserves_requested_work_and_survives_reconstruction(tmp_path, vram, enabled):
+    from anima_app.requests import UpscaleSettings
+    request = T2IRequest(prompt="portrait", width=1024, height=1024,
+                         upscale=UpscaleSettings(enabled=enabled, steps=17, scale=1.25))
+    resolved = resolve_auto_memory_profile(request, paths=AppPaths(tmp_path), probe=lambda: {"total_vram_mb": vram})
+    resolved = replace(resolved, prompt="new portrait")
+    assert (resolved.width, resolved.height, resolved.steps) == (1024, 1024, request.steps)
+    assert (resolved.upscale.enabled, resolved.upscale.steps, resolved.upscale.scale) == (enabled, 17, 1.25)

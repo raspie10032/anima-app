@@ -5027,7 +5027,7 @@ def test_index_html_loads_history_panel():
     assert "setResultPayload(payload)" in INDEX_HTML
     assert "currentManifest = null" in INDEX_HTML
     assert "latest.result.manifest_path.split" in INDEX_HTML
-    assert "await openManifest(manifestName)" in INDEX_HTML
+    assert "await openManifest(manifestName, {queueEpoch: epoch})" in INDEX_HTML
     assert 'id="history"' in INDEX_HTML
     assert 'id="history-count"' in INDEX_HTML
     assert 'id="history-load-more"' in INDEX_HTML
@@ -5600,7 +5600,7 @@ def test_index_html_exposes_auto_queue_controls():
     assert "let serverQueuePollTimer = null" in INDEX_HTML
     assert "async function enqueueServerJobs" in INDEX_HTML
     assert 'fetch("/api/jobs", {' in INDEX_HTML
-    assert 'fetch("/api/jobs", {cache: "no-store"})' in INDEX_HTML
+    assert 'fetch("/api/jobs?view=summary", {cache: "no-store"})' in INDEX_HTML
     assert 'fetch("/api/jobs/" + encodeURIComponent(jobId) + "/cancel"' in INDEX_HTML
     assert "function renderServerQueueStatus" in INDEX_HTML
     assert "async function startAutoQueue" in INDEX_HTML
@@ -5613,7 +5613,7 @@ def test_app_restores_live_server_queue_on_startup():
     end = APP_JS.index("async function enqueueServerJobs", start)
     restore_handler = APP_JS[start:end]
 
-    assert 'fetch("/api/jobs", {cache: "no-store"})' in restore_handler
+    assert 'fetch("/api/jobs?view=summary", {cache: "no-store"})' in restore_handler
     assert '["running", "waiting", "queued"].includes(item.status)' in restore_handler
     assert "activeQueueBatchId = activeJob.batch_id || \"\";" in restore_handler
     assert "setQueueControlsRunning(true);" in restore_handler

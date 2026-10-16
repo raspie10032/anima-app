@@ -42,7 +42,11 @@ from anima_app.requests import (
 )
 from anima_app.runtime.pipeline import run_t2i
 from anima_app.wildcards import DEFAULT_WILDCARD_MODE, WILDCARD_MODES, expand_request_wildcards
-from anima_app.server import create_http_server
+
+
+def create_http_server(*args, **kwargs):
+    from anima_app.server import create_http_server as create
+    return create(*args, **kwargs)
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -2903,6 +2903,10 @@
     "en": "Balanced",
     "ja": "バランス"
   },
+  "저VRAM · 크기 유지": {
+    "en": "Low VRAM · keep size",
+    "ja": "低VRAM・サイズ維持"
+  },
   "저VRAM 고해상도": {
     "en": "Low VRAM, high resolution",
     "ja": "低VRAM・高解像度"

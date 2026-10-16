@@ -3,6 +3,9 @@ from __future__ import annotations
 import base64
 import binascii
 import copy
+import gzip
+import hashlib
+from functools import lru_cache
 import io
 import ipaddress
 import json
@@ -15,6 +18,7 @@ import threading
 import time
 import warnings
 from collections import deque
+from contextlib import nullcontext
 from dataclasses import asdict, replace
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -1587,6 +1591,7 @@ _INDEX_HTML_TEMPLATE = """<!doctype html>
                   <select id="memory-profile" name="memory_profile" form="generate-form">
                     <option value="auto" selected>자동</option>
                     <option value="balanced">균형</option>
+                    <option value="low_vram">저VRAM · 크기 유지</option>
                     <option value="low_vram_highres">저VRAM 고해상도</option>
                   </select>
                 </div>
@@ -1958,6 +1963,31 @@ INDEX_HTML = INDEX_HTML.replace(
     "__GENERATION_WORKSPACE_CSS__",
     (Path(__file__).with_name("static") / "generation.css").read_text(encoding="utf-8"),
 )
+@lru_cache(maxsize=8)
+def static_representation(text, compressed):
+    data = text.encode("utf-8")
+    if compressed:
+        data = gzip.compress(data, mtime=0)
+    return data, '"' + hashlib.sha256(data).hexdigest() + '"'
+
+
+def accepts_gzip(header):
+    qualities = {}
+    for item in header.lower().split(","):
+        parts = item.strip().split(";")
+        if not parts[0]:
+            continue
+        quality = 1.0
+        for option in parts[1:]:
+            if option.strip().startswith("q="):
+                try:
+                    quality = float(option.strip()[2:])
+                except ValueError:
+                    quality = 0.0
+        qualities[parts[0]] = quality
+    return qualities.get("gzip", qualities.get("*", 0)) > 0
+
+
 APP_JS = (Path(__file__).with_name("static") / "app.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "provider-settings.js").read_text(encoding="utf-8")
 APP_JS += "\n" + (Path(__file__).with_name("static") / "library.js").read_text(encoding="utf-8")
@@ -2239,9 +2269,9 @@ class JobQueue:
         response["summary"] = self.summary()
         return HTTPStatus.ACCEPTED, response
 
-    def list(self) -> dict[str, Any]:
+    def list(self, *, compact=False) -> dict[str, Any]:
         with self._lock:
-            items = [self._public_job_locked(self._jobs[job_id]) for job_id in self._order if job_id in self._jobs]
+            items = [self._public_job_locked(self._jobs[job_id], compact=compact) for job_id in self._order if job_id in self._jobs]
         return {"count": len(items), "items": items, "summary": self.summary()}
 
     def get(self, job_id: str) -> tuple[int, dict[str, Any]]:
@@ -2355,9 +2385,14 @@ class JobQueue:
         job_id = str(job["id"])
         payload = copy.deepcopy(job["request"])
         payload["progress_id"] = str(job.get("progress_id", job_id))
-        with self._generation_lock:
-            from anima_app.workflows import has_local_step
-            is_local = has_local_step(payload)
+        from anima_app.workflows import has_local_step, requires_gpu
+        from anima_app.gpu_work_lock import GPUWorkLock
+        from anima_app.runtime.model_cache import LOCAL_RUNTIME_OWNER
+        is_local = has_local_step(payload)
+        guard = self._generation_lock
+        if isinstance(guard, GPUWorkLock):
+            guard = guard.for_owner(LOCAL_RUNTIME_OWNER if is_local else None)
+        with guard if requires_gpu(payload) else nullcontext():
             if is_local:
                 _set_runtime_interrupt(False)
             try:
@@ -2473,8 +2508,13 @@ class JobQueue:
             self._counter += 1
             return f"{prefix}-{int(time.time() * 1000)}-{self._counter}"
 
-    def _public_job_locked(self, job: dict[str, Any]) -> dict[str, Any]:
-        return copy.deepcopy(job)
+    def _public_job_locked(self, job: dict[str, Any], *, compact=False) -> dict[str, Any]:
+        if not compact:
+            return copy.deepcopy(job)
+        item = {k: v for k, v in job.items() if k not in {"request", "result"}}
+        item["request"] = queue_stage_request(job.get("request", {}))
+        item["has_result"] = job.get("result") is not None
+        return copy.deepcopy(item)
 
     def _prune_locked(self) -> None:
         ordered_ids = [job_id for job_id in self._order if job_id in self._jobs]
@@ -2937,8 +2977,20 @@ def handle_progress(name: str, *, progress_store: ProgressStore) -> tuple[int, d
     return HTTPStatus.OK, payload
 
 
-def handle_jobs(*, job_queue: JobQueue) -> dict[str, Any]:
-    return job_queue.list()
+def queue_stage_request(request):
+    fields = ("provider", "operation", "steps", "width", "height", "upscale", "face_detailer", "nai_detailer")
+    result = {k: request[k] for k in fields if k in request}
+    workflow = request.get("workflow", {})
+    if workflow.get("steps"):
+        result["workflow"] = {"version": workflow.get("version", 1), "steps": [
+            {"provider": step.get("provider"), "operation": step.get("operation"),
+             "request": queue_stage_request(step.get("request", {}))}
+            for step in workflow.get("steps", [])]}
+    return result
+
+
+def handle_jobs(*, job_queue: JobQueue, compact=False) -> dict[str, Any]:
+    return job_queue.list(compact=compact)
 
 
 def handle_job_detail(name: str, *, job_queue: JobQueue) -> tuple[int, dict[str, Any]]:
@@ -3820,16 +3872,16 @@ def create_http_server(
                 library_http.handle(self, parsed, "GET")
                 return
             if parsed.path == "/":
-                self._send_bytes(HTTPStatus.OK, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
+                self._send_static(INDEX_HTML, "text/html; charset=utf-8")
                 return
             if parsed.path == "/app.js":
-                self._send_bytes(HTTPStatus.OK, APP_JS.encode("utf-8"), "text/javascript; charset=utf-8")
+                self._send_static(APP_JS, "text/javascript; charset=utf-8")
                 return
             if parsed.path == "/nai-i18n.js":
-                self._send_bytes(HTTPStatus.OK, NAI_I18N_JS.encode("utf-8"), "text/javascript; charset=utf-8")
+                self._send_static(NAI_I18N_JS, "text/javascript; charset=utf-8")
                 return
             if parsed.path == "/nai-errors.js":
-                self._send_bytes(HTTPStatus.OK, NAI_ERRORS_JS.encode("utf-8"), "text/javascript; charset=utf-8")
+                self._send_static(NAI_ERRORS_JS, "text/javascript; charset=utf-8")
                 return
             if parsed.path == "/favicon.ico":
                 self._send_bytes(HTTPStatus.NO_CONTENT, b"", "image/x-icon")
@@ -3928,7 +3980,7 @@ def create_http_server(
                 self._send_thumbnail(parsed.path.removeprefix("/api/thumbnails/"))
                 return
             if parsed.path == "/api/jobs":
-                self._send_json(HTTPStatus.OK, handle_jobs(job_queue=job_queue))
+                self._send_json(HTTPStatus.OK, handle_jobs(job_queue=job_queue, compact=parse_qs(parsed.query).get("view") == ["summary"]))
                 return
             if parsed.path.startswith("/api/jobs/"):
                 status, response = handle_job_detail(parsed.path.removeprefix("/api/jobs/"), job_queue=job_queue)
@@ -4489,6 +4541,24 @@ def create_http_server(
                     HTTPStatus.BAD_REQUEST,
                     {"error_code": "thumbnail_invalid", "error": str(exc)},
                 )
+
+        def _send_static(self, text, content_type):
+            compressed = accepts_gzip(self.headers.get("Accept-Encoding", ""))
+            data, etag = static_representation(text, compressed)
+            candidates = [value.strip().removeprefix("W/") for value in self.headers.get("If-None-Match", "").split(",")]
+            unchanged = etag in candidates or "*" in candidates
+            self.send_response(HTTPStatus.NOT_MODIFIED if unchanged else HTTPStatus.OK)
+            self.send_header("ETag", etag)
+            self.send_header("Cache-Control", "private, no-cache")
+            self.send_header("Vary", "Accept-Encoding")
+            self.send_header("Content-Type", content_type)
+            if compressed:
+                self.send_header("Content-Encoding", "gzip")
+            if not unchanged:
+                self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            if not unchanged:
+                self.wfile.write(data)
 
         def _send_bytes(self, status: int, body: bytes, content_type: str) -> None:
             try:

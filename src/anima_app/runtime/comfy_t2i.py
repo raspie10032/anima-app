@@ -7,7 +7,6 @@ from typing import Sequence
 import warnings
 
 import numpy as np
-import torch
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from anima_app.assets import (
@@ -40,6 +39,7 @@ class T2IModelPaths:
 
 class RuntimeMetrics:
     def __init__(self) -> None:
+        import torch
         self.started_at = time.perf_counter()
         self.stages: dict[str, dict[str, object]] = {}
         self.cuda_available = bool(torch.cuda.is_available())
@@ -50,6 +50,7 @@ class RuntimeMetrics:
                 self.cuda_available = False
 
     def record(self, name: str, started_at: float) -> None:
+        import torch
         elapsed_sec = round(time.perf_counter() - started_at, 3)
         payload: dict[str, object] = {"elapsed_sec": elapsed_sec}
         if self.cuda_available:
@@ -63,6 +64,7 @@ class RuntimeMetrics:
         self.stages[name] = payload
 
     def snapshot(self) -> dict[str, object]:
+        import torch
         payload: dict[str, object] = {
             "status": "completed",
             "elapsed_sec": round(time.perf_counter() - self.started_at, 3),
@@ -104,14 +106,7 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
     import folder_paths
 
     stage_started = time.perf_counter()
-    model = comfy.sd.load_diffusion_model(str(model_paths.diffusion_model), model_options={})
-    clip = comfy.sd.load_clip(
-        ckpt_paths=[str(model_paths.text_encoder)],
-        embedding_directory=folder_paths.get_folder_paths("embeddings"),
-        clip_type=comfy.sd.CLIPType.QWEN_IMAGE,
-    )
-    model, clip, resolved_loras = _apply_loras(model, clip, request.loras)
-    vae = comfy.sd.VAE(sd=comfy.utils.load_torch_file(str(model_paths.vae)))
+    model, clip, resolved_loras, vae = _load_models(model_paths, request.loras)
     metrics.record("load_models", stage_started)
 
     stage_started = time.perf_counter()
@@ -188,7 +183,9 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
     detailer_stages: dict[str, dict[str, object]] = {}
     warnings: tuple[str, ...] = ()
     if request.face_detailer.enabled:
-        from anima_app.runtime.face_detailer import run_face_detailer
+        from anima_app.runtime.face_detailer import cached_face_detailer, run_face_detailer
+
+        detailer = cached_face_detailer(paths)
 
         for stage_key, variant_key, concepts, output_suffix, pass_settings, prompt_suffix, negative_suffix in _detailer_pass_specs(
             request.face_detailer
@@ -224,6 +221,7 @@ def render_t2i(request: T2IRequest, paths: AppPaths) -> T2IRenderOutput:
                 request=pass_request,
                 paths=paths,
                 repaint=repaint_detail_crop,
+                detailer=detailer,
                 concepts=concepts,
                 output_suffix=output_suffix,
             )
@@ -307,12 +305,18 @@ def _require_model_files(model_paths: T2IModelPaths) -> None:
         raise ModelsNotReadyError(missing)
 
 
+def _load_models(model_paths, loras):
+    from anima_app.runtime.model_cache import get_models
+    return get_models(model_paths, loras, apply_loras=_apply_loras, resolve_lora=_resolve_lora_path)
+
+
 def _encode_prompt(clip: object, text: str) -> object:
-    tokens = clip.tokenize(text or "")
-    return clip.encode_from_tokens_scheduled(tokens)
+    from anima_app.runtime.model_cache import encode
+    return encode(clip, text)
 
 
 def _make_empty_latent(request: T2IRequest) -> dict[str, torch.Tensor | int]:
+    import torch
     shape = latent_shape_for_request(request)
     latent = torch.zeros(
         [shape["batch"], shape["channels"], shape["height"], shape["width"]],
@@ -323,6 +327,7 @@ def _make_empty_latent(request: T2IRequest) -> dict[str, torch.Tensor | int]:
 
 
 def _make_initial_latent(request: T2IRequest, vae: object, paths: AppPaths) -> tuple[dict[str, torch.Tensor | int], float]:
+    import torch
     if not request.i2i.enabled:
         return _make_empty_latent(request), 1.0
 
@@ -438,6 +443,7 @@ def _load_image_tensor(path: Path, width: int, height: int) -> torch.Tensor:
 
 
 def _pil_to_image_tensor(image: Image.Image, width: int, height: int) -> torch.Tensor:
+    import torch
     normalized = image.convert("RGB")
     array = np.asarray(normalized, dtype=np.float32) / 255.0
     tensor = torch.from_numpy(array).unsqueeze(0)
@@ -519,6 +525,7 @@ def _tiled_common_upscale(
     tile_size: int,
     overlap: int,
 ) -> torch.Tensor:
+    import torch
     import comfy.utils
 
     output_height = round(samples.shape[-2] * scale)
@@ -560,6 +567,7 @@ def _tile_starts(length: int, *, tile_size: int, overlap: int) -> list[int]:
 
 
 def _decode_samples(vae: object, samples: torch.Tensor, settings: VaeDecodeSettings) -> tuple[torch.Tensor, str]:
+    import torch
     with torch.inference_mode():
         if settings.mode in {"auto", "tiled"} and hasattr(vae, "decode_tiled"):
             return vae.decode_tiled(
@@ -583,6 +591,7 @@ def _repaint_face_crop(
     positive: object,
     negative: object,
 ) -> Image.Image:
+    import torch
     width, height = _face_detailer_render_size(crop.size)
     pixels = _pil_to_image_tensor(crop, width, height)
     with torch.inference_mode():
@@ -777,6 +786,7 @@ def _save_image_tensor(tensor: torch.Tensor, path: Path) -> None:
 
 
 def _tensor_to_pil_image(tensor: torch.Tensor) -> Image.Image:
+    import torch
     image = tensor.detach().to("cpu", torch.float32)
     while image.dim() > 3:
         image = image[0]
@@ -794,6 +804,7 @@ def _intermediate_device() -> torch.device | str:
 
 
 def _intermediate_dtype() -> torch.dtype:
+    import torch
     try:
         import comfy.model_management
 

@@ -176,6 +176,7 @@ const tr = window.AppI18n.msg;
     ];
     let compareVisible = false;
     let historyItems = [];
+    const historyNodes = new Map();
     let historyFilter = "all";
     let historyNextCursor = "";
     let historyHasMore = false;
@@ -192,6 +193,9 @@ const tr = window.AppI18n.msg;
     let stageTimer = null;
     let stageHideTimer = null;
     let progressPollTimer = null;
+    let progressPollEpoch = 0;
+    let progressPollBusy = false;
+    const terminalProgressIds = new Set();
     let taggerJob = null;
     let taggerPollTimer = null;
     let taggerSubmitting = false;
@@ -200,6 +204,8 @@ const tr = window.AppI18n.msg;
     let activeStageIndex = 0;
     let queueRunning = false;
     let serverQueuePollTimer = null;
+    let serverQueuePollEpoch = 0;
+    let serverQueuePollBusy = false;
     let activeQueueBatchId = "";
     let lastQueueResultJobId = "";
     let generationReadiness = null;
@@ -734,19 +740,23 @@ const tr = window.AppI18n.msg;
       }, 1200);
     }
     function stopProgressPolling() {
+      progressPollEpoch += 1;
       if (progressPollTimer) {
-        window.clearInterval(progressPollTimer);
+        window.clearTimeout(progressPollTimer);
         progressPollTimer = null;
       }
       activeProgressId = "";
     }
-    async function pollGenerationProgress(progressId) {
+    async function pollGenerationProgress(progressId, epoch = progressPollEpoch) {
+      if (progressPollBusy || epoch !== progressPollEpoch) return;
+      progressPollBusy = true;
+      try {
       const response = await fetch("/api/progress/" + encodeURIComponent(progressId), {cache: "no-store"});
       if (progressId !== activeProgressId || response.status === 404) {
         return;
       }
       const payload = await response.json();
-      if (!response.ok) {
+      if (!response.ok || epoch !== progressPollEpoch || progressId !== activeProgressId) {
         return;
       }
       const finalState = payload.status === "failed"
@@ -754,16 +764,23 @@ const tr = window.AppI18n.msg;
         : (payload.status === "cancelled" ? "cancelled" : (payload.status === "completed" ? "completed" : "running"));
       renderGenerationStages(activeStageItems, activeStageItems.length, payload.stages || {}, finalState, payload.summary || payload.error || "");
       if (finalState !== "running") {
+        terminalProgressIds.add(progressId);
+        if (terminalProgressIds.size > 128) terminalProgressIds.delete(terminalProgressIds.values().next().value);
         stopProgressPolling();
       }
+      } finally { progressPollBusy = false; }
     }
     function startProgressPolling(progressId) {
       stopProgressPolling();
       activeProgressId = progressId;
-      pollGenerationProgress(progressId).catch(() => {});
-      progressPollTimer = window.setInterval(() => {
-        pollGenerationProgress(progressId).catch(() => {});
-      }, 700);
+      const epoch = progressPollEpoch;
+      const tick = async () => {
+        try { await pollGenerationProgress(progressId, epoch); } catch (_) {}
+        if (epoch === progressPollEpoch && activeProgressId === progressId) {
+          progressPollTimer = window.setTimeout(tick, 700);
+        }
+      };
+      tick();
     }
     function startStageProgress(items) {
       stopStageProgress();
@@ -1661,6 +1678,7 @@ const tr = window.AppI18n.msg;
         ? (historyItems.length ? tr`${historyItems.length.toLocaleString(window.AppI18n.locale)} / ${historyTotalCount.toLocaleString(window.AppI18n.locale)} 표시 · 불러오는 중` : tr("히스토리 불러오는 중"))
         : tr`${historyItems.length.toLocaleString(window.AppI18n.locale)} / ${historyTotalCount.toLocaleString(window.AppI18n.locale)} 표시${historyHasMore ? tr(" · 더 있음") : ""}`);
       if (!historyItems.length) {
+        historyNodes.clear();
         const empty = document.createElement("div");
         empty.className = "history-empty";
         window.AppI18n.setText(empty, () => historyLoading
@@ -1669,10 +1687,24 @@ const tr = window.AppI18n.msg;
         history.replaceChildren(empty);
         return;
       }
-      history.replaceChildren(...historyItems.map(historyCard));
+      if (!historyNodes.size) history.replaceChildren();
+      const wanted = new Set(historyItems.map(item => item.manifest_name));
+      for (const [key, entry] of historyNodes) {
+        if (!wanted.has(key)) { entry.node.remove(); historyNodes.delete(key); }
+      }
+      let position = 0;
+      for (const item of historyItems) {
+        const key = item.manifest_name;
+        const previous = historyNodes.get(key);
+        const node = previous?.item === item ? previous.node : historyCard(item);
+        if (previous && previous.node !== node) previous.node.replaceWith(node);
+        if (history.children[position] !== node) history.insertBefore(node, history.children[position] || null);
+        historyNodes.set(key, {item, node});
+        position += 1;
+      }
     }
     async function loadHistory({append = false} = {}) {
-      if (append && !historyNextCursor) {
+      if (append && (historyLoading || !historyNextCursor)) {
         return;
       }
       const requestRevision = ++historyRequestRevision;
@@ -1739,6 +1771,7 @@ const tr = window.AppI18n.msg;
     async function openManifest(name, options = {}) {
       const response = await fetch("/api/manifests/" + encodeURIComponent(name));
       const payload = await response.json();
+      if (options.queueEpoch !== undefined && options.queueEpoch !== serverQueuePollEpoch) return;
       currentManifest = payload;
       compareVisible = Boolean(options.showCompare);
       setResultPayload(payload);
@@ -3137,8 +3170,9 @@ const tr = window.AppI18n.msg;
       syncGenerationControls();
     }
     function stopServerQueuePolling() {
+      serverQueuePollEpoch += 1;
       if (serverQueuePollTimer) {
-        window.clearInterval(serverQueuePollTimer);
+        window.clearTimeout(serverQueuePollTimer);
         serverQueuePollTimer = null;
       }
     }
@@ -3170,41 +3204,53 @@ const tr = window.AppI18n.msg;
       if (active?.request?.provider === "novelai" && active.cancel_requested) {
         setQueueStatus(tr("다음 작업 예약 중지 · 이미 전송한 NovelAI 응답을 기다립니다."));
       }
-      if (active?.progress_id && active.status === "running" && active.progress_id !== activeProgressId) {
+      if (active?.progress_id && active.status === "running" && active.progress_id !== activeProgressId && !terminalProgressIds.has(active.progress_id)) {
         startStageProgress(buildGenerationStages(active.request || {}));
         startProgressPolling(active.progress_id);
       }
       return {items, summary, total};
     }
-    async function showLatestQueueResult(items) {
-      const latest = [...items].reverse().find((item) => item.result && ["completed", "failed", "cancelled"].includes(item.status));
-      if (!latest?.result) {
+    async function showLatestQueueResult(items, epoch = serverQueuePollEpoch) {
+      const latest = [...items].reverse().find((item) => (item.has_result || item.result) && ["completed", "failed", "cancelled"].includes(item.status));
+      if (!latest) {
         return;
       }
       if (latest.id === lastQueueResultJobId) {
         return;
       }
-      lastQueueResultJobId = latest.id;
+      if (!latest.result) {
+        const response = await fetch("/api/jobs/" + encodeURIComponent(latest.id), {cache: "no-store"});
+        if (!response.ok) return;
+        const detail = await response.json();
+        latest.result = detail.result;
+      }
+      if (epoch !== serverQueuePollEpoch || !latest.result) return;
       setResultPayload(latest.result);
       if (latest.result.manifest_path) {
         const manifestName = latest.result.manifest_path.split(/[\/]/).pop();
         if (manifestName) {
-          await openManifest(manifestName);
+          await openManifest(manifestName, {queueEpoch: epoch});
         }
       } else if (latest.result.output_url) {
         showOutputPreview(latest.result.output_url);
       }
-      await loadStatus();
-      await loadHistory();
+      if (epoch !== serverQueuePollEpoch) return;
+      lastQueueResultJobId = latest.id;
+      await Promise.all([loadHistoryStorage(), loadHistory()]);
     }
-    async function pollServerQueue() {
-      const response = await fetch("/api/jobs", {cache: "no-store"});
+    async function pollServerQueue(epoch = serverQueuePollEpoch) {
+      if (serverQueuePollBusy || epoch !== serverQueuePollEpoch) return;
+      serverQueuePollBusy = true;
+      try {
+      const response = await fetch("/api/jobs?view=summary", {cache: "no-store"});
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.error || tr("큐 상태 확인 실패"));
       }
+      if (epoch !== serverQueuePollEpoch) return;
       const rendered = renderServerQueueStatus(payload);
-      await showLatestQueueResult(rendered.items);
+      await showLatestQueueResult(rendered.items, epoch);
+      if (epoch !== serverQueuePollEpoch) return;
       if (queueRunning && queueIsSettled(rendered.items)) {
         setQueueControlsRunning(false);
         stopServerQueuePolling();
@@ -3218,20 +3264,26 @@ const tr = window.AppI18n.msg;
         }
         activeQueueBatchId = "";
       }
+      } finally { serverQueuePollBusy = false; }
     }
     function startServerQueuePolling() {
       stopServerQueuePolling();
-      pollServerQueue().catch((error) => setQueueStatus(String(error)));
-      serverQueuePollTimer = window.setInterval(() => {
-        pollServerQueue().catch((error) => setQueueStatus(String(error)));
-      }, 900);
+      const epoch = serverQueuePollEpoch;
+      const tick = async () => {
+        try { await pollServerQueue(epoch); }
+        catch (error) { if (epoch === serverQueuePollEpoch) setQueueStatus(String(error)); }
+        if (epoch === serverQueuePollEpoch) serverQueuePollTimer = window.setTimeout(tick, 900);
+      };
+      tick();
     }
     async function restoreServerQueue() {
-      const response = await fetch("/api/jobs", {cache: "no-store"});
+      const epoch = serverQueuePollEpoch;
+      const response = await fetch("/api/jobs?view=summary", {cache: "no-store"});
       const payload = await response.json();
       if (!response.ok || payload.error) {
         throw new Error(payload.error || tr("큐 상태 복구 실패"));
       }
+      if (epoch !== serverQueuePollEpoch) return false;
       const activeItems = (payload.items || []).filter((item) => ["running", "waiting", "queued"].includes(item.status));
       const activeJob = activeItems.find((item) => item.status === "running")
         || activeItems.find((item) => item.status === "waiting")
@@ -3339,7 +3391,7 @@ const tr = window.AppI18n.msg;
       stopQueueButton.disabled = true;
       setQueueStatus(tr("서버 큐 정지 중..."));
       try {
-        const response = await fetch("/api/jobs", {cache: "no-store"});
+        const response = await fetch("/api/jobs?view=summary", {cache: "no-store"});
         const payload = await response.json();
         if (!response.ok || payload.error) {
           throw new Error(payload.error || tr("큐 상태 확인 실패"));

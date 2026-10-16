@@ -750,6 +750,8 @@ def build_openapi_document(
             "get": {
                 "operationId": "listJobs",
                 "summary": "List retained local queue jobs",
+                "parameters": [{"name": "view", "in": "query", "schema": {"type": "string", "enum": ["full", "summary"], "default": "full"},
+                                "description": "summary omits result and prompt fields; has_result indicates a result available from GET /api/jobs/{job_id}."}],
                 "tags": ["Jobs"],
                 "responses": {"200": _json_response("Queue state", _schema_ref("JobListResult"))},
             },

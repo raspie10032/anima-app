@@ -423,6 +423,11 @@ def test_local_detail_operation_never_samples_full_canvas(tmp_path, monkeypatch)
         monkeypatch.setattr(runtime, name, lambda *a: None)
     monkeypatch.setattr(runtime, "_encode_prompt", lambda *a: None)
     monkeypatch.setattr(runtime, "_apply_loras", lambda m, c, loras: (m, c, []))
+    for model_path in vars(runtime.model_paths_for_request(T2IRequest(prompt="test"), paths)).values():
+        model_path.parent.mkdir(parents=True, exist_ok=True)
+        model_path.write_bytes(b"mock weight")
+    from anima_app.runtime import model_cache
+    model_cache.clear()
 
     def forbidden(*a, **kw):
         raise AssertionError("Full-canvas sampling must not run for detail-only")
@@ -450,7 +455,10 @@ def test_local_detail_operation_never_samples_full_canvas(tmp_path, monkeypatch)
         ),
         face_detailer=FaceDetailerSettings(enabled=True),
     )
-    result = runtime.render_t2i(request, paths)
+    try:
+        result = runtime.render_t2i(request, paths)
+    finally:
+        model_cache.clear()
     assert source.read_bytes() == original
     assert result.output_path != source
     assert result.stages["base_t2i"]["status"] == "skipped"

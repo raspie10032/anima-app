@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-import torch
 from PIL import Image
 
 from anima_app.comfy_runtime import bootstrap_comfy_runtime
@@ -24,7 +23,7 @@ from anima_app.requests import (
     VaeDecodeSettings,
 )
 from anima_app.runtime.comfy_t2i import (
-    _apply_loras,
+    _load_models,
     _decode_samples,
     _encode_prompt,
     _normalize_sampler,
@@ -66,6 +65,7 @@ class MaskedInpaintResult:
 
 
 def run_masked_inpaint(settings: MaskedInpaintSettings, *, paths: AppPaths) -> MaskedInpaintResult:
+    import torch
     _validate_settings(settings)
     source_path = resolve_segment_source(settings.image_path, paths)
     mask_path = resolve_mask_path(settings.mask_path, paths)
@@ -131,6 +131,7 @@ def _render_masked_crop(
     method: str,
     denoise: float,
 ) -> Image.Image:
+    import torch
     configure_default_cuda_device()
     bootstrap_comfy_runtime(paths)
     model_paths = default_model_paths(paths, checkpoint=request.checkpoint)
@@ -141,14 +142,7 @@ def _render_masked_crop(
     import comfy.utils
     import folder_paths
 
-    model = comfy.sd.load_diffusion_model(str(model_paths.diffusion_model), model_options={})
-    clip = comfy.sd.load_clip(
-        ckpt_paths=[str(model_paths.text_encoder)],
-        embedding_directory=folder_paths.get_folder_paths("embeddings"),
-        clip_type=comfy.sd.CLIPType.QWEN_IMAGE,
-    )
-    model, clip, _resolved_loras = _apply_loras(model, clip, request.loras)
-    vae = comfy.sd.VAE(sd=comfy.utils.load_torch_file(str(model_paths.vae)))
+    model, clip, _resolved_loras, vae = _load_models(model_paths, request.loras)
     positive = _encode_prompt(clip, request.prompt)
     negative = _encode_prompt(clip, request.negative_prompt)
 
@@ -183,12 +177,14 @@ def _render_masked_crop(
 
 
 def _apply_gray_hole(pixels: torch.Tensor, mask: Image.Image, width: int, height: int) -> torch.Tensor:
+    import torch
     mask_array = np.asarray(mask.resize((width, height), Image.LANCZOS), dtype=np.float32) / 255.0
     mask_tensor = torch.from_numpy((mask_array > 0.06).astype(np.float32)).unsqueeze(0).unsqueeze(-1)
     return pixels * (1.0 - mask_tensor) + 0.5 * mask_tensor
 
 
 def _latent_noise_mask(mask: Image.Image, latent_image: torch.Tensor) -> torch.Tensor:
+    import torch
     latent_height = latent_image.shape[-2]
     latent_width = latent_image.shape[-1]
     mask_array = np.asarray(mask.resize((latent_width, latent_height), Image.LANCZOS), dtype=np.float32) / 255.0
@@ -196,6 +192,7 @@ def _latent_noise_mask(mask: Image.Image, latent_image: torch.Tensor) -> torch.T
 
 
 def _tensor_to_pil(tensor: torch.Tensor) -> Image.Image:
+    import torch
     image = tensor.detach().to("cpu", torch.float32)
     while image.dim() > 3:
         image = image[0]

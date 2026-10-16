@@ -6,25 +6,49 @@ from pathlib import Path
 
 import numpy as np
 
-from anima_app._vendor.swegca.mosaic_evidence_accumulator import (
-    EvidenceAccumulatorConfig, EvidenceAccumulatorState, EvidenceObservation,
-    assess_accumulator, update_accumulator,
-)
+from functools import lru_cache
 
-CONFIG = EvidenceAccumulatorConfig()
+
+@lru_cache(maxsize=1)
+def _core():
+    # Loading the evidence engine is deferred until a VRS assessment is used.
+    from anima_app._vendor.swegca.mosaic_evidence_accumulator import (
+        EvidenceAccumulatorConfig, EvidenceAccumulatorState, EvidenceObservation,
+        assess_accumulator, update_accumulator,
+    )
+    return (EvidenceAccumulatorConfig(), EvidenceAccumulatorState, EvidenceObservation,
+            assess_accumulator, update_accumulator)
+
+
 UPSTREAM = json.loads((Path(__file__).with_name('_vendor') / 'swegca' / 'UPSTREAM.json').read_text(encoding='utf-8'))
 CONTRACT = 'swegca-evidence-v1:' + hashlib.sha256(json.dumps(UPSTREAM, sort_keys=True).encode()).hexdigest()
 
 
 def assess(connection, query_pixels, candidate_pixels, encoder_contract):
-    result = {}
-    rows = connection.execute('''SELECT f.visual,f.reuse,f.created,q.id,
+    return assess_many(connection, query_pixels, [candidate_pixels], encoder_contract)[candidate_pixels]
+
+
+def assess_many(connection, query_pixels, candidate_pixels, encoder_contract):
+    pixels = list(dict.fromkeys(candidate_pixels))
+    if not pixels:
+        return {}
+    grouped = {pixel: [] for pixel in pixels}
+    marks = ','.join('?' for _ in pixels)
+    rows = connection.execute(f'''SELECT a.pixel_hash,f.visual,f.reuse,f.created,q.id,
         coalesce(t.visual_updated,f.created) AS visual_updated,
         coalesce(t.reuse_updated,f.created) AS reuse_updated FROM feedback f
         LEFT JOIN feedback_times t ON t.query_id=f.query_id AND t.asset_id=f.asset_id
         JOIN queries q ON q.id=f.query_id JOIN assets a ON a.id=f.asset_id
-        WHERE q.pixel_hash=? AND a.pixel_hash=? AND q.contract=? ORDER BY f.created DESC,q.id DESC''',
-        (query_pixels, candidate_pixels, encoder_contract)).fetchall()
+        WHERE q.pixel_hash=? AND a.pixel_hash IN ({marks}) AND q.contract=? ORDER BY f.created DESC,q.id DESC''',
+        (query_pixels, *pixels, encoder_contract)).fetchall()
+    for row in rows:
+        grouped[row['pixel_hash']].append(row)
+    return {pixel: _assess_rows(grouped[pixel], query_pixels, pixel, encoder_contract) for pixel in pixels}
+
+
+def _assess_rows(rows, query_pixels, candidate_pixels, encoder_contract):
+    CONFIG, EvidenceAccumulatorState, EvidenceObservation, assess_accumulator, update_accumulator = _core()
+    result = {}
     for dimension in ('visual', 'reuse'):
         hypothesis = hashlib.sha256(json.dumps([query_pixels, candidate_pixels, encoder_contract, dimension]).encode()).hexdigest()
         state = EvidenceAccumulatorState.empty(hypothesis, CONFIG)
@@ -43,6 +67,7 @@ def assess(connection, query_pixels, candidate_pixels, encoder_contract):
 
 
 def status():
+    CONFIG, EvidenceAccumulatorState, _observation, assess_accumulator, _update = _core()
     decision = assess_accumulator(EvidenceAccumulatorState.empty('startup-check', CONFIG), CONFIG)
     return {'embedded': True, 'ready': decision.status == 'abstain',
             'implementation': 'SWEGCA Architecture / evidence accumulator',

@@ -248,3 +248,22 @@ def test_cache_concurrent_queries(cases):
         thread.join(5)
     assert not errors and len(results)==6
     assert all(result==results[0] for result in results)
+
+
+def test_annotations_and_noop_writes_preserve_matrix(cases):
+    lib, items = cases
+    lib.search(identity=items[0], mode='vrs')
+    cached = next(iter(lib._vector_cache.values()))[1]
+    # Includes existing-database trigger migration and a second connection.
+    external = Library(lib.paths)
+    external.annotate(dict(id=items[1], favorite=True, tags='portrait', note='saved'))
+    with external.connect() as c:
+        c.execute('UPDATE vectors SET vector=vector')
+        c.execute('UPDATE assets SET pixel_hash=pixel_hash')
+    result = lib.search(identity=items[0], mode='vrs')
+    assert next(iter(lib._vector_cache.values()))[1] is cached
+    assert next(r for r in result['items'] if r['id'] == items[1])['favorite'] == 1
+    with external.connect() as c:
+        c.execute('UPDATE assets SET pixel_hash=? WHERE id=?', ('new-pixels', items[1]))
+    lib.search(identity=items[0], mode='vrs')
+    assert next(iter(lib._vector_cache.values()))[1] is not cached
