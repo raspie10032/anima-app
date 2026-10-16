@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 from safetensors.numpy import save_file
 
@@ -40,7 +41,18 @@ def _write_face_detector_sources(paths: AppPaths) -> None:
         source.write_bytes(name.encode("utf-8") * 128)
 
 
-def test_health_json_reports_missing_anima_profile(tmp_path, capsys):
+@pytest.mark.parametrize(
+    ("total_vram_mb", "expected_profile"),
+    [(None, "low_vram"), (8192, "low_vram"), (16384, "balanced")],
+    ids=["no-gpu", "8gb-gpu", "16gb-gpu"],
+)
+def test_health_json_reports_missing_anima_profile(
+    tmp_path, capsys, monkeypatch, total_vram_mb, expected_profile
+):
+    monkeypatch.setattr(
+        "anima_app.memory_profiles.probe_runtime_environment",
+        lambda: {"cuda_available": total_vram_mb is not None, "total_vram_mb": total_vram_mb},
+    )
     exit_code = main(["health", "--json"], paths=_paths(tmp_path))
     payload = json.loads(capsys.readouterr().out)
 
@@ -49,7 +61,7 @@ def test_health_json_reports_missing_anima_profile(tmp_path, capsys):
     assert payload["models"]["profile"] == "anima-t2i"
     assert len(payload["models"]["missing"]) == 3
     assert payload["model_root"] == str(tmp_path / "app" / "models")
-    assert payload["memory_profile"]["profile"] in {"balanced", "low_vram_highres"}
+    assert payload["memory_profile"]["profile"] == expected_profile
     assert (tmp_path / "app" / "outputs" / "runtime_profile_cache.json").is_file()
 
 
